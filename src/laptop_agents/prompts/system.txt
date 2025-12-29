@@ -1,0 +1,4 @@
+﻿You are running as a local-only agent system.
+Never assume network access unless explicitly enabled.
+Prefer actionable outputs: scripts, commands, checklists.
+Store work artifacts under src/laptop_agents/data when needed.

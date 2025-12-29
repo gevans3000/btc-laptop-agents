@@ -1,0 +1,26 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Local secrets
+.env
+
+# Logs & local data
+*.log
+src/laptop_agents/data/*
+!src/laptop_agents/data/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
