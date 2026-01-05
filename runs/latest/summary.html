@@ -1,0 +1,48 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Run Summary</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { color: #333; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .events { font-family: monospace; white-space: pre; background-color: #f5f5f5; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Run Summary</h1>
+    <p><strong>Run ID:</strong> 165ba912-5216-4ba7-af42-24d8d227b0a4</p>
+    <p><strong>Starting Balance:</strong> $10000.00</p>
+    <p><strong>Ending Balance:</strong> $10000.00</p>
+    <p><strong>Net PnL:</strong> $0.00</p>
+
+    <h2>Trades</h2>
+    <table>
+        <tr>
+            <th>Trade ID</th>
+            <th>Signal</th>
+            <th>Price</th>
+            <th>Quantity</th>
+            <th>Timestamp</th>
+        </tr>
+        
+        <tr>
+            <td>e7064747-137c-434d-9ee6-b67c86d50a94</td>
+            <td>BUY</td>
+            <td>$16150.00</td>
+            <td>0.61919505</td>
+            <td>2026-01-05T23:38:15.426804Z</td>
+        </tr>
+        
+    </table>
+
+    <h2>Events Tail</h2>
+    <div class="events">{"event": "SignalGenerated", "signal": "BUY", "timestamp": "2026-01-05T23:38:15.426804Z"}
+{"event": "TradeSimulated", "trade": {"trade_id": "e7064747-137c-434d-9ee6-b67c86d50a94", "signal": "BUY", "price": 16150.0, "quantity": 0.6191950464396285, "timestamp": "2026-01-05T23:38:15.426804Z"}, "timestamp": "2026-01-05T23:38:15.426804Z"}
+{"event": "RunFinished", "run_id": "165ba912-5216-4ba7-af42-24d8d227b0a4", "timestamp": "2026-01-05T23:38:15.426804Z"}</div>
+</body>
+</html>
+    

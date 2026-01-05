@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""Live paper trading loop (BTCUSDT 5m) using the same strategy as backtest.
+
+- Polls recent candles (Bitunix-first + fallback).
+- Detects new 5m candle closes.
+- Generates paper trades and appends to a JSONL journal.
+- Persists current open position in a small state JSON.
+
+This is Phase 1 scaffolding; later we integrate into your agent/orchestrator.
+
+Usage:
+  python scripts/live_paper_loop.py --journal data/paper_journal.jsonl --state data/paper_state.json
+"""
+
+import argparse
+import json
+import os
+import time
+import urllib.request
+import urllib.error
+from dataclasses import dataclass, asdict
+from typing import Any, Dict, List, Optional, Tuple
+
+BITUNIX_BASE = "https://fapi.bitunix.com"
+BINANCE_BASE = "https://fapi.binance.com"
+
+def http_get_json(url: str, timeout: float = 10.0) -> Tuple[int, Any, str]:
+    req = urllib.request.Request(url, headers={"User-Agent": "btc-laptop-agents/live-paper"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status = getattr(resp, "status", 200)
+            raw = resp.read().decode("utf-8", errors="replace")
+            try:
+                return status, json.loads(raw), raw[:200]
+            except Exception:
+                return status, None, raw[:200]
+    except urllib.error.HTTPError as e:
+        try:
+            raw = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            raw = ""
+        try:
+            return int(e.code), json.loads(raw) if raw else None, raw[:200]
+        except Exception:
+            return int(e.code), None, raw[:200]
+    except Exception as e:
+        return 0, None, str(e)[:200]
+
+@dataclass
+class Candle:
+    ts: int
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+def fetch_bitunix(symbol: str, interval: str, limit: int) -> Optional[List[Candle]]:
+    url = f"{BITUNIX_BASE}/api/v1/futures/market/kline?symbol={symbol}&interval={interval}&limit={limit}&type=LAST_PRICE"
+    status, data, head = http_get_json(url)
+    if status != 200 or not isinstance(data, dict) or data.get("code") != 0:
+        return None
+    rows = data.get("data")
+    if not isinstance(rows, list):
+        return None
+    out: List[Candle] = []
+    for r in rows:
+        if isinstance(r, list) and len(r) >= 6:
+            ts = int(float(r[0])); o=float(r[1]); h=float(r[2]); l=float(r[3]); c=float(r[4]); v=float(r[5])
+            out.append(Candle(ts,o,h,l,c,v))
+        elif isinstance(r, dict):
+            ts = int(float(r.get("ts") or r.get("time") or r.get("timestamp") or 0))
+            if ts<=0: 
+                continue
+            out.append(Candle(ts,float(r.get("open",0)),float(r.get("high",0)),float(r.get("low",0)),float(r.get("close",0)),float(r.get("volume",0) or r.get("vol",0))))
+    out.sort(key=lambda x: x.ts)
+    return out if out else None
+
+def fetch_binance(symbol: str, interval: str, limit: int) -> Optional[List[Candle]]:
+    url = f"{BINANCE_BASE}/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={min(limit,1500)}"
+    status, data, head = http_get_json(url)
+    if status != 200 or not isinstance(data, list):
+        return None
+    out: List[Candle] = []
+    for r in data:
+        if not (isinstance(r, list) and len(r) >= 6):
+            continue
+        out.append(Candle(int(r[0]), float(r[1]), float(r[2]), float(r[3]), float(r[4]), float(r[5])))
+    out.sort(key=lambda x: x.ts)
+    return out if out else None
+
+def ema(vals: List[float], period: int) -> List[float]:
+    k = 2/(period+1)
+    e = vals[0]
+    out=[e]
+    for v in vals[1:]:
+        e = v*k + e*(1-k)
+        out.append(e)
+    return out
+
+def atr(candles: List[Candle], period: int) -> List[float]:
+    trs=[candles[0].high - candles[0].low]
+    for i in range(1,len(candles)):
+        c=candles[i]; p=candles[i-1]
+        tr=max(c.high-c.low, abs(c.high-p.close), abs(c.low-p.close))
+        trs.append(tr)
+    a=sum(trs[:period])/period
+    out=[a]*(period)
+    for tr in trs[period:]:
+        a=(a*(period-1)+tr)/period
+        out.append(a)
+    if len(out)<len(candles):
+        out += [out[-1]]*(len(candles)-len(out))
+    return out[:len(candles)]
+
+@dataclass
+class Position:
+    side: str
+    entry_ts: int
+    entry: float
+    stop: float
+    tp: float
+
+def load_state(path: str) -> Optional[Position]:
+    if not os.path.exists(path):
+        return None
+    with open(path,"r",encoding="utf-8") as f:
+        d=json.load(f)
+    if not d:
+        return None
+    return Position(**d)
+
+def save_state(path: str, pos: Optional[Position]) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path,"w",encoding="utf-8") as f:
+        json.dump(asdict(pos) if pos else {}, f, indent=2)
+
+def append_journal(path: str, event: Dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path,"a",encoding="utf-8") as f:
+        f.write(json.dumps(event, separators=(",",":")) + "\n")
+
+def main() -> None:
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--symbol", default="BTCUSDT")
+    ap.add_argument("--interval", default="5m")
+    ap.add_argument("--limit", type=int, default=200)
+    ap.add_argument("--journal", default="data/paper_journal.jsonl")
+    ap.add_argument("--state", default="data/paper_state.json")
+    ap.add_argument("--poll", type=int, default=15)
+    ap.add_argument("--run-seconds", type=int, default=0, help="Run for N seconds then exit (0=forever).")
+    ap.add_argument("--ema", type=int, default=50)
+    ap.add_argument("--donchian", type=int, default=20)
+    ap.add_argument("--atr", type=int, default=14)
+    ap.add_argument("--atr-stop", type=float, default=1.2)
+    ap.add_argument("--atr-tp", type=float, default=2.0)
+    ap.add_argument("--breakout-buffer-atr", type=float, default=0.2)
+    args=ap.parse_args()
+
+    run_seconds_deadline = time.time() + args.run_seconds if getattr(args, "run_seconds", 0) > 0 else None
+    pos=load_state(args.state)
+    last_candle_ts=0
+    print(f"Live paper loop started. journal={args.journal} state={args.state} pos={'YES' if pos else 'NO'}")
+
+    while True:
+        if run_seconds_deadline is not None and time.time() >= run_seconds_deadline:
+            print("run-seconds reached; exiting.")
+            break
+        candles = fetch_bitunix(args.symbol,args.interval,args.limit) or fetch_binance(args.symbol,args.interval,args.limit)
+        if not candles or len(candles)<max(args.ema,args.donchian,args.atr)+5:
+            time.sleep(args.poll); 
+            continue
+
+        candles.sort(key=lambda x: x.ts)
+        c = candles[-2]  # last *closed* candle
+        if c.ts == last_candle_ts:
+            time.sleep(args.poll); 
+            continue
+        last_candle_ts = c.ts
+
+        closes=[x.close for x in candles]
+        e=ema(closes,args.ema)
+        a=atr(candles,args.atr)
+
+        i=len(candles)-2
+        lookback=candles[i-args.donchian:i]
+        hh=max(x.high for x in lookback); ll=min(x.low for x in lookback)
+        trend_up = c.close > e[i] and e[i] >= e[i-3]
+        trend_dn = c.close < e[i] and e[i] <= e[i-3]
+        buf=args.breakout_buffer_atr*a[i]
+
+        event_base={"ts": int(time.time()), "candle_ts": c.ts, "symbol": args.symbol, "interval": args.interval}
+
+        if pos is None:
+            if trend_up and c.close > (hh+buf):
+                entry=c.close
+                stop=entry - args.atr_stop*a[i]
+                tp=entry + args.atr_tp*a[i]
+                pos=Position("LONG", c.ts, entry, stop, tp)
+                save_state(args.state,pos)
+                append_journal(args.journal, {**event_base,"event":"OPEN","side":"LONG","entry":entry,"stop":stop,"tp":tp})
+                print(f"OPEN LONG  entry={entry:.2f} stop={stop:.2f} tp={tp:.2f}")
+            elif trend_dn and c.close < (ll-buf):
+                entry=c.close
+                stop=entry + args.atr_stop*a[i]
+                tp=entry - args.atr_tp*a[i]
+                pos=Position("SHORT", c.ts, entry, stop, tp)
+                save_state(args.state,pos)
+                append_journal(args.journal, {**event_base,"event":"OPEN","side":"SHORT","entry":entry,"stop":stop,"tp":tp})
+                print(f"OPEN SHORT entry={entry:.2f} stop={stop:.2f} tp={tp:.2f}")
+        else:
+            # check exit on the newly closed candle
+            if pos.side=="LONG":
+                hit_stop = c.low <= pos.stop
+                hit_tp   = c.high >= pos.tp
+                if hit_stop or hit_tp:
+                    exit_price = pos.stop if hit_stop else pos.tp
+                    append_journal(args.journal, {**event_base,"event":"CLOSE","side":"LONG","entry":pos.entry,"exit":exit_price,"reason":"STOP" if hit_stop else "TP"})
+                    print(f"CLOSE LONG reason={'STOP' if hit_stop else 'TP'} exit={exit_price:.2f}")
+                    pos=None; save_state(args.state,None)
+            else:
+                hit_stop = c.high >= pos.stop
+                hit_tp   = c.low <= pos.tp
+                if hit_stop or hit_tp:
+                    exit_price = pos.stop if hit_stop else pos.tp
+                    append_journal(args.journal, {**event_base,"event":"CLOSE","side":"SHORT","entry":pos.entry,"exit":exit_price,"reason":"STOP" if hit_stop else "TP"})
+                    print(f"CLOSE SHORT reason={'STOP' if hit_stop else 'TP'} exit={exit_price:.2f}")
+                    pos=None; save_state(args.state,None)
+
+        time.sleep(args.poll)
+
+if __name__=="__main__":
+    main()

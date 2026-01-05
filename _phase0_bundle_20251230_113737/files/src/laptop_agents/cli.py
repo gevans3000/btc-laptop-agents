@@ -13,7 +13,6 @@ from .data.providers import (
     BybitDerivativesProvider,
     OkxSwapProvider,
     CompositeProvider,
-    BitunixFuturesProvider,
 )
 from .indicators import Candle
 
@@ -31,16 +30,7 @@ def debug_feeds(cfg: str = "config/default.json"):
     sym = c["instrument"]
     tf = c["timeframe"]
 
-    print("[bold]Bitunix Futures candles + derivatives[/bold]")
-    try:
-        b = BitunixFuturesProvider(symbol=sym, allowed_symbols={sym})
-        kl = b.klines(interval=tf, limit=5)
-        d = b.snapshot_derivatives()
-        print(f"[green]OK[/green] last_close={kl[-1].close} funding_8h={d.get('funding_8h')} oi={d.get('open_interest')}")
-    except Exception as e:
-        print(f"[yellow]FAIL[/yellow] {e}")
-
-    print("\n[bold]Binance Futures candles[/bold]")
+    print("[bold]Binance Futures candles[/bold]")
     try:
         b = BinanceFuturesProvider(symbol=sym)
         kl = b.klines(interval=tf, limit=5)
@@ -100,41 +90,33 @@ def run_live_history(limit: int = 500, cfg: str = "config/default.json", journal
     provider = None
     kl = None
 
-    # Try Bitunix first (fastest, no rate limits)
     try:
-        provider = BitunixFuturesProvider(symbol=c["instrument"], allowed_symbols={c["instrument"]})
+        provider = BinanceFuturesProvider(symbol=c["instrument"])
         kl = provider.klines(interval=c["timeframe"], limit=limit)
-        print("[green]Using Bitunix Futures candles + derivatives.[/green]")
+        print("[green]Using Binance Futures candles + derivatives.[/green]")
     except Exception as e:
-        print(f"[yellow]Bitunix Futures failed:[/yellow] {e}")
+        print(f"[yellow]Binance Futures failed:[/yellow] {e}")
 
         try:
-            provider = BinanceFuturesProvider(symbol=c["instrument"])
+            provider = OkxSwapProvider(instrument=c["instrument"])
             kl = provider.klines(interval=c["timeframe"], limit=limit)
-            print("[green]Using Binance Futures candles + derivatives.[/green]")
+            print("[green]Using OKX swap candles + derivatives snapshot.[/green]")
         except Exception as e2:
-            print(f"[yellow]Binance Futures failed:[/yellow] {e2}")
+            print(f"[yellow]OKX swap failed, falling back to Kraken spot candles.[/yellow] {e2}")
 
             try:
-                provider = OkxSwapProvider(instrument=c["instrument"])
+                candle_src = KrakenSpotProvider(instrument=c["instrument"])
+                deriv_src = OkxSwapProvider(instrument=c["instrument"])
+                provider = CompositeProvider(candles_provider=candle_src, derivatives_provider=deriv_src)
                 kl = provider.klines(interval=c["timeframe"], limit=limit)
-                print("[green]Using OKX swap candles + derivatives snapshot.[/green]")
+                print("[green]Using Kraken spot candles + OKX derivatives snapshot.[/green]")
             except Exception as e3:
-                print(f"[yellow]OKX swap failed, falling back to Kraken spot candles.[/yellow] {e3}")
-
-                try:
-                    candle_src = KrakenSpotProvider(instrument=c["instrument"])
-                    deriv_src = OkxSwapProvider(instrument=c["instrument"])
-                    provider = CompositeProvider(candles_provider=candle_src, derivatives_provider=deriv_src)
-                    kl = provider.klines(interval=c["timeframe"], limit=limit)
-                    print("[green]Using Kraken spot candles + OKX derivatives snapshot.[/green]")
-                except Exception as e4:
-                    print(f"[yellow]Kraken+OKX failed, last resort: Kraken + Bybit derivatives.[/yellow] {e4}")
-                    candle_src = KrakenSpotProvider(instrument=c["instrument"])
-                    deriv_src = BybitDerivativesProvider(symbol=c["instrument"])
-                    provider = CompositeProvider(candles_provider=candle_src, derivatives_provider=deriv_src)
-                    kl = provider.klines(interval=c["timeframe"], limit=limit)
-                    print("[green]Using Kraken spot candles + Bybit derivatives snapshot.[/green]")
+                print(f"[yellow]Kraken+OKX failed, last resort: Kraken + Bybit derivatives.[/yellow] {e3}")
+                candle_src = KrakenSpotProvider(instrument=c["instrument"])
+                deriv_src = BybitDerivativesProvider(symbol=c["instrument"])
+                provider = CompositeProvider(candles_provider=candle_src, derivatives_provider=deriv_src)
+                kl = provider.klines(interval=c["timeframe"], limit=limit)
+                print("[green]Using Kraken spot candles + Bybit derivatives snapshot.[/green]")
 
     sup = Supervisor(provider=provider, cfg=c, journal_path=journal)
     state = State(instrument=c["instrument"], timeframe=c["timeframe"])

@@ -1,0 +1,135 @@
+﻿<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>BTC Laptop Agents — Performance</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 16px; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; }
+    .card { border:1px solid #ddd; border-radius:10px; padding:12px 14px; min-width: 180px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    canvas { border:1px solid #eee; border-radius:10px; width: 100%; max-width: 1100px; height: 320px; }
+    table { border-collapse: collapse; width:100%; margin-top:12px; }
+    th, td { border-bottom:1px solid #eee; padding:8px; text-align:left; vertical-align:top; }
+    th { position: sticky; top:0; background:#fff; }
+    .ok { color:#0a7; font-weight:700; }
+  </style>
+</head>
+<body>
+  <h2>BTC Laptop Agents — Performance</h2>
+
+  <div class="row">
+    <div class="card"><div class="mono">Trades</div><div id="trades" class="mono">—</div></div>
+    <div class="card"><div class="mono">Wins</div><div id="wins" class="mono">—</div></div>
+    <div class="card"><div class="mono">Losses</div><div id="losses" class="mono">—</div></div>
+    <div class="card"><div class="mono">Sum R</div><div id="sumR" class="mono">—</div></div>
+    <div class="card"><div class="mono">Win rate</div><div id="wr" class="mono">—</div></div>
+    <div class="card">
+      <div class="mono">Auto-refresh</div>
+      <div class="mono"><label><input id="auto" type="checkbox" checked> ON</label> every <input id="sec" type="number" value="5" min="1" style="width:60px">s <button id="refresh">Refresh</button></div>
+      <div class="mono" style="margin-top:6px;"><a href="/dashboard/" target="_blank">journal dashboard</a> | <a href="/dashboard/monitor.html" target="_blank">monitor</a></div>
+    </div>
+  </div>
+
+  <h3>Equity curve (cumulative R)</h3>
+  <canvas id="cv" width="1100" height="320"></canvas>
+
+  <h3>Recent exits</h3>
+  <table>
+    <thead><tr><th style="width:190px;">Time</th><th style="width:90px;">Side</th><th style="width:100px;">R</th><th>Reason</th><th>Entry → Exit</th></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+
+<script>
+const el = (id)=>document.getElementById(id);
+const fmtTime = (x)=> new Date(Number(x)).toLocaleString();
+async function fetchText(url){ const r=await fetch(url,{cache:"no-store"}); if(!r.ok) throw new Error(url); return await r.text(); }
+async function fetchJson(url){ const r=await fetch(url,{cache:"no-store"}); if(!r.ok) throw new Error(url); return await r.json(); }
+
+function draw(points){
+  const cv = el("cv"); const ctx = cv.getContext("2d");
+  ctx.clearRect(0,0,cv.width,cv.height);
+  if(points.length < 2){
+    ctx.fillText("No exits yet (equity curve will appear after first exit).", 12, 24);
+    return;
+  }
+  const xs = points.map(p=>p.t), ys = points.map(p=>p.y);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const pad = 30;
+  const w = cv.width - pad*2, h = cv.height - pad*2;
+  const x0 = pad, y0 = pad;
+
+  const ySpan = (maxY - minY) || 1;
+  const xSpan = (xs[xs.length-1] - xs[0]) || 1;
+
+  // axes
+  ctx.strokeRect(pad, pad, w, h);
+  ctx.fillText(`minR=${minY.toFixed(2)} maxR=${maxY.toFixed(2)}`, pad, 14);
+
+  // line
+  ctx.beginPath();
+  for(let i=0;i<points.length;i++){
+    const px = x0 + ((points[i].t - xs[0]) / xSpan) * w;
+    const py = y0 + (1 - ((points[i].y - minY) / ySpan)) * h;
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  }
+  ctx.stroke();
+}
+
+async function refresh(){
+  // state stats
+  let st=null;
+  try { st = await fetchJson("/data/paper_state.json"); } catch(e) {}
+  const s = st?.stats || {};
+  const trades = Number(s.trades||0), wins = Number(s.wins||0), losses = Number(s.losses||0), sumR = Number(s.sum_R||0);
+  const wr = trades ? (wins/trades*100) : 0;
+
+  el("trades").textContent = trades;
+  el("wins").textContent = wins;
+  el("losses").textContent = losses;
+  el("sumR").textContent = sumR.toFixed(4);
+  el("wr").textContent = (wr.toFixed(1) + "%");
+
+  // journal exits -> equity curve
+  const txt = await fetchText("/data/paper_journal.jsonl");
+  const lines = txt.split(/\r?\n/).filter(x=>x.trim().length>0);
+  const exits = [];
+  for(const raw of lines){
+    let o=null; try{ o=JSON.parse(raw);}catch{continue;}
+    if(o.event === "exit") exits.push(o);
+  }
+  exits.sort((a,b)=> (a.ts||0)-(b.ts||0));
+
+  let y=0;
+  const pts = exits.map(e=> (y += Number(e.R||0), {t:Number(e.ts||0), y:y}));
+  draw(pts);
+
+  // recent exits table
+  const recent = exits.slice(-30).reverse();
+  el("tbody").innerHTML = recent.map(e=>{
+    return `<tr>
+      <td class="mono">${fmtTime(e.ts)}</td>
+      <td class="mono">${e.side||"—"}</td>
+      <td class="mono">${Number(e.R||0).toFixed(4)}</td>
+      <td class="mono">${e.reason||"—"}</td>
+      <td class="mono">${e.entry ?? "—"} → ${e.exit ?? "—"}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="5" class="mono">No exits yet.</td></tr>`;
+}
+
+el("refresh").addEventListener("click", refresh);
+let timer=null;
+function startTimer(){
+  if(timer) clearInterval(timer);
+  if(!el("auto").checked) return;
+  const sec = Math.max(1, Number(el("sec").value||5));
+  timer = setInterval(refresh, sec*1000);
+}
+el("auto").addEventListener("change", startTimer);
+el("sec").addEventListener("change", startTimer);
+
+refresh(); startTimer();
+</script>
+</body>
+</html>

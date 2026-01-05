@@ -1,0 +1,5 @@
+﻿.env.example  (notAllowedExt)
+.gitignore  (notAllowedExt)
+LICENSE  (notAllowedExt)
+src\laptop_agents\data\.gitkeep  (notAllowedExt)
+

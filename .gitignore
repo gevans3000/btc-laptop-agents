@@ -24,3 +24,6 @@ src/laptop_agents/data/*
 # OS
 .DS_Store
 Thumbs.db
+logs/
+data/
+*.pid

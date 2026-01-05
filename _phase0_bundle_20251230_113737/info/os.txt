@@ -1,0 +1,190 @@
+﻿
+
+WindowsBuildLabEx                                       : 26100.1.amd64fre.ge_release.240331-1435
+WindowsCurrentVersion                                   : 6.3
+WindowsEditionId                                        : Professional
+WindowsInstallationType                                 : Client
+WindowsInstallDateFromRegistry                          : 2/26/2025 2:26:24 PM
+WindowsProductId                                        : 00342-55366-03284-AAOEM
+WindowsProductName                                      : Windows 10 Pro
+WindowsRegisteredOrganization                           : 
+WindowsRegisteredOwner                                  : lovelife108@hotmail.com
+WindowsSystemRoot                                       : C:\WINDOWS
+WindowsVersion                                          : 2009
+OSDisplayVersion                                        : 24H2
+BiosCharacteristics                                     : {7, 11, 12, 15...}
+BiosBIOSVersion                                         : {LENOVO - 1, NECN41WW, INSYDE Corp. - 76066041}
+BiosBuildNumber                                         : 
+BiosCaption                                             : NECN41WW
+BiosCodeSet                                             : 
+BiosCurrentLanguage                                     : en|US|iso8859-1,0
+BiosDescription                                         : NECN41WW
+BiosEmbeddedControllerMajorVersion                      : 1
+BiosEmbeddedControllerMinorVersion                      : 41
+BiosFirmwareType                                        : Uefi
+BiosIdentificationCode                                  : 
+BiosInstallableLanguages                                : 8
+BiosInstallDate                                         : 
+BiosLanguageEdition                                     : 
+BiosListOfLanguages                                     : {en|US|iso8859-1,0, fr|FR|iso8859-1,0, zh|TW|unicode,0, 
+                                                          ja|JP|unicode,0...}
+BiosManufacturer                                        : LENOVO
+BiosName                                                : NECN41WW
+BiosOtherTargetOS                                       : 
+BiosPrimaryBIOS                                         : True
+BiosReleaseDate                                         : 12/17/2024 7:00:00 PM
+BiosSeralNumber                                         : MP2DXVDC
+BiosSMBIOSBIOSVersion                                   : NECN41WW
+BiosSMBIOSMajorVersion                                  : 3
+BiosSMBIOSMinorVersion                                  : 4
+BiosSMBIOSPresent                                       : True
+BiosSoftwareElementState                                : Running
+BiosStatus                                              : OK
+BiosSystemBiosMajorVersion                              : 1
+BiosSystemBiosMinorVersion                              : 41
+BiosTargetOperatingSystem                               : 0
+BiosVersion                                             : LENOVO - 1
+CsAdminPasswordStatus                                   : Disabled
+CsAutomaticManagedPagefile                              : True
+CsAutomaticResetBootOption                              : True
+CsAutomaticResetCapability                              : True
+CsBootOptionOnLimit                                     : 
+CsBootOptionOnWatchDog                                  : 
+CsBootROMSupported                                      : True
+CsBootStatus                                            : {0, 0, 0, 39...}
+CsBootupState                                           : Normal boot
+CsCaption                                               : GEORGE108B
+CsChassisBootupState                                    : Safe
+CsChassisSKUNumber                                      : SKU Number
+CsCurrentTimeZone                                       : -300
+CsDaylightInEffect                                      : False
+CsDescription                                           : AT/AT COMPATIBLE
+CsDNSHostName                                           : George108b
+CsDomain                                                : WORKGROUP
+CsDomainRole                                            : StandaloneWorkstation
+CsEnableDaylightSavingsTime                             : True
+CsFrontPanelResetStatus                                 : Disabled
+CsHypervisorPresent                                     : False
+CsInfraredSupported                                     : False
+CsInitialLoadInfo                                       : 
+CsInstallDate                                           : 
+CsKeyboardPasswordStatus                                : Disabled
+CsLastLoadInfo                                          : 
+CsManufacturer                                          : LENOVO
+CsModel                                                 : 83DV
+CsName                                                  : GEORGE108B
+CsNetworkAdapters                                       : {Ethernet 4, Wi-Fi 3}
+CsNetworkServerModeEnabled                              : True
+CsNumberOfLogicalProcessors                             : 20
+CsNumberOfProcessors                                    : 1
+CsProcessors                                            : {13th Gen Intel(R) Core(TM) i7-13650HX}
+CsOEMStringArray                                        : {Country - ÿÿ, Modern Preload}
+CsPartOfDomain                                          : False
+CsPauseAfterReset                                       : -1
+CsPCSystemType                                          : Mobile
+CsPCSystemTypeEx                                        : Mobile
+CsPowerManagementCapabilities                           : 
+CsPowerManagementSupported                              : 
+CsPowerOnPasswordStatus                                 : Disabled
+CsPowerState                                            : Unknown
+CsPowerSupplyState                                      : Safe
+CsPrimaryOwnerContact                                   : 
+CsPrimaryOwnerName                                      : lovelife108@hotmail.com
+CsResetCapability                                       : Other
+CsResetCount                                            : -1
+CsResetLimit                                            : -1
+CsRoles                                                 : {LM_Workstation, LM_Server, NT}
+CsStatus                                                : OK
+CsSupportContactDescription                             : 
+CsSystemFamily                                          : LOQ 15IRX9
+CsSystemSKUNumber                                       : LENOVO_MT_83DV_BU_idea_FM_LOQ 15IRX9
+CsSystemType                                            : x64-based PC
+CsThermalState                                          : Safe
+CsTotalPhysicalMemory                                   : 68413153280
+CsPhyicallyInstalledMemory                              : 67108864
+CsUserName                                              : George108b\lovel
+CsWakeUpType                                            : PowerSwitch
+CsWorkgroup                                             : WORKGROUP
+OsName                                                  : Microsoft Windows 11 Pro
+OsType                                                  : WINNT
+OsOperatingSystemSKU                                    : 48
+OsVersion                                               : 10.0.26100
+OsCSDVersion                                            : 
+OsBuildNumber                                           : 26100
+OsHotFixes                                              : {KB5066131, KB5072033, KB5071142}
+OsBootDevice                                            : \Device\HarddiskVolume1
+OsSystemDevice                                          : \Device\HarddiskVolume3
+OsSystemDirectory                                       : C:\WINDOWS\system32
+OsSystemDrive                                           : C:
+OsWindowsDirectory                                      : C:\WINDOWS
+OsCountryCode                                           : 1
+OsCurrentTimeZone                                       : -300
+OsLocaleID                                              : 0409
+OsLocale                                                : en-US
+OsLocalDateTime                                         : 12/30/2025 11:37:38 AM
+OsLastBootUpTime                                        : 12/26/2025 12:12:16 PM
+OsUptime                                                : 3.23:25:21.4782935
+OsBuildType                                             : Multiprocessor Free
+OsCodeSet                                               : 1252
+OsDataExecutionPreventionAvailable                      : True
+OsDataExecutionPrevention32BitApplications              : True
+OsDataExecutionPreventionDrivers                        : True
+OsDataExecutionPreventionSupportPolicy                  : OptIn
+OsDebug                                                 : False
+OsDistributed                                           : False
+OsEncryptionLevel                                       : 256
+OsForegroundApplicationBoost                            : Maximum
+OsTotalVisibleMemorySize                                : 66809720
+OsFreePhysicalMemory                                    : 50745788
+OsTotalVirtualMemorySize                                : 71004024
+OsFreeVirtualMemory                                     : 54626732
+OsInUseVirtualMemory                                    : 16377292
+OsTotalSwapSpaceSize                                    : 
+OsSizeStoredInPagingFiles                               : 4194304
+OsFreeSpaceInPagingFiles                                : 4172640
+OsPagingFiles                                           : {C:\pagefile.sys}
+OsHardwareAbstractionLayer                              : 10.0.26100.1
+OsInstallDate                                           : 2/26/2025 9:26:24 AM
+OsManufacturer                                          : Microsoft Corporation
+OsMaxNumberOfProcesses                                  : 4294967295
+OsMaxProcessMemorySize                                  : 137438953344
+OsMuiLanguages                                          : {en-US}
+OsNumberOfLicensedUsers                                 : 0
+OsNumberOfProcesses                                     : 252
+OsNumberOfUsers                                         : 2
+OsOrganization                                          : 
+OsArchitecture                                          : 64-bit
+OsLanguage                                              : en-US
+OsProductSuites                                         : {TerminalServicesSingleSession}
+OsOtherTypeDescription                                  : 
+OsPAEEnabled                                            : 
+OsPortableOperatingSystem                               : False
+OsPrimary                                               : True
+OsProductType                                           : WorkStation
+OsRegisteredUser                                        : lovelife108@hotmail.com
+OsSerialNumber                                          : 00342-55366-03284-AAOEM
+OsServicePackMajorVersion                               : 0
+OsServicePackMinorVersion                               : 0
+OsStatus                                                : OK
+OsSuites                                                : {TerminalServices, TerminalServicesSingleSession}
+OsServerLevel                                           : 
+KeyboardLayout                                          : en-US
+TimeZone                                                : (UTC-05:00) Eastern Time (US & Canada)
+LogonServer                                             : \\GEORGE108B
+PowerPlatformRole                                       : Mobile
+HyperVisorPresent                                       : False
+HyperVRequirementDataExecutionPreventionAvailable       : True
+HyperVRequirementSecondLevelAddressTranslation          : True
+HyperVRequirementVirtualizationFirmwareEnabled          : True
+HyperVRequirementVMMonitorModeExtensions                : True
+DeviceGuardSmartStatus                                  : Off
+DeviceGuardRequiredSecurityProperties                   : 
+DeviceGuardAvailableSecurityProperties                  : 
+DeviceGuardSecurityServicesConfigured                   : 
+DeviceGuardSecurityServicesRunning                      : 
+DeviceGuardCodeIntegrityPolicyEnforcementStatus         : EnforcementMode
+DeviceGuardUserModeCodeIntegrityPolicyEnforcementStatus : Off
+
+
+
+

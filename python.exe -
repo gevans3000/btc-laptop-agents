@@ -1,0 +1,232 @@
+[1mdiff --git a/src/laptop_agents/cli.py b/src/laptop_agents/cli.py[m
+[1mindex a873811..a57bc9f 100644[m
+[1m--- a/src/laptop_agents/cli.py[m
+[1m+++ b/src/laptop_agents/cli.py[m
+[36m@@ -1,34 +1,174 @@[m
+[31m-﻿from __future__ import annotations[m
+[31m-import typer[m
+[31m-from rich.console import Console[m
+[31m-from dotenv import load_dotenv[m
+[31m-[m
+[31m-from laptop_agents.core.logging import setup_logging[m
+[31m-from laptop_agents.core.config import get_settings[m
+[31m-from laptop_agents.core.runner import Runner[m
+[31m-[m
+[31m-app = typer.Typer(add_completion=False)[m
+[31m-console = Console()[m
+[31m-[m
+[31m-@app.command()[m
+[31m-def run(agent: str = typer.Option("planner", help="Agent name"),[m
+[31m-        task: str = typer.Argument(..., help="Task text")):[m
+[31m-    load_dotenv()[m
+[31m-    setup_logging()[m
+[31m-    settings = get_settings()[m
+[31m-    runner = Runner(data_dir=settings.data_dir)[m
+[31m-    out = runner.run(agent_name=agent, task=task)[m
+[31m-    console.print(out)[m
+[31m-[m
+[31m-@app.command()[m
+[31m-def tail(n: int = typer.Option(20, help="Number of memory records to show")):[m
+[31m-    load_dotenv()[m
+[31m-    settings = get_settings()[m
+[31m-    from laptop_agents.memory.local_store import LocalMemoryStore[m
+[31m-    store = LocalMemoryStore(settings.data_dir, namespace="main")[m
+[31m-    rows = store.tail(n=n)[m
+[31m-    for r in rows:[m
+[31m-        console.print(f"[{r.get('ts')}] {r.get('role')}: {r.get('content')[:200]}")[m
+[31m-[m
+[31m-if __name__ == "__main__":[m
+[32m+[m[32mfrom __future__ import annotations[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mimport json[m[41m[m
+[32m+[m[32mfrom pathlib import Path[m[41m[m
+[32m+[m[32mimport typer[m[41m[m
+[32m+[m[32mfrom rich import print[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mfrom .agents import State, Supervisor[m[41m[m
+[32m+[m[32mfrom .data.providers import ([m[41m[m
+[32m+[m[32m    MockProvider,[m[41m[m
+[32m+[m[32m    BinanceFuturesProvider,[m[41m[m
+[32m+[m[32m    KrakenSpotProvider,[m[41m[m
+[32m+[m[32m    BybitDerivativesProvider,[m[41m[m
+[32m+[m[32m    OkxSwapProvider,[m[41m[m
+[32m+[m[32m    CompositeProvider,[m[41m[m
+[32m+[m[32m    BitunixFuturesProvider,[m[41m[m
+[32m+[m[32m)[m[41m[m
+[32m+[m[32mfrom .indicators import Candle[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mapp = typer.Typer(help="BTC Laptop Agents — 5-agent paper trading loop (5m)")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mdef load_cfg(path: str = "config/default.json") -> dict:[m[41m[m
+[32m+[m[32m    p = Path(path)[m[41m[m
+[32m+[m[32m    return json.loads(p.read_text(encoding="utf-8"))[m[41m[m
+[32m+[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m@app.command()[m[41m[m
+[32m+[m[32mdef debug_feeds(cfg: str = "config/default.json"):[m[41m[m
+[32m+[m[32m    c = load_cfg(cfg)[m[41m[m
+[32m+[m[32m    sym = c["instrument"][m[41m[m
+[32m+[m[32m    tf = c["timeframe"][m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    print("[bold]Bitunix Futures candles + derivatives[/bold]")[m[41m[m
+[32m+[m[32m    try:[m[41m[m
+[32m+[m[32m        b = BitunixFuturesProvider(symbol=sym, allowed_symbols={sym})[m[41m[m
+[32m+[m[32m        kl = b.klines(interval=tf, limit=5)[m[41m[m
+[32m+[m[32m        d = b.snapshot_derivatives()[m[41m[m
+[32m+[m[32m        print(f"[green]OK[/green] last_close={kl[-1].close} funding_8h={d.get('funding_8h')} oi={d.get('open_interest')}")[m[41m[m
+[32m+[m[32m    except Exception as e:[m[41m[m
+[32m+[m[32m        print(f"[yellow]FAIL[/yellow] {e}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    print("\n[bold]Binance Futures candles[/bold]")[m[41m[m
+[32m+[m[32m    try:[m[41m[m
+[32m+[m[32m        b = BinanceFuturesProvider(symbol=sym)[m[41m[m
+[32m+[m[32m        kl = b.klines(interval=tf, limit=5)[m[41m[m
+[32m+[m[32m        print(f"[green]OK[/green] last_close={kl[-1].close}")[m[41m[m
+[32m+[m[32m    except Exception as e:[m[41m[m
+[32m+[m[32m        print(f"[yellow]FAIL[/yellow] {e}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    print("\n[bold]OKX swap candles + derivatives[/bold]")[m[41m[m
+[32m+[m[32m    try:[m[41m[m
+[32m+[m[32m        o = OkxSwapProvider(instrument=sym)[m[41m[m
+[32m+[m[32m        kl = o.klines(interval=tf, limit=5)[m[41m[m
+[32m+[m[32m        d = o.snapshot_derivatives()[m[41m[m
+[32m+[m[32m        print(f"[green]OK[/green] instId={d.get('inst_id', 'BTC-USDT-SWAP')} last_close={kl[-1].close} funding_8h={d.get('funding_8h')} oi={d.get('open_interest')} errors={d.get('errors')}")[m[41m[m
+[32m+[m[32m    except Exception as e:[m[41m[m
+[32m+[m[32m        print(f"[yellow]FAIL[/yellow] {e}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    print("\n[bold]Kraken spot candles[/bold]")[m[41m[m
+[32m+[m[32m    try:[m[41m[m
+[32m+[m[32m        k = KrakenSpotProvider(instrument=sym)[m[41m[m
+[32m+[m[32m        kl = k.klines(interval=tf, limit=5)[m[41m[m
+[32m+[m[32m        print(f"[green]OK[/green] last_close={kl[-1].close}")[m[41m[m
+[32m+[m[32m    except Exception as e:[m[41m[m
+[32m+[m[32m        print(f"[yellow]FAIL[/yellow] {e}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    print("\n[bold]Bybit derivatives snapshot[/bold]")[m[41m[m
+[32m+[m[32m    try:[m[41m[m
+[32m+[m[32m        y = BybitDerivativesProvider(symbol=sym)[m[41m[m
+[32m+[m[32m        d = y.snapshot_derivatives()[m[41m[m
+[32m+[m[32m        print(f"[green]OK[/green] funding_8h={d.get('funding_8h')} oi={d.get('open_interest')} errors={d.get('errors')}")[m[41m[m
+[32m+[m[32m    except Exception as e:[m[41m[m
+[32m+[m[32m        print(f"[yellow]FAIL[/yellow] {e}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m@app.command()[m[41m[m
+[32m+[m[32mdef run_mock(steps: int = 200, seed: int = 7, cfg: str = "config/default.json", journal: str = "data/paper_journal.jsonl"):[m[41m[m
+[32m+[m[32m    c = load_cfg(cfg)[m[41m[m
+[32m+[m[32m    provider = MockProvider(seed=seed, start=100_000.0)[m[41m[m
+[32m+[m[32m    sup = Supervisor(provider=provider, cfg=c, journal_path=journal)[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    state = State(instrument=c["instrument"], timeframe=c["timeframe"])[m[41m[m
+[32m+[m[32m    candles = provider.history(steps)[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    for i, mc in enumerate(candles, start=1):[m[41m[m
+[32m+[m[32m        candle = Candle(ts=mc.ts, open=mc.open, high=mc.high, low=mc.low, close=mc.close, volume=mc.volume)[m[41m[m
+[32m+[m[32m        state = sup.step(state, candle)[m[41m[m
+[32m+[m[32m        if i % 25 == 0:[m[41m[m
+[32m+[m[32m            px = state.market_context.get("price")[m[41m[m
+[32m+[m[32m            print(f"[{i}/{steps}] price={px:,.0f} setup={state.setup.get('name')} trade_id={state.trade_id}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    print(f"[green]Done[/green]. Journal: {journal}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m@app.command()[m[41m[m
+[32m+[m[32mdef run_live_history(limit: int = 500, cfg: str = "config/default.json", journal: str = "data/paper_journal.jsonl"):[m[41m[m
+[32m+[m[32m    c = load_cfg(cfg)[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    provider = None[m[41m[m
+[32m+[m[32m    kl = None[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    # Try Bitunix first (fastest, no rate limits)[m[41m[m
+[32m+[m[32m    try:[m[41m[m
+[32m+[m[32m        provider = BitunixFuturesProvider(symbol=c["instrument"], allowed_symbols={c["instrument"]})[m[41m[m
+[32m+[m[32m        kl = provider.klines(interval=c["timeframe"], limit=limit)[m[41m[m
+[32m+[m[32m        print("[green]Using Bitunix Futures candles + derivatives.[/green]")[m[41m[m
+[32m+[m[32m    except Exception as e:[m[41m[m
+[32m+[m[32m        print(f"[yellow]Bitunix Futures failed:[/yellow] {e}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m        try:[m[41m[m
+[32m+[m[32m            provider = BinanceFuturesProvider(symbol=c["instrument"])[m[41m[m
+[32m+[m[32m            kl = provider.klines(interval=c["timeframe"], limit=limit)[m[41m[m
+[32m+[m[32m            print("[green]Using Binance Futures candles + derivatives.[/green]")[m[41m[m
+[32m+[m[32m        except Exception as e2:[m[41m[m
+[32m+[m[32m            print(f"[yellow]Binance Futures failed:[/yellow] {e2}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m            try:[m[41m[m
+[32m+[m[32m                provider = OkxSwapProvider(instrument=c["instrument"])[m[41m[m
+[32m+[m[32m                kl = provider.klines(interval=c["timeframe"], limit=limit)[m[41m[m
+[32m+[m[32m                print("[green]Using OKX swap candles + derivatives snapshot.[/green]")[m[41m[m
+[32m+[m[32m            except Exception as e3:[m[41m[m
+[32m+[m[32m                print(f"[yellow]OKX swap failed, falling back to Kraken spot candles.[/yellow] {e3}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m                try:[m[41m[m
+[32m+[m[32m                    candle_src = KrakenSpotProvider(instrument=c["instrument"])[m[41m[m
+[32m+[m[32m                    deriv_src = OkxSwapProvider(instrument=c["instrument"])[m[41m[m
+[32m+[m[32m                    provider = CompositeProvider(candles_provider=candle_src, derivatives_provider=deriv_src)[m[41m[m
+[32m+[m[32m                    kl = provider.klines(interval=c["timeframe"], limit=limit)[m[41m[m
+[32m+[m[32m                    print("[green]Using Kraken spot candles + OKX derivatives snapshot.[/green]")[m[41m[m
+[32m+[m[32m                except Exception as e4:[m[41m[m
+[32m+[m[32m                    print(f"[yellow]Kraken+OKX failed, last resort: Kraken + Bybit derivatives.[/yellow] {e4}")[m[41m[m
+[32m+[m[32m                    candle_src = KrakenSpotProvider(instrument=c["instrument"])[m[41m[m
+[32m+[m[32m                    deriv_src = BybitDerivativesProvider(symbol=c["instrument"])[m[41m[m
+[32m+[m[32m                    provider = CompositeProvider(candles_provider=candle_src, derivatives_provider=deriv_src)[m[41m[m
+[32m+[m[32m                    kl = provider.klines(interval=c["timeframe"], limit=limit)[m[41m[m
+[32m+[m[32m                    print("[green]Using Kraken spot candles + Bybit derivatives snapshot.[/green]")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    sup = Supervisor(provider=provider, cfg=c, journal_path=journal)[m[41m[m
+[32m+[m[32m    state = State(instrument=c["instrument"], timeframe=c["timeframe"])[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    for i, k in enumerate(kl, start=1):[m[41m[m
+[32m+[m[32m        candle = Candle(ts=k.ts, open=k.open, high=k.high, low=k.low, close=k.close, volume=k.volume)[m[41m[m
+[32m+[m[32m        state = sup.step(state, candle)[m[41m[m
+[32m+[m[32m        if i % 50 == 0:[m[41m[m
+[32m+[m[32m            px = state.market_context.get("price")[m[41m[m
+[32m+[m[32m            d = state.derivatives or {}[m[41m[m
+[32m+[m[32m            funding = d.get("funding_8h")[m[41m[m
+[32m+[m[32m            oi = d.get("open_interest")[m[41m[m
+[32m+[m[32m            cached = d.get("cached")[m[41m[m
+[32m+[m[32m            print(f"[{i}/{len(kl)}] price={px:,.0f} funding_8h={funding} oi={oi} cached={cached} setup={state.setup.get('name')} trade_id={state.trade_id}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    print(f"[green]Done[/green]. Journal: {journal}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m@app.command()[m[41m[m
+[32m+[m[32mdef report(journal: str = "data/paper_journal.jsonl", out_dir: str = "data/reports"):[m[41m[m
+[32m+[m[32m    """Generate a backtest report + CSV into data/reports/ (permanent on disk)."""[m[41m[m
+[32m+[m[32m    from .reporting import write_report[m[41m[m
+[32m+[m[32m    paths = write_report(journal_path=journal, out_dir=out_dir)[m[41m[m
+[32m+[m[32m    print(f"[green]Wrote report[/green]: {paths['md']}")[m[41m[m
+[32m+[m[32m    print(f"[green]Wrote trades CSV[/green]: {paths['csv']}")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m@app.command()[m[41m[m
+[32m+[m[32mdef journal_tail(n: int = 10, journal: str = "data/paper_journal.jsonl"):[m[41m[m
+[32m+[m[32m    from .trading import PaperJournal[m[41m[m
+[32m+[m[32m    j = PaperJournal(journal)[m[41m[m
+[32m+[m[32m    for e in j.last(n):[m[41m[m
+[32m+[m[32m        print(e)[m[41m[m
+[32m+[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mif __name__ == "__main__":[m[41m[m
+     app()[m
+[1mdiff --git a/src/laptop_agents/core/registry.py b/src/laptop_agents/core/registry.py[m
+[1mindex ed1afcd..25eaada 100644[m
+[1m--- a/src/laptop_agents/core/registry.py[m
+[1m+++ b/src/laptop_agents/core/registry.py[m
+[36m@@ -1,9 +1,14 @@[m
+ ﻿from __future__ import annotations[m
+ from laptop_agents.agents.planner import PlannerAgent[m
+ from laptop_agents.agents.researcher import ResearcherAgent[m
+[32m+[m[32mfrom laptop_agents.agents.supervisor import Supervisor[m
+[32m+[m[32mfrom laptop_agents.agents.state import State[m
+ [m
+ def default_registry():[m
+[32m+[m[32m    """Registry for simple CLI agents (planner/researcher).[m
+[32m+[m[32m    For full 5-agent trading stack, use Supervisor directly.[m
+[32m+[m[32m    """[m
+     return {[m
+         "planner": PlannerAgent(),[m
+         "researcher": ResearcherAgent(),[m
+[31m-    }[m
+[32m+[m[32m    }[m

@@ -1,0 +1,22 @@
+{
+  "strategy": "EMA50 + Donchian20 breakout + ATR stops/tp",
+  "candles": 201,
+  "trades": 14,
+  "win_rate": 0.07142857142857142,
+  "avg_R": -1.3703346960904104,
+  "sum_R": -19.184685745265746,
+  "params": {
+    "inp": "data\\btcusdt_5m.csv",
+    "outdir": "reports\\sweep_don8_buf0.1_s1_tp1.6",
+    "ema": 50,
+    "donchian": 8,
+    "atr": 14,
+    "atr_stop": 1.0,
+    "atr_tp": 1.6,
+    "breakout_buffer_atr": 0.1,
+    "fee_bps": 6.0
+  },
+  "files": {
+    "trades_csv": "reports\\sweep_don8_buf0.1_s1_tp1.6\\trades_breakout_ema_atr.csv"
+  }
+}

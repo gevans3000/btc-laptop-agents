@@ -1,0 +1,214 @@
+﻿<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>BTC Laptop Agents — Paper Dashboard</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 18px; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .card { border:1px solid #ddd; border-radius:10px; padding:12px 14px; min-width: 180px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    table { border-collapse: collapse; width:100%; margin-top:12px; }
+    th, td { border-bottom:1px solid #eee; padding:8px; text-align:left; vertical-align:top; }
+    th { position: sticky; top:0; background:#fff; z-index:2; }
+    .muted { color:#666; }
+    .ok { color: #0a7; font-weight:600; }
+    .warn { color: #c60; font-weight:600; }
+    .err { color: #c00; font-weight:600; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid #ddd; }
+    details pre { white-space: pre-wrap; word-break: break-word; margin: 6px 0 0 0; }
+  </style>
+</head>
+<body>
+  <h2>BTC Laptop Agents — Paper Dashboard</h2>
+  <div class="row">
+    <div class="card">
+      <div class="muted">Status</div>
+      <div id="status" class="mono">loading…</div>
+    </div>
+    <div class="card">
+      <div class="muted">Journal lines</div>
+      <div id="lines" class="mono">—</div>
+    </div>
+    <div class="card">
+      <div class="muted">Last event time</div>
+      <div id="lastTime" class="mono">—</div>
+    </div>
+    <div class="card">
+      <div class="muted">Open state</div>
+      <div id="state" class="mono">—</div>
+    </div>
+    <div class="card">
+      <div class="muted">Auto-refresh</div>
+      <div class="row">
+        <label class="mono"><input type="checkbox" id="auto" checked> ON</label>
+        <label class="mono">every <input id="sec" type="number" value="5" min="1" style="width:52px">s</label>
+        <button id="refresh">Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:12px;">
+    <div class="card" style="flex:1; min-width: 320px;">
+      <div class="muted">Quick filters</div>
+      <div class="row">
+        <label class="mono">contains <input id="q" placeholder="entry / exit / error / signal…" style="width:260px"></label>
+        <label class="mono">show last <input id="n" type="number" value="200" min="10" style="width:70px"> lines</label>
+      </div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:190px;">Time</th>
+        <th style="width:140px;">Type</th>
+        <th>Summary</th>
+        <th style="width:110px;">Source</th>
+        <th style="width:90px;">Raw</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+
+<script>
+const el = (id)=>document.getElementById(id);
+const fmtTime = (x)=>{
+  if (!x) return "—";
+  // accept epoch ms, epoch s, or ISO strings
+  if (typeof x === "number") {
+    const ms = x > 1e12 ? x : x*1000;
+    return new Date(ms).toLocaleString();
+  }
+  // try parse as int
+  const asInt = Number(x);
+  if (!Number.isNaN(asInt) && asInt > 0) return fmtTime(asInt);
+  const d = new Date(x);
+  if (!isNaN(d.getTime())) return d.toLocaleString();
+  return String(x);
+};
+
+function guessType(obj){
+  return obj.event || obj.type || obj.action || obj.kind || "event";
+}
+function guessSource(obj){
+  return obj.source || obj.provider || obj.exchange || "—";
+}
+function summarize(obj){
+  // try common keys, otherwise show key highlights
+  const keys = Object.keys(obj);
+  const pick = (...ks)=> ks.map(k=>obj[k]).find(v=>v!==undefined && v!==null && v!=="");
+  const side = pick("side","direction");
+  const price = pick("price","entry","entry_price","close");
+  const r = pick("R","r","pnl_r","realized_r","sum_R");
+  const msg = pick("msg","message","note","reason","signal");
+  const parts = [];
+  if (side) parts.push(`side=${side}`);
+  if (price!==undefined) parts.push(`price=${price}`);
+  if (r!==undefined) parts.push(`R=${r}`);
+  if (msg) parts.push(String(msg));
+  if (parts.length) return parts.join(" | ");
+  // fallback: show first few keys
+  return keys.slice(0,8).map(k=>`${k}=${String(obj[k]).slice(0,40)}`).join(" | ");
+}
+
+async function loadText(url){
+  const r = await fetch(url, {cache:"no-store"});
+  if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+  return await r.text();
+}
+async function loadJson(url){
+  const r = await fetch(url, {cache:"no-store"});
+  if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+  return await r.json();
+}
+
+async function refresh(){
+  try{
+    el("status").innerHTML = `<span class="ok">OK</span> <span class="muted mono">fetching…</span>`;
+    const [jtxt, state] = await Promise.allSettled([
+      loadText("/data/paper_journal.jsonl"),
+      loadJson("/data/paper_state.json")
+    ]);
+
+    let lines = [];
+    if (jtxt.status === "fulfilled"){
+      lines = jtxt.value.split(/\r?\n/).filter(x=>x.trim().length>0);
+      el("lines").textContent = String(lines.length);
+    } else {
+      el("lines").textContent = "—";
+    }
+
+    if (state.status === "fulfilled"){
+      const s = state.value;
+      // show minimal state snapshot
+      const last = s.last_ts || s.last_candle_ts || s.last_seen_ts || s.last_processed_ts;
+      const pos = s.position || s.open_position || s.pos;
+      el("state").textContent = `last_ts=${last ?? "—"} | position=${pos ? "YES" : "NO"}`;
+    } else {
+      el("state").textContent = "no state yet";
+    }
+
+    const q = (el("q").value || "").toLowerCase();
+    const n = Math.max(10, Number(el("n").value||200));
+    const slice = lines.slice(-n);
+
+    const rows = [];
+    let lastTime = null;
+
+    for (let i = slice.length-1; i >= 0; i--){
+      const raw = slice[i];
+      if (q && !raw.toLowerCase().includes(q)) continue;
+
+      let obj = null;
+      try { obj = JSON.parse(raw); } catch { obj = { raw }; }
+
+      const t = obj.ts ?? obj.time ?? obj.timestamp ?? obj.candle_ts ?? obj.bar_ts ?? obj.raw_ts;
+      if (!lastTime) lastTime = t;
+
+      const typ = guessType(obj);
+      const src = guessSource(obj);
+      const sum = summarize(obj);
+
+      rows.push(`
+        <tr>
+          <td class="mono">${fmtTime(t)}</td>
+          <td><span class="pill mono">${typ}</span></td>
+          <td class="mono">${sum}</td>
+          <td class="mono">${src}</td>
+          <td>
+            <details>
+              <summary class="mono">view</summary>
+              <pre class="mono">${JSON.stringify(obj, null, 2)}</pre>
+            </details>
+          </td>
+        </tr>
+      `);
+    }
+
+    el("lastTime").textContent = fmtTime(lastTime);
+    el("tbody").innerHTML = rows.join("") || `<tr><td colspan="5" class="muted">No matching journal lines yet.</td></tr>`;
+    el("status").innerHTML = `<span class="ok">OK</span> <span class="muted mono">updated ${new Date().toLocaleTimeString()}</span>`;
+  } catch(e){
+    el("status").innerHTML = `<span class="err">ERROR</span> <span class="mono">${String(e)}</span>`;
+  }
+}
+
+el("refresh").addEventListener("click", refresh);
+
+let timer = null;
+function startTimer(){
+  if (timer) clearInterval(timer);
+  if (!el("auto").checked) return;
+  const sec = Math.max(1, Number(el("sec").value||5));
+  timer = setInterval(refresh, sec*1000);
+}
+el("auto").addEventListener("change", startTimer);
+el("sec").addEventListener("change", startTimer);
+
+refresh();
+startTimer();
+</script>
+</body>
+</html>
