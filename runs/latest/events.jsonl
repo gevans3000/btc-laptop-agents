@@ -1,1 +1,7 @@
-{"event": "Error", "message": "Failed to fetch Bitunix candles: HTTP Error 404: Not Found", "timestamp": "2026-01-05T23:38:27.988322Z"}
+{"event": "RunStarted", "run_id": "70afee2a-6a12-4116-a485-13ed963e0d11", "source": "bitunix", "symbol": "BTCUSDT", "interval": "1m", "timestamp": "2026-01-06T00:32:57.216037Z"}
+{"event": "MarketDataLoaded", "source": "bitunix", "symbol": "BTCUSDT", "interval": "1m", "count": 200, "timestamp": "2026-01-06T00:32:58.251831Z"}
+{"event": "LastCandle", "ts": "2026-01-05T21:12:00+00:00", "close": 94013.9, "timestamp": "2026-01-06T00:32:58.252827Z"}
+{"event": "PrevCandle", "ts": "2026-01-05T21:13:00+00:00", "close": 93948.9, "timestamp": "2026-01-06T00:32:58.252827Z"}
+{"event": "SignalGenerated", "signal": "BUY", "timestamp": "2026-01-06T00:32:58.252827Z"}
+{"event": "TradeSimulated", "trade": {"trade_id": "0edd95e2-91c7-4cfe-b848-d63a94029cf9", "side": "LONG", "signal": "BUY", "entry": 93953.597445, "exit": 94009.199305, "price": 94009.199305, "quantity": 0.10643552000075306, "pnl": 1.9168292795321404, "fees": 4.001183602576422, "timestamp": "2026-01-06T00:32:58.252827Z"}, "timestamp": "2026-01-06T00:32:58.252827Z"}
+{"event": "Error", "message": "dict contains fields not in fieldnames: 'price'", "timestamp": "2026-01-06T00:32:58.254099Z"}
