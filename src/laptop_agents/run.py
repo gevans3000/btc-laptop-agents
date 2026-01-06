@@ -126,10 +126,10 @@ def normalize_candle_order(candles: List[Candle]) -> List[Candle]:
     return candles
 
 
-def run_backtest(candles: List[Candle], starting_balance: float, fees_bps: float, slip_bps: float) -> Dict[str, Any]:
+def run_backtest_bar_mode(candles: List[Candle], starting_balance: float, fees_bps: float, slip_bps: float) -> Dict[str, Any]:
     """
-    Run a simple backtest over the candle series.
-    Uses SMA(10) vs SMA(30) with no lookahead.
+    Run backtest in bar mode (original behavior).
+    Uses SMA(10) vs SMA(30) with no lookahead, one trade per bar.
     """
     if len(candles) < 31:  # Need at least 30 for SMA(30) + 1 for trading
         raise ValueError(f"Need at least 31 candles for backtest, got {len(candles)}")
@@ -257,6 +257,347 @@ def run_backtest(candles: List[Candle], starting_balance: float, fees_bps: float
     }
 
 
+def run_backtest_position_mode(candles: List[Candle], starting_balance: float, fees_bps: float, slip_bps: float) -> Dict[str, Any]:
+    """
+    Run backtest in position mode (more realistic).
+    Manages positions with proper entry/exit logic and mark-to-market equity.
+    """
+    if len(candles) < 31:  # Need at least 30 for SMA(30) + 1 for trading
+        raise ValueError(f"Need at least 31 candles for backtest, got {len(candles)}")
+    
+    # Normalize candle order first
+    candles = normalize_candle_order(candles)
+    
+    # Backtest parameters
+    fast_window = 10
+    slow_window = 30
+    warmup = max(fast_window, slow_window)
+    
+    # Initialize
+    equity = starting_balance
+    realized_equity = starting_balance  # Track realized PnL only
+    equity_history = []
+    trades = []
+    
+    # Position tracking
+    position = None  # None, "LONG", or "SHORT"
+    entry_price = 0.0
+    entry_ts = ""
+    position_quantity = 0.0
+    
+    # Track stats
+    wins = 0
+    losses = 0
+    total_fees = 0.0
+    max_equity = starting_balance
+    max_drawdown = 0.0
+    
+    # Pre-compute all closes for SMA calculations
+    closes = [float(c.close) for c in candles]
+    
+    # Helper function to calculate fees
+    def calculate_fees(notional: float) -> float:
+        return notional * (fees_bps / 10_000.0)
+    
+    # Helper function to apply slippage
+    def apply_slippage(price: float, is_entry: bool, is_long: bool) -> float:
+        slip_rate = slip_bps / 10_000.0
+        if is_long:
+            return price * (1.0 + slip_rate) if is_entry else price * (1.0 - slip_rate)
+        else:
+            return price * (1.0 - slip_rate) if is_entry else price * (1.0 + slip_rate)
+    
+    # Backtest loop - start after warmup period
+    for i in range(warmup, len(candles)):
+        current_candle = candles[i]
+        current_close = float(current_candle.close)
+        
+        # Compute SMAs on history up to current index (no lookahead)
+        fast_sma = sma(closes[:i+1], fast_window)  # Include current candle
+        slow_sma = sma(closes[:i+1], slow_window)
+        
+        if fast_sma is None or slow_sma is None:
+            # Not enough data yet, skip
+            continue
+        
+        # Generate signal
+        signal = "BUY" if fast_sma > slow_sma else "SELL"
+        
+        # Mark-to-market: calculate unrealized PnL if we have a position
+        if position is not None:
+            if position == "LONG":
+                unrealized_pnl = (current_close - entry_price) * position_quantity
+            else:  # SHORT
+                unrealized_pnl = (entry_price - current_close) * position_quantity
+            m2m_equity = realized_equity + unrealized_pnl
+        else:
+            m2m_equity = realized_equity
+        
+        # Position management logic
+        if position is None:
+            # No position open, look to enter
+            if signal == "BUY":
+                # Open LONG position
+                entry_price_slipped = apply_slippage(current_close, True, True)
+                position_quantity = m2m_equity / entry_price_slipped if entry_price_slipped > 0 else 0.0
+                entry_fees = calculate_fees(entry_price_slipped * position_quantity)
+                
+                position = "LONG"
+                entry_price = entry_price_slipped
+                entry_ts = current_candle.ts
+                realized_equity -= entry_fees
+                total_fees += entry_fees
+                
+                append_event({"event": "PositionOpened", "side": "LONG", "ts": current_candle.ts,
+                             "price": entry_price, "quantity": position_quantity})
+            elif signal == "SELL":
+                # Open SHORT position
+                entry_price_slipped = apply_slippage(current_close, True, False)
+                position_quantity = m2m_equity / entry_price_slipped if entry_price_slipped > 0 else 0.0
+                entry_fees = calculate_fees(entry_price_slipped * position_quantity)
+                
+                position = "SHORT"
+                entry_price = entry_price_slipped
+                entry_ts = current_candle.ts
+                realized_equity -= entry_fees
+                total_fees += entry_fees
+                
+                append_event({"event": "PositionOpened", "side": "SHORT", "ts": current_candle.ts,
+                             "price": entry_price, "quantity": position_quantity})
+        else:
+            # Position is open, check if we need to reverse or close
+            if (position == "LONG" and signal == "SELL") or (position == "SHORT" and signal == "BUY"):
+                # Close current position and open opposite
+                if position == "LONG":
+                    exit_price_slipped = apply_slippage(current_close, False, True)
+                    pnl = (exit_price_slipped - entry_price) * position_quantity
+                    exit_fees = calculate_fees(exit_price_slipped * position_quantity)
+                    
+                    # Create trade record for LONG position
+                    trade = {
+                        "trade_id": str(uuid.uuid4()),
+                        "side": "LONG",
+                        "signal": "BUY",
+                        "entry": float(entry_price),
+                        "exit": float(exit_price_slipped),
+                        "price": float(exit_price_slipped),
+                        "quantity": float(position_quantity),
+                        "pnl": float(pnl - entry_fees),
+                        "fees": float(exit_fees),
+                        "entry_ts": entry_ts,
+                        "exit_ts": current_candle.ts,
+                        "timestamp": utc_ts(),
+                    }
+                    trades.append(trade)
+                    
+                    # Update stats
+                    if pnl - entry_fees >= 0:
+                        wins += 1
+                    else:
+                        losses += 1
+                    
+                    # Close LONG, open SHORT
+                    realized_equity += pnl - entry_fees - exit_fees
+                    total_fees += exit_fees
+                    
+                    # Open SHORT position
+                    new_entry_price_slipped = apply_slippage(current_close, True, False)
+                    new_position_quantity = realized_equity / new_entry_price_slipped if new_entry_price_slipped > 0 else 0.0
+                    new_entry_fees = calculate_fees(new_entry_price_slipped * new_position_quantity)
+                    
+                    position = "SHORT"
+                    entry_price = new_entry_price_slipped
+                    entry_ts = current_candle.ts
+                    position_quantity = new_position_quantity
+                    realized_equity -= new_entry_fees
+                    total_fees += new_entry_fees
+                    
+                    append_event({"event": "PositionClosed", "side": "LONG", "ts": current_candle.ts,
+                                 "price": exit_price_slipped, "pnl": pnl - entry_fees})
+                    append_event({"event": "PositionOpened", "side": "SHORT", "ts": current_candle.ts,
+                                 "price": entry_price, "quantity": position_quantity})
+                else:  # position == "SHORT" and signal == "BUY"
+                    exit_price_slipped = apply_slippage(current_close, False, False)
+                    pnl = (entry_price - exit_price_slipped) * position_quantity
+                    exit_fees = calculate_fees(exit_price_slipped * position_quantity)
+                    
+                    # Create trade record for SHORT position
+                    trade = {
+                        "trade_id": str(uuid.uuid4()),
+                        "side": "SHORT",
+                        "signal": "SELL",
+                        "entry": float(entry_price),
+                        "exit": float(exit_price_slipped),
+                        "price": float(exit_price_slipped),
+                        "quantity": float(position_quantity),
+                        "pnl": float(pnl - entry_fees),
+                        "fees": float(exit_fees),
+                        "entry_ts": entry_ts,
+                        "exit_ts": current_candle.ts,
+                        "timestamp": utc_ts(),
+                    }
+                    trades.append(trade)
+                    
+                    # Update stats
+                    if pnl - entry_fees >= 0:
+                        wins += 1
+                    else:
+                        losses += 1
+                    
+                    # Close SHORT, open LONG
+                    realized_equity += pnl - entry_fees - exit_fees
+                    total_fees += exit_fees
+                    
+                    # Open LONG position
+                    new_entry_price_slipped = apply_slippage(current_close, True, True)
+                    new_position_quantity = realized_equity / new_entry_price_slipped if new_entry_price_slipped > 0 else 0.0
+                    new_entry_fees = calculate_fees(new_entry_price_slipped * new_position_quantity)
+                    
+                    position = "LONG"
+                    entry_price = new_entry_price_slipped
+                    entry_ts = current_candle.ts
+                    position_quantity = new_position_quantity
+                    realized_equity -= new_entry_fees
+                    total_fees += new_entry_fees
+                    
+                    append_event({"event": "PositionClosed", "side": "SHORT", "ts": current_candle.ts,
+                                 "price": exit_price_slipped, "pnl": pnl - entry_fees})
+                    append_event({"event": "PositionOpened", "side": "LONG", "ts": current_candle.ts,
+                                 "price": entry_price, "quantity": position_quantity})
+        
+        # Record mark-to-market equity at this step
+        equity_history.append({
+            "ts": current_candle.ts,
+            "equity": float(m2m_equity)
+        })
+        
+        # Track max drawdown based on realized equity
+        max_equity = max(max_equity, realized_equity)
+        current_drawdown = (max_equity - realized_equity) / max_equity if max_equity > 0 else 0
+        max_drawdown = max(max_drawdown, current_drawdown)
+    
+    # Close any open position at the final candle
+    if position is not None:
+        final_candle = candles[-1]
+        final_close = float(final_candle.close)
+        
+        if position == "LONG":
+            exit_price_slipped = apply_slippage(final_close, False, True)
+            pnl = (exit_price_slipped - entry_price) * position_quantity
+            exit_fees = calculate_fees(exit_price_slipped * position_quantity)
+            
+            trade = {
+                "trade_id": str(uuid.uuid4()),
+                "side": "LONG",
+                "signal": "BUY",
+                "entry": float(entry_price),
+                "exit": float(exit_price_slipped),
+                "price": float(exit_price_slipped),
+                "quantity": float(position_quantity),
+                "pnl": float(pnl - exit_fees),
+                "fees": float(exit_fees),
+                "entry_ts": entry_ts,
+                "exit_ts": final_candle.ts,
+                "timestamp": utc_ts(),
+            }
+            trades.append(trade)
+            
+            if pnl - exit_fees >= 0:
+                wins += 1
+            else:
+                losses += 1
+            
+            realized_equity += pnl - exit_fees
+            total_fees += exit_fees
+            
+            append_event({"event": "PositionClosed", "side": "LONG", "ts": final_candle.ts,
+                         "price": exit_price_slipped, "pnl": pnl - exit_fees})
+        else:  # SHORT
+            exit_price_slipped = apply_slippage(final_close, False, False)
+            pnl = (entry_price - exit_price_slipped) * position_quantity
+            exit_fees = calculate_fees(exit_price_slipped * position_quantity)
+            
+            trade = {
+                "trade_id": str(uuid.uuid4()),
+                "side": "SHORT",
+                "signal": "SELL",
+                "entry": float(entry_price),
+                "exit": float(exit_price_slipped),
+                "price": float(exit_price_slipped),
+                "quantity": float(position_quantity),
+                "pnl": float(pnl - exit_fees),
+                "fees": float(exit_fees),
+                "entry_ts": entry_ts,
+                "exit_ts": final_candle.ts,
+                "timestamp": utc_ts(),
+            }
+            trades.append(trade)
+            
+            if pnl - exit_fees >= 0:
+                wins += 1
+            else:
+                losses += 1
+            
+            realized_equity += pnl - exit_fees
+            total_fees += exit_fees
+            
+            append_event({"event": "PositionClosed", "side": "SHORT", "ts": final_candle.ts,
+                         "price": exit_price_slipped, "pnl": pnl - exit_fees})
+    
+    # Final equity is the realized equity (all positions closed)
+    equity = realized_equity
+    
+    # Write equity.csv with mark-to-market data
+    equity_csv_path = LATEST_DIR / "equity.csv"
+    temp_equity = equity_csv_path.with_suffix(".tmp")
+    try:
+        with temp_equity.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["ts", "equity"])
+            writer.writeheader()
+            for eq in equity_history:
+                writer.writerow(eq)
+        temp_equity.replace(equity_csv_path)
+    except Exception as e:
+        if temp_equity.exists():
+            temp_equity.unlink()
+        raise RuntimeError(f"Failed to write equity.csv: {e}")
+    
+    # Calculate stats
+    win_rate = wins / (wins + losses) if (wins + losses) > 0 else 0.0
+    net_pnl = equity - starting_balance
+    
+    stats = {
+        "trades": len(trades),
+        "wins": wins,
+        "losses": losses,
+        "win_rate": float(win_rate),
+        "net_pnl": float(net_pnl),
+        "fees_total": float(total_fees),
+        "max_drawdown": float(max_drawdown),
+        "starting_balance": float(starting_balance),
+        "ending_balance": float(equity),
+    }
+    
+    # Write stats.json
+    stats_path = LATEST_DIR / "stats.json"
+    temp_stats = stats_path.with_suffix(".tmp")
+    try:
+        with temp_stats.open("w", encoding="utf-8") as f:
+            json.dump(stats, f, indent=2)
+        temp_stats.replace(stats_path)
+    except Exception as e:
+        if temp_stats.exists():
+            temp_stats.unlink()
+        raise RuntimeError(f"Failed to write stats.json: {e}")
+    
+    return {
+        "trades": trades,
+        "equity_history": equity_history,
+        "stats": stats,
+        "ending_balance": equity
+    }
+
+
 def generate_signal(candles: List[Candle]) -> Optional[str]:
     # Avoid lookahead: compute signal on candles[:-1]
     base = candles[:-1]
@@ -322,7 +663,8 @@ def simulate_trade_one_bar(
 def write_trades_csv(trades: List[Dict[str, Any]]) -> None:
     p = LATEST_DIR / "trades.csv"
     # Define canonical trade schema - these are the only fields we write
-    fieldnames = ["trade_id", "side", "signal", "entry", "exit", "price", "quantity", "pnl", "fees", "timestamp"]
+    fieldnames = ["trade_id", "side", "signal", "entry", "exit", "price", "quantity", "pnl", "fees",
+                  "entry_ts", "exit_ts", "timestamp"]
     
     # Use atomic write: write to temp file first, then replace
     temp_p = p.with_suffix(".tmp")
@@ -723,6 +1065,8 @@ def main() -> int:
     ap.add_argument("--fees-bps", type=float, default=2.0)   # 2 bps per side (simple)
     ap.add_argument("--slip-bps", type=float, default=0.5)   # tiny adverse slip
     ap.add_argument("--backtest", type=int, default=0, help="Backtest mode: 0=single trade (default), N=backtest last N candles")
+    ap.add_argument("--backtest-mode", choices=["bar", "position"], default="position",
+                   help="Backtest strategy: bar (one trade per bar) or position (position management)")
     args = ap.parse_args()
 
     # Ensure runs/latest exists before we start
@@ -752,24 +1096,35 @@ def main() -> int:
 
         if args.backtest > 0:
             # Backtest mode
-            append_event({"event": "BacktestStarted", "candles": len(candles), "backtest": args.backtest})
+            append_event({"event": "BacktestStarted", "candles": len(candles), "backtest": args.backtest,
+                         "mode": args.backtest_mode})
             
             # Cap backtest to available candles
             backtest_candles = min(args.backtest, len(candles))
             backtest_slice = candles[-backtest_candles:] if backtest_candles > 0 else candles
             
-            backtest_result = run_backtest(
-                candles=backtest_slice,
-                starting_balance=starting_balance,
-                fees_bps=float(args.fees_bps),
-                slip_bps=float(args.slip_bps)
-            )
+            # Use appropriate backtest function based on mode
+            if args.backtest_mode == "bar":
+                backtest_result = run_backtest_bar_mode(
+                    candles=backtest_slice,
+                    starting_balance=starting_balance,
+                    fees_bps=float(args.fees_bps),
+                    slip_bps=float(args.slip_bps)
+                )
+            else:  # position mode
+                backtest_result = run_backtest_position_mode(
+                    candles=backtest_slice,
+                    starting_balance=starting_balance,
+                    fees_bps=float(args.fees_bps),
+                    slip_bps=float(args.slip_bps)
+                )
             
             trades = backtest_result["trades"]
             ending_balance = backtest_result["ending_balance"]
             stats = backtest_result["stats"]
             
-            append_event({"event": "BacktestFinished", "trades": len(trades), "net_pnl": stats["net_pnl"]})
+            append_event({"event": "BacktestFinished", "trades": len(trades), "net_pnl": stats["net_pnl"],
+                         "mode": args.backtest_mode})
             
         else:
             # Single trade mode (original behavior)

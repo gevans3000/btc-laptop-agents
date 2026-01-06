@@ -30,6 +30,7 @@ data/
 # Generated outputs
 runs/
 assistant_sync_pack.md
+.pytest_cache/
 
 # Local env / venv
 .env
