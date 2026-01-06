@@ -27,3 +27,12 @@ Thumbs.db
 logs/
 data/
 *.pid
+# Generated outputs
+runs/
+assistant_sync_pack.md
+
+# Local env / venv
+.env
+.venv/
+__pycache__/
+*.pyc
