@@ -21,6 +21,7 @@ for _ in range(10):
     repo = repo.parent
 RUNS_DIR = repo / "runs"
 LATEST_DIR = RUNS_DIR / "latest"
+PAPER_DIR = repo / "paper"
 
 
 def utc_ts() -> str:
@@ -34,10 +35,15 @@ def reset_latest_dir() -> None:
     LATEST_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def append_event(obj: Dict[str, Any]) -> None:
+def append_event(obj: Dict[str, Any], paper: bool = False) -> None:
     obj.setdefault("timestamp", utc_ts())
-    with (LATEST_DIR / "events.jsonl").open("a", encoding="utf-8") as f:
-        f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+    if paper:
+        PAPER_DIR.mkdir(exist_ok=True)
+        with (PAPER_DIR / "events.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+    else:
+        with (LATEST_DIR / "events.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
 
 @dataclass
@@ -93,6 +99,40 @@ def sma(vals: List[float], window: int) -> Optional[float]:
     if len(vals) < window:
         return None
     return sum(vals[-window:]) / float(window)
+
+
+def calculate_position_size(
+    equity: float,
+    entry_price: float,
+    risk_pct: float,
+    stop_bps: float,
+    tp_r: float,
+    max_leverage: float,
+) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Calculate position size, stop price, and take-profit price.
+    Returns (qty, stop_price, tp_price) or (None, None, None) if invalid.
+    """
+    stop_distance = entry_price * (stop_bps / 10_000.0)
+    if stop_distance <= 0:
+        return None, None, None
+    
+    risk_amount = equity * (risk_pct / 100.0)
+    qty_raw = risk_amount / stop_distance
+    
+    # Cap notional to max_leverage
+    max_notional = equity * max_leverage
+    max_qty = max_notional / entry_price if entry_price > 0 else 0.0
+    qty = min(qty_raw, max_qty)
+    
+    if qty <= 0:
+        return None, None, None
+    
+    # Calculate stop and tp prices
+    stop_price = entry_price - stop_distance
+    tp_price = entry_price + (stop_distance * tp_r)
+    
+    return qty, stop_price, tp_price
 
 
 def normalize_candle_order(candles: List[Candle]) -> List[Candle]:
@@ -257,48 +297,60 @@ def run_backtest_bar_mode(candles: List[Candle], starting_balance: float, fees_b
     }
 
 
-def run_backtest_position_mode(candles: List[Candle], starting_balance: float, fees_bps: float, slip_bps: float) -> Dict[str, Any]:
+def run_backtest_position_mode(
+    candles: List[Candle],
+    starting_balance: float,
+    fees_bps: float,
+    slip_bps: float,
+    risk_pct: float = 1.0,
+    stop_bps: float = 30.0,
+    tp_r: float = 1.5,
+    max_leverage: float = 1.0,
+    intrabar_mode: str = "conservative",
+) -> Dict[str, Any]:
     """
-    Run backtest in position mode (more realistic).
-    Manages positions with proper entry/exit logic and mark-to-market equity.
+    Run backtest in position mode with risk-based sizing and stop/take-profit.
     """
     if len(candles) < 31:  # Need at least 30 for SMA(30) + 1 for trading
         raise ValueError(f"Need at least 31 candles for backtest, got {len(candles)}")
-    
+
     # Normalize candle order first
     candles = normalize_candle_order(candles)
-    
+
     # Backtest parameters
     fast_window = 10
     slow_window = 30
     warmup = max(fast_window, slow_window)
-    
+
     # Initialize
     equity = starting_balance
     realized_equity = starting_balance  # Track realized PnL only
     equity_history = []
     trades = []
-    
+
     # Position tracking
     position = None  # None, "LONG", or "SHORT"
     entry_price = 0.0
     entry_ts = ""
     position_quantity = 0.0
-    
+    stop_price = 0.0
+    tp_price = 0.0
+
     # Track stats
     wins = 0
     losses = 0
     total_fees = 0.0
     max_equity = starting_balance
     max_drawdown = 0.0
-    
+    total_pnl = 0.0
+
     # Pre-compute all closes for SMA calculations
     closes = [float(c.close) for c in candles]
-    
+
     # Helper function to calculate fees
     def calculate_fees(notional: float) -> float:
         return notional * (fees_bps / 10_000.0)
-    
+
     # Helper function to apply slippage
     def apply_slippage(price: float, is_entry: bool, is_long: bool) -> float:
         slip_rate = slip_bps / 10_000.0
@@ -306,11 +358,13 @@ def run_backtest_position_mode(candles: List[Candle], starting_balance: float, f
             return price * (1.0 + slip_rate) if is_entry else price * (1.0 - slip_rate)
         else:
             return price * (1.0 - slip_rate) if is_entry else price * (1.0 + slip_rate)
-    
+
     # Backtest loop - start after warmup period
     for i in range(warmup, len(candles)):
         current_candle = candles[i]
         current_close = float(current_candle.close)
+        current_high = float(current_candle.high)
+        current_low = float(current_candle.low)
         
         # Compute SMAs on history up to current index (no lookahead)
         fast_sma = sma(closes[:i+1], fast_window)  # Include current candle
@@ -337,133 +391,254 @@ def run_backtest_position_mode(candles: List[Candle], starting_balance: float, f
         if position is None:
             # No position open, look to enter
             if signal == "BUY":
-                # Open LONG position
+                # Calculate position size with risk management
+                qty, stop_price, tp_price = calculate_position_size(
+                    equity=m2m_equity,
+                    entry_price=current_close,
+                    risk_pct=risk_pct,
+                    stop_bps=stop_bps,
+                    tp_r=tp_r,
+                    max_leverage=max_leverage,
+                )
+                
+                if qty is None:
+                    append_event({"event": "RiskSizingSkipped", "reason": "invalid stop distance or qty"})
+                    continue
+                
+                # Apply slippage to entry price
                 entry_price_slipped = apply_slippage(current_close, True, True)
-                position_quantity = m2m_equity / entry_price_slipped if entry_price_slipped > 0 else 0.0
-                entry_fees = calculate_fees(entry_price_slipped * position_quantity)
+                entry_fees = calculate_fees(entry_price_slipped * qty)
                 
                 position = "LONG"
                 entry_price = entry_price_slipped
                 entry_ts = current_candle.ts
+                position_quantity = qty
                 realized_equity -= entry_fees
                 total_fees += entry_fees
                 
                 append_event({"event": "PositionOpened", "side": "LONG", "ts": current_candle.ts,
-                             "price": entry_price, "quantity": position_quantity})
+                             "price": entry_price, "quantity": qty, "stop": stop_price, "tp": tp_price})
             elif signal == "SELL":
-                # Open SHORT position
+                # Calculate position size with risk management
+                qty, stop_price, tp_price = calculate_position_size(
+                    equity=m2m_equity,
+                    entry_price=current_close,
+                    risk_pct=risk_pct,
+                    stop_bps=stop_bps,
+                    tp_r=tp_r,
+                    max_leverage=max_leverage,
+                )
+                
+                if qty is None:
+                    append_event({"event": "RiskSizingSkipped", "reason": "invalid stop distance or qty"})
+                    continue
+                
+                # Apply slippage to entry price
                 entry_price_slipped = apply_slippage(current_close, True, False)
-                position_quantity = m2m_equity / entry_price_slipped if entry_price_slipped > 0 else 0.0
-                entry_fees = calculate_fees(entry_price_slipped * position_quantity)
+                entry_fees = calculate_fees(entry_price_slipped * qty)
                 
                 position = "SHORT"
                 entry_price = entry_price_slipped
                 entry_ts = current_candle.ts
+                position_quantity = qty
                 realized_equity -= entry_fees
                 total_fees += entry_fees
                 
                 append_event({"event": "PositionOpened", "side": "SHORT", "ts": current_candle.ts,
-                             "price": entry_price, "quantity": position_quantity})
+                             "price": entry_price, "quantity": qty, "stop": stop_price, "tp": tp_price})
         else:
-            # Position is open, check if we need to reverse or close
-            if (position == "LONG" and signal == "SELL") or (position == "SHORT" and signal == "BUY"):
-                # Close current position and open opposite
+            # Position is open, check for stop/tp hits
+            exit_reason = None
+            exit_price = None
+            
+            if position == "LONG":
+                # Check if stop or tp was hit
+                stop_hit = current_low <= stop_price
+                tp_hit = current_high >= tp_price
+                
+                if stop_hit and tp_hit:
+                    # Both hit in same candle - use intrabar mode
+                    if intrabar_mode == "conservative":
+                        exit_reason = "STOP"
+                        exit_price = stop_price
+                    else:
+                        exit_reason = "TP"
+                        exit_price = tp_price
+                elif stop_hit:
+                    exit_reason = "STOP"
+                    exit_price = stop_price
+                elif tp_hit:
+                    exit_reason = "TP"
+                    exit_price = tp_price
+            else:  # SHORT
+                # Check if stop or tp was hit
+                stop_hit = current_high >= stop_price
+                tp_hit = current_low <= tp_price
+                
+                if stop_hit and tp_hit:
+                    # Both hit in same candle - use intrabar mode
+                    if intrabar_mode == "conservative":
+                        exit_reason = "STOP"
+                        exit_price = stop_price
+                    else:
+                        exit_reason = "TP"
+                        exit_price = tp_price
+                elif stop_hit:
+                    exit_reason = "STOP"
+                    exit_price = stop_price
+                elif tp_hit:
+                    exit_reason = "TP"
+                    exit_price = tp_price
+            
+            # If exit triggered, close position
+            if exit_reason is not None:
+                # Apply slippage to exit price
+                exit_price_slipped = apply_slippage(exit_price, False, position == "LONG")
+                
                 if position == "LONG":
-                    exit_price_slipped = apply_slippage(current_close, False, True)
                     pnl = (exit_price_slipped - entry_price) * position_quantity
-                    exit_fees = calculate_fees(exit_price_slipped * position_quantity)
-                    
-                    # Create trade record for LONG position
-                    trade = {
-                        "trade_id": str(uuid.uuid4()),
-                        "side": "LONG",
-                        "signal": "BUY",
-                        "entry": float(entry_price),
-                        "exit": float(exit_price_slipped),
-                        "price": float(exit_price_slipped),
-                        "quantity": float(position_quantity),
-                        "pnl": float(pnl - entry_fees),
-                        "fees": float(exit_fees),
-                        "entry_ts": entry_ts,
-                        "exit_ts": current_candle.ts,
-                        "timestamp": utc_ts(),
-                    }
-                    trades.append(trade)
-                    
-                    # Update stats
-                    if pnl - entry_fees >= 0:
-                        wins += 1
-                    else:
-                        losses += 1
-                    
-                    # Close LONG, open SHORT
-                    realized_equity += pnl - entry_fees - exit_fees
-                    total_fees += exit_fees
-                    
-                    # Open SHORT position
-                    new_entry_price_slipped = apply_slippage(current_close, True, False)
-                    new_position_quantity = realized_equity / new_entry_price_slipped if new_entry_price_slipped > 0 else 0.0
-                    new_entry_fees = calculate_fees(new_entry_price_slipped * new_position_quantity)
-                    
-                    position = "SHORT"
-                    entry_price = new_entry_price_slipped
-                    entry_ts = current_candle.ts
-                    position_quantity = new_position_quantity
-                    realized_equity -= new_entry_fees
-                    total_fees += new_entry_fees
-                    
-                    append_event({"event": "PositionClosed", "side": "LONG", "ts": current_candle.ts,
-                                 "price": exit_price_slipped, "pnl": pnl - entry_fees})
-                    append_event({"event": "PositionOpened", "side": "SHORT", "ts": current_candle.ts,
-                                 "price": entry_price, "quantity": position_quantity})
-                else:  # position == "SHORT" and signal == "BUY"
-                    exit_price_slipped = apply_slippage(current_close, False, False)
+                else:
                     pnl = (entry_price - exit_price_slipped) * position_quantity
-                    exit_fees = calculate_fees(exit_price_slipped * position_quantity)
+                
+                exit_fees = calculate_fees(exit_price_slipped * position_quantity)
+                
+                # Create trade record
+                trade = {
+                    "trade_id": str(uuid.uuid4()),
+                    "side": position,
+                    "signal": "BUY" if position == "LONG" else "SELL",
+                    "entry": float(entry_price),
+                    "exit": float(exit_price_slipped),
+                    "price": float(exit_price_slipped),
+                    "quantity": float(position_quantity),
+                    "pnl": float(pnl - exit_fees),
+                    "fees": float(exit_fees),
+                    "entry_ts": entry_ts,
+                    "exit_ts": current_candle.ts,
+                    "timestamp": utc_ts(),
+                    "exit_reason": exit_reason,
+                    "stop_price": float(stop_price),
+                    "tp_price": float(tp_price),
+                }
+                trades.append(trade)
+                
+                # Update stats
+                total_pnl += pnl - exit_fees
+                if pnl - exit_fees >= 0:
+                    wins += 1
+                else:
+                    losses += 1
+                
+                # Clear position
+                realized_equity += pnl - exit_fees
+                total_fees += exit_fees
+                position = None
+                
+                append_event({"event": "PositionClosed", "side": position, "ts": current_candle.ts,
+                             "price": exit_price_slipped, "pnl": pnl - exit_fees, "reason": exit_reason})
+            elif (position == "LONG" and signal == "SELL") or (position == "SHORT" and signal == "BUY"):
+                # Crossover reversal - close at current close
+                exit_price_slipped = apply_slippage(current_close, False, position == "LONG")
+                
+                if position == "LONG":
+                    pnl = (exit_price_slipped - entry_price) * position_quantity
+                else:
+                    pnl = (entry_price - exit_price_slipped) * position_quantity
+                
+                exit_fees = calculate_fees(exit_price_slipped * position_quantity)
+                
+                # Create trade record
+                trade = {
+                    "trade_id": str(uuid.uuid4()),
+                    "side": position,
+                    "signal": "BUY" if position == "LONG" else "SELL",
+                    "entry": float(entry_price),
+                    "exit": float(exit_price_slipped),
+                    "price": float(exit_price_slipped),
+                    "quantity": float(position_quantity),
+                    "pnl": float(pnl - exit_fees),
+                    "fees": float(exit_fees),
+                    "entry_ts": entry_ts,
+                    "exit_ts": current_candle.ts,
+                    "timestamp": utc_ts(),
+                    "exit_reason": "REVERSE",
+                    "stop_price": float(stop_price),
+                    "tp_price": float(tp_price),
+                }
+                trades.append(trade)
+                
+                # Update stats
+                total_pnl += pnl - exit_fees
+                if pnl - exit_fees >= 0:
+                    wins += 1
+                else:
+                    losses += 1
+                
+                # Clear position
+                realized_equity += pnl - exit_fees
+                total_fees += exit_fees
+                position = None
+                
+                append_event({"event": "PositionClosed", "side": position, "ts": current_candle.ts,
+                             "price": exit_price_slipped, "pnl": pnl - exit_fees, "reason": "REVERSE"})
+                
+                # Open opposite position
+                if signal == "BUY":
+                    # Calculate position size with risk management
+                    qty, stop_price, tp_price = calculate_position_size(
+                        equity=realized_equity,
+                        entry_price=current_close,
+                        risk_pct=risk_pct,
+                        stop_bps=stop_bps,
+                        tp_r=tp_r,
+                        max_leverage=max_leverage,
+                    )
                     
-                    # Create trade record for SHORT position
-                    trade = {
-                        "trade_id": str(uuid.uuid4()),
-                        "side": "SHORT",
-                        "signal": "SELL",
-                        "entry": float(entry_price),
-                        "exit": float(exit_price_slipped),
-                        "price": float(exit_price_slipped),
-                        "quantity": float(position_quantity),
-                        "pnl": float(pnl - entry_fees),
-                        "fees": float(exit_fees),
-                        "entry_ts": entry_ts,
-                        "exit_ts": current_candle.ts,
-                        "timestamp": utc_ts(),
-                    }
-                    trades.append(trade)
+                    if qty is None:
+                        append_event({"event": "RiskSizingSkipped", "reason": "invalid stop distance or qty"})
+                        continue
                     
-                    # Update stats
-                    if pnl - entry_fees >= 0:
-                        wins += 1
-                    else:
-                        losses += 1
-                    
-                    # Close SHORT, open LONG
-                    realized_equity += pnl - entry_fees - exit_fees
-                    total_fees += exit_fees
-                    
-                    # Open LONG position
-                    new_entry_price_slipped = apply_slippage(current_close, True, True)
-                    new_position_quantity = realized_equity / new_entry_price_slipped if new_entry_price_slipped > 0 else 0.0
-                    new_entry_fees = calculate_fees(new_entry_price_slipped * new_position_quantity)
+                    # Apply slippage to entry price
+                    entry_price_slipped = apply_slippage(current_close, True, True)
+                    entry_fees = calculate_fees(entry_price_slipped * qty)
                     
                     position = "LONG"
-                    entry_price = new_entry_price_slipped
+                    entry_price = entry_price_slipped
                     entry_ts = current_candle.ts
-                    position_quantity = new_position_quantity
-                    realized_equity -= new_entry_fees
-                    total_fees += new_entry_fees
+                    position_quantity = qty
+                    realized_equity -= entry_fees
+                    total_fees += entry_fees
                     
-                    append_event({"event": "PositionClosed", "side": "SHORT", "ts": current_candle.ts,
-                                 "price": exit_price_slipped, "pnl": pnl - entry_fees})
                     append_event({"event": "PositionOpened", "side": "LONG", "ts": current_candle.ts,
-                                 "price": entry_price, "quantity": position_quantity})
+                                 "price": entry_price, "quantity": qty, "stop": stop_price, "tp": tp_price})
+                else:
+                    # Calculate position size with risk management
+                    qty, stop_price, tp_price = calculate_position_size(
+                        equity=realized_equity,
+                        entry_price=current_close,
+                        risk_pct=risk_pct,
+                        stop_bps=stop_bps,
+                        tp_r=tp_r,
+                        max_leverage=max_leverage,
+                    )
+                    
+                    if qty is None:
+                        append_event({"event": "RiskSizingSkipped", "reason": "invalid stop distance or qty"})
+                        continue
+                    
+                    # Apply slippage to entry price
+                    entry_price_slipped = apply_slippage(current_close, True, False)
+                    entry_fees = calculate_fees(entry_price_slipped * qty)
+                    
+                    position = "SHORT"
+                    entry_price = entry_price_slipped
+                    entry_ts = current_candle.ts
+                    position_quantity = qty
+                    realized_equity -= entry_fees
+                    total_fees += entry_fees
+                    
+                    append_event({"event": "PositionOpened", "side": "SHORT", "ts": current_candle.ts,
+                                 "price": entry_price, "quantity": qty, "stop": stop_price, "tp": tp_price})
         
         # Record mark-to-market equity at this step
         equity_history.append({
@@ -596,6 +771,411 @@ def run_backtest_position_mode(candles: List[Candle], starting_balance: float, f
         "stats": stats,
         "ending_balance": equity
     }
+
+
+def run_live_paper_trading(
+    candles: List[Candle],
+    starting_balance: float,
+    fees_bps: float,
+    slip_bps: float,
+    symbol: str,
+    interval: str,
+    source: str,
+    risk_pct: float = 1.0,
+    stop_bps: float = 30.0,
+    tp_r: float = 1.5,
+    max_leverage: float = 1.0,
+    intrabar_mode: str = "conservative",
+) -> tuple[List[Dict[str, Any]], float, Dict[str, Any]]:
+    """
+    Run live paper trading with persistent state and risk management.
+    Returns (trades, ending_balance, state)
+    """
+    # Load or initialize state
+    state_path = PAPER_DIR / "state.json"
+    if state_path.exists():
+        with state_path.open("r", encoding="utf-8") as f:
+            state = json.load(f)
+        # Ensure all required fields exist in loaded state
+        state.setdefault("risk_pct", risk_pct)
+        state.setdefault("stop_bps", stop_bps)
+        state.setdefault("tp_r", tp_r)
+        state.setdefault("max_leverage", max_leverage)
+        state.setdefault("intrabar_mode", intrabar_mode)
+        state.setdefault("realized_pnl", 0.0)
+        state.setdefault("unrealized_pnl", 0.0)
+        state.setdefault("net_pnl", 0.0)
+        state.setdefault("fees_total", 0.0)
+    else:
+        state = {
+            "equity": starting_balance,
+            "position": None,
+            "last_ts": None,
+            "fees_bps": fees_bps,
+            "slip_bps": slip_bps,
+            "symbol": symbol,
+            "interval": interval,
+            "source": source,
+            "risk_pct": risk_pct,
+            "stop_bps": stop_bps,
+            "tp_r": tp_r,
+            "max_leverage": max_leverage,
+            "intrabar_mode": intrabar_mode,
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 0.0,
+            "net_pnl": 0.0,
+            "fees_total": 0.0,
+        }
+
+    # Ensure paper directory exists
+    PAPER_DIR.mkdir(exist_ok=True)
+
+    # Helper function to calculate fees
+    def calculate_fees(notional: float) -> float:
+        return notional * (fees_bps / 10_000.0)
+
+    # Helper function to apply slippage
+    def apply_slippage(price: float, is_entry: bool, is_long: bool) -> float:
+        slip_rate = slip_bps / 10_000.0
+        if is_long:
+            return price * (1.0 + slip_rate) if is_entry else price * (1.0 - slip_rate)
+        else:
+            return price * (1.0 - slip_rate) if is_entry else price * (1.0 + slip_rate)
+
+    # Identify new candles
+    last_ts = state.get("last_ts")
+    new_candles = []
+    for candle in candles:
+        if last_ts is None or candle.ts > last_ts:
+            new_candles.append(candle)
+
+    if not new_candles:
+        append_event({"event": "NoNewCandles", "last_ts": last_ts}, paper=True)
+        return [], state["equity"], state
+
+    # Process new candles
+    trades = []
+    for candle in new_candles:
+        current_close = float(candle.close)
+        current_high = float(candle.high)
+        current_low = float(candle.low)
+        
+        # Compute SMAs
+        closes = [float(c.close) for c in candles if c.ts <= candle.ts]
+        fast_sma = sma(closes, 10)
+        slow_sma = sma(closes, 30)
+        
+        if fast_sma is None or slow_sma is None:
+            continue
+        
+        signal = "BUY" if fast_sma > slow_sma else "SELL"
+        
+        # Position management
+        position = state.get("position")
+        if position is None:
+            # Open position with risk management
+            if signal == "BUY":
+                qty, stop_price, tp_price = calculate_position_size(
+                    equity=state["equity"],
+                    entry_price=current_close,
+                    risk_pct=risk_pct,
+                    stop_bps=stop_bps,
+                    tp_r=tp_r,
+                    max_leverage=max_leverage,
+                )
+                
+                if qty is None:
+                    append_event({"event": "RiskSizingSkipped", "reason": "invalid stop distance or qty"}, paper=True)
+                    continue
+                
+                entry_price_slipped = apply_slippage(current_close, True, True)
+                entry_fees = calculate_fees(entry_price_slipped * qty)
+                
+                state["position"] = {
+                    "side": "LONG",
+                    "entry_price": entry_price_slipped,
+                    "entry_ts": candle.ts,
+                    "quantity": qty,
+                    "stop_price": stop_price,
+                    "tp_price": tp_price,
+                }
+                state["equity"] -= entry_fees
+                state["fees_total"] = state.get("fees_total", 0.0) + entry_fees
+                
+                append_event({"event": "PositionOpened", "side": "LONG", "ts": candle.ts,
+                             "price": entry_price_slipped, "quantity": qty, "stop": stop_price, "tp": tp_price}, paper=True)
+            elif signal == "SELL":
+                qty, stop_price, tp_price = calculate_position_size(
+                    equity=state["equity"],
+                    entry_price=current_close,
+                    risk_pct=risk_pct,
+                    stop_bps=stop_bps,
+                    tp_r=tp_r,
+                    max_leverage=max_leverage,
+                )
+                
+                if qty is None:
+                    append_event({"event": "RiskSizingSkipped", "reason": "invalid stop distance or qty"}, paper=True)
+                    continue
+                
+                entry_price_slipped = apply_slippage(current_close, True, False)
+                entry_fees = calculate_fees(entry_price_slipped * qty)
+                
+                state["position"] = {
+                    "side": "SHORT",
+                    "entry_price": entry_price_slipped,
+                    "entry_ts": candle.ts,
+                    "quantity": qty,
+                    "stop_price": stop_price,
+                    "tp_price": tp_price,
+                }
+                state["equity"] -= entry_fees
+                state["fees_total"] = state.get("fees_total", 0.0) + entry_fees
+                
+                append_event({"event": "PositionOpened", "side": "SHORT", "ts": candle.ts,
+                             "price": entry_price_slipped, "quantity": qty, "stop": stop_price, "tp": tp_price}, paper=True)
+        else:
+            # Ensure position has required fields (backward compatibility)
+            if "stop_price" not in position or "tp_price" not in position:
+                # Recalculate stop/tp prices for existing positions
+                qty, stop_price, tp_price = calculate_position_size(
+                    equity=state["equity"],
+                    entry_price=position["entry_price"],
+                    risk_pct=risk_pct,
+                    stop_bps=stop_bps,
+                    tp_r=tp_r,
+                    max_leverage=max_leverage,
+                )
+                position["stop_price"] = stop_price
+                position["tp_price"] = tp_price
+            
+            # Check for stop/tp hits
+            exit_reason = None
+            exit_price = None
+            
+            if position["side"] == "LONG":
+                stop_hit = current_low <= position["stop_price"]
+                tp_hit = current_high >= position["tp_price"]
+                
+                if stop_hit and tp_hit:
+                    # Both hit in same candle - use intrabar mode
+                    if intrabar_mode == "conservative":
+                        exit_reason = "STOP"
+                        exit_price = position["stop_price"]
+                    else:
+                        exit_reason = "TP"
+                        exit_price = position["tp_price"]
+                elif stop_hit:
+                    exit_reason = "STOP"
+                    exit_price = position["stop_price"]
+                elif tp_hit:
+                    exit_reason = "TP"
+                    exit_price = position["tp_price"]
+            else:  # SHORT
+                stop_hit = current_high >= position["stop_price"]
+                tp_hit = current_low <= position["tp_price"]
+                
+                if stop_hit and tp_hit:
+                    # Both hit in same candle - use intrabar mode
+                    if intrabar_mode == "conservative":
+                        exit_reason = "STOP"
+                        exit_price = position["stop_price"]
+                    else:
+                        exit_reason = "TP"
+                        exit_price = position["tp_price"]
+                elif stop_hit:
+                    exit_reason = "STOP"
+                    exit_price = position["stop_price"]
+                elif tp_hit:
+                    exit_reason = "TP"
+                    exit_price = position["tp_price"]
+            
+            # If exit triggered, close position
+            if exit_reason is not None:
+                exit_price_slipped = apply_slippage(exit_price, False, position["side"] == "LONG")
+                
+                if position["side"] == "LONG":
+                    pnl = (exit_price_slipped - position["entry_price"]) * position["quantity"]
+                else:
+                    pnl = (position["entry_price"] - exit_price_slipped) * position["quantity"]
+                
+                exit_fees = calculate_fees(exit_price_slipped * position["quantity"])
+                
+                trade = {
+                    "trade_id": str(uuid.uuid4()),
+                    "side": position["side"],
+                    "signal": "BUY" if position["side"] == "LONG" else "SELL",
+                    "entry": float(position["entry_price"]),
+                    "exit": float(exit_price_slipped),
+                    "price": float(exit_price_slipped),
+                    "quantity": float(position["quantity"]),
+                    "pnl": float(pnl - exit_fees),
+                    "fees": float(exit_fees),
+                    "entry_ts": position["entry_ts"],
+                    "exit_ts": candle.ts,
+                    "timestamp": utc_ts(),
+                    "exit_reason": exit_reason,
+                    "stop_price": float(position["stop_price"]),
+                    "tp_price": float(position["tp_price"]),
+                }
+                trades.append(trade)
+                
+                state["equity"] += pnl - exit_fees
+                state["fees_total"] = state.get("fees_total", 0.0) + exit_fees
+                state["realized_pnl"] = state.get("realized_pnl", 0.0) + (pnl - exit_fees)
+                state["position"] = None
+                
+                append_event({"event": "PositionClosed", "side": position["side"], "ts": candle.ts,
+                             "price": exit_price_slipped, "pnl": pnl - exit_fees, "reason": exit_reason}, paper=True)
+            elif (position["side"] == "LONG" and signal == "SELL") or (position["side"] == "SHORT" and signal == "BUY"):
+                # Crossover reversal - close at current close
+                exit_price_slipped = apply_slippage(current_close, False, position["side"] == "LONG")
+                
+                if position["side"] == "LONG":
+                    pnl = (exit_price_slipped - position["entry_price"]) * position["quantity"]
+                else:
+                    pnl = (position["entry_price"] - exit_price_slipped) * position["quantity"]
+                
+                exit_fees = calculate_fees(exit_price_slipped * position["quantity"])
+                
+                trade = {
+                    "trade_id": str(uuid.uuid4()),
+                    "side": position["side"],
+                    "signal": "BUY" if position["side"] == "LONG" else "SELL",
+                    "entry": float(position["entry_price"]),
+                    "exit": float(exit_price_slipped),
+                    "price": float(exit_price_slipped),
+                    "quantity": float(position["quantity"]),
+                    "pnl": float(pnl - exit_fees),
+                    "fees": float(exit_fees),
+                    "entry_ts": position["entry_ts"],
+                    "exit_ts": candle.ts,
+                    "timestamp": utc_ts(),
+                    "exit_reason": "REVERSE",
+                    "stop_price": float(position["stop_price"]),
+                    "tp_price": float(position["tp_price"]),
+                }
+                trades.append(trade)
+                
+                state["equity"] += pnl - exit_fees
+                state["fees_total"] = state.get("fees_total", 0.0) + exit_fees
+                state["realized_pnl"] = state.get("realized_pnl", 0.0) + (pnl - exit_fees)
+                state["position"] = None
+                
+                append_event({"event": "PositionClosed", "side": position["side"], "ts": candle.ts,
+                             "price": exit_price_slipped, "pnl": pnl - exit_fees, "reason": "REVERSE"}, paper=True)
+                
+                # Open opposite position
+                if signal == "BUY":
+                    qty, stop_price, tp_price = calculate_position_size(
+                        equity=state["equity"],
+                        entry_price=current_close,
+                        risk_pct=risk_pct,
+                        stop_bps=stop_bps,
+                        tp_r=tp_r,
+                        max_leverage=max_leverage,
+                    )
+                    
+                    if qty is None:
+                        append_event({"event": "RiskSizingSkipped", "reason": "invalid stop distance or qty"}, paper=True)
+                        continue
+                    
+                    entry_price_slipped = apply_slippage(current_close, True, True)
+                    entry_fees = calculate_fees(entry_price_slipped * qty)
+                    
+                    state["position"] = {
+                        "side": "LONG",
+                        "entry_price": entry_price_slipped,
+                        "entry_ts": candle.ts,
+                        "quantity": qty,
+                        "stop_price": stop_price,
+                        "tp_price": tp_price,
+                    }
+                    state["equity"] -= entry_fees
+                    state["fees_total"] = state.get("fees_total", 0.0) + entry_fees
+                    
+                    append_event({"event": "PositionOpened", "side": "LONG", "ts": candle.ts,
+                                 "price": entry_price_slipped, "quantity": qty, "stop": stop_price, "tp": tp_price}, paper=True)
+                else:
+                    qty, stop_price, tp_price = calculate_position_size(
+                        equity=state["equity"],
+                        entry_price=current_close,
+                        risk_pct=risk_pct,
+                        stop_bps=stop_bps,
+                        tp_r=tp_r,
+                        max_leverage=max_leverage,
+                    )
+                    
+                    if qty is None:
+                        append_event({"event": "RiskSizingSkipped", "reason": "invalid stop distance or qty"}, paper=True)
+                        continue
+                    
+                    entry_price_slipped = apply_slippage(current_close, True, False)
+                    entry_fees = calculate_fees(entry_price_slipped * qty)
+                    
+                    state["position"] = {
+                        "side": "SHORT",
+                        "entry_price": entry_price_slipped,
+                        "entry_ts": candle.ts,
+                        "quantity": qty,
+                        "stop_price": stop_price,
+                        "tp_price": tp_price,
+                    }
+                    state["equity"] -= entry_fees
+                    state["fees_total"] = state.get("fees_total", 0.0) + entry_fees
+                    
+                    append_event({"event": "PositionOpened", "side": "SHORT", "ts": candle.ts,
+                                 "price": entry_price_slipped, "quantity": qty, "stop": stop_price, "tp": tp_price}, paper=True)
+
+    # Update last_ts to the last processed candle
+    state["last_ts"] = candles[-1].ts
+    
+    # Calculate unrealized PnL if position is open
+    if state.get("position") is not None:
+        position = state["position"]
+        last_close = float(candles[-1].close)
+        if position["side"] == "LONG":
+            unrealized_pnl = (last_close - position["entry_price"]) * position["quantity"]
+        else:
+            unrealized_pnl = (position["entry_price"] - last_close) * position["quantity"]
+        state["unrealized_pnl"] = unrealized_pnl
+    else:
+        state["unrealized_pnl"] = 0.0
+    
+    # Calculate net PnL
+    state["net_pnl"] = state.get("realized_pnl", 0.0) + state.get("unrealized_pnl", 0.0)
+    
+    # Save state
+    temp_state = state_path.with_suffix(".tmp")
+    try:
+        with temp_state.open("w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+        temp_state.replace(state_path)
+    except Exception as e:
+        if temp_state.exists():
+            temp_state.unlink()
+        raise RuntimeError(f"Failed to write state.json: {e}")
+    
+    # Append trades to paper/trades.csv
+    trades_csv_path = PAPER_DIR / "trades.csv"
+    if trades:
+        fieldnames = ["trade_id", "side", "signal", "entry", "exit", "price", "quantity", "pnl", "fees",
+                      "entry_ts", "exit_ts", "timestamp", "exit_reason", "stop_price", "tp_price"]
+        temp_trades = trades_csv_path.with_suffix(".tmp")
+        try:
+            with temp_trades.open("a" if trades_csv_path.exists() else "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                if not trades_csv_path.exists():
+                    writer.writeheader()
+                for trade in trades:
+                    writer.writerow({k: v for k, v in trade.items() if k in fieldnames})
+            temp_trades.replace(trades_csv_path)
+        except Exception as e:
+            if temp_trades.exists():
+                temp_trades.unlink()
+            raise RuntimeError(f"Failed to append to trades.csv: {e}")
+    
+    return trades, state["equity"], state
 
 
 def generate_signal(candles: List[Candle]) -> Optional[str]:
@@ -804,6 +1384,42 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
         except Exception as e:
             append_event({"event": "StatsReadError", "message": str(e)})
 
+    # Live mode section (if available)
+    live_stats_section = ""
+    if summary.get("mode") == "live":
+        position = summary.get("position")
+        position_info = "flat"
+        if position is not None:
+            position_info = f"{position['side']} @ ${position['entry_price']:.2f} ({position['quantity']:.8f})"
+        
+        live_stats_section = f"""
+    <div class="section">
+        <h2>Live Paper Trading</h2>
+        <div class="cards">
+            <div class="card">
+                <div class="card-label">Position</div>
+                <div class="card-value">{position_info}</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Realized PnL</div>
+                <div class="card-value">${summary.get('realized_pnl', 0.0):.2f}</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Unrealized PnL</div>
+                <div class="card-value">${summary.get('unrealized_pnl', 0.0):.2f}</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Net PnL</div>
+                <div class="card-value">${summary.get('net_pnl', 0.0):.2f}</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Total Fees</div>
+                <div class="card-value">${summary.get('fees_total', 0.0):.2f}</div>
+            </div>
+        </div>
+    </div>
+"""
+
     # Enhanced metric cards with backtest stats
     win_rate_card = ""
     max_drawdown_card = ""
@@ -836,6 +1452,79 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
 """
         except Exception as e:
             append_event({"event": "StatsReadError", "message": str(e)})
+    
+    # Mode card
+    mode_card = ""
+    if summary.get("mode") == "live":
+        mode_card = """
+        <div class="card">
+            <div class="card-label">Mode</div>
+            <div class="card-value" style="color: #e74c3c;">live</div>
+        </div>
+"""
+    
+    # Risk settings cards
+    risk_settings_section = ""
+    if summary.get("mode") in ["live", "backtest"]:
+        risk_settings_section = f"""
+    <div class="section">
+        <h2>Risk Settings</h2>
+        <div class="cards">
+            <div class="card">
+                <div class="card-label">Risk %</div>
+                <div class="card-value">{summary.get('risk_pct', 1.0)}%</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Stop (bps)</div>
+                <div class="card-value">{summary.get('stop_bps', 30.0)} bps</div>
+            </div>
+            <div class="card">
+                <div class="card-label">TP Ratio</div>
+                <div class="card-value">{summary.get('tp_r', 1.5)}</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Max Leverage</div>
+                <div class="card-value">{summary.get('max_leverage', 1.0)}x</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Intrabar Mode</div>
+                <div class="card-value">{summary.get('intrabar_mode', 'conservative')}</div>
+            </div>
+        </div>
+    </div>
+"""
+    
+    # Open position details
+    open_position_section = ""
+    if summary.get("mode") == "live" and summary.get("position"):
+        position = summary["position"]
+        open_position_section = f"""
+    <div class="section">
+        <h2>Open Position</h2>
+        <div class="cards">
+            <div class="card">
+                <div class="card-label">Side</div>
+                <div class="card-value">{position['side']}</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Entry</div>
+                <div class="card-value">${position['entry_price']:.2f}</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Stop</div>
+                <div class="card-value">${position['stop_price']:.2f}</div>
+            </div>
+            <div class="card">
+                <div class="card-label">TP</div>
+                <div class="card-value">${position['tp_price']:.2f}</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Quantity</div>
+                <div class="card-value">{position['quantity']:.8f}</div>
+            </div>
+        </div>
+    </div>
+"""
 
     # Improved CSS with system font stack and better typography
     html = f"""<!doctype html>
@@ -972,55 +1661,62 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
   {error_section}
   
   <div class="cards">
-    <div class="card">
-      <div class="card-label">Run ID</div>
-      <div class="card-value">{summary['run_id'][:8]}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Source</div>
-      <div class="card-value">{summary['source']}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Symbol</div>
-      <div class="card-value">{summary['symbol']}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Interval</div>
-      <div class="card-value">{summary['interval']}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Candles</div>
-      <div class="card-value">{summary['candle_count']}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Start Balance</div>
-      <div class="card-value">${summary['starting_balance']:.2f}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">End Balance</div>
-      <div class="card-value">${summary['ending_balance']:.2f}</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Net PnL</div>
-      <div class="card-value" style="color: {'#2ecc71' if summary['net_pnl'] >= 0 else '#e74c3c'};">
-        ${summary['net_pnl']:.2f}
+      <div class="card">
+          <div class="card-label">Run ID</div>
+          <div class="card-value">{summary['run_id'][:8]}</div>
       </div>
-    </div>
-    {win_rate_card}
-    {max_drawdown_card}
-    <div class="card">
-      <div class="card-label">Fees (bps)</div>
-      <div class="card-value">${summary['fees_bps']} bps</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Slippage (bps)</div>
-      <div class="card-value">${summary['slip_bps']} bps</div>
-    </div>
-    {fees_total_card}
+      <div class="card">
+          <div class="card-label">Mode</div>
+          <div class="card-value" style="color: {'#e74c3c' if summary.get('mode') == 'live' else '#2c3e50'};">{summary.get('mode', 'single')}</div>
+      </div>
+      <div class="card">
+          <div class="card-label">Source</div>
+          <div class="card-value">{summary['source']}</div>
+      </div>
+      <div class="card">
+          <div class="card-label">Symbol</div>
+          <div class="card-value">{summary['symbol']}</div>
+      </div>
+      <div class="card">
+          <div class="card-label">Interval</div>
+          <div class="card-value">{summary['interval']}</div>
+      </div>
+      <div class="card">
+          <div class="card-label">Candles</div>
+          <div class="card-value">{summary['candle_count']}</div>
+      </div>
+      <div class="card">
+          <div class="card-label">Start Balance</div>
+          <div class="card-value">${summary['starting_balance']:.2f}</div>
+      </div>
+      <div class="card">
+          <div class="card-label">End Balance</div>
+          <div class="card-value">${summary['ending_balance']:.2f}</div>
+      </div>
+      <div class="card">
+          <div class="card-label">Net PnL</div>
+          <div class="card-value" style="color: {'#2ecc71' if summary['net_pnl'] >= 0 else '#e74c3c'};">
+              ${summary['net_pnl']:.2f}
+          </div>
+      </div>
+      {win_rate_card}
+      {max_drawdown_card}
+      <div class="card">
+          <div class="card-label">Fees (bps)</div>
+          <div class="card-value">${summary['fees_bps']} bps</div>
+      </div>
+      <div class="card">
+          <div class="card-label">Slippage (bps)</div>
+          <div class="card-value">${summary['slip_bps']} bps</div>
+      </div>
+      {fees_total_card}
   </div>
 
   {equity_chart}
+  {risk_settings_section}
+  {open_position_section}
   {backtest_stats_section}
+  {live_stats_section}
 
   <div class="section">
     <h2>Last 10 Trades</h2>
@@ -1067,6 +1763,14 @@ def main() -> int:
     ap.add_argument("--backtest", type=int, default=0, help="Backtest mode: 0=single trade (default), N=backtest last N candles")
     ap.add_argument("--backtest-mode", choices=["bar", "position"], default="position",
                    help="Backtest strategy: bar (one trade per bar) or position (position management)")
+    ap.add_argument("--mode", choices=["single", "backtest", "live"], default=None,
+                   help="Run mode: single (default), backtest, or live paper trading")
+    ap.add_argument("--risk-pct", type=float, default=1.0, help="% equity risked per trade")
+    ap.add_argument("--stop-bps", type=float, default=30.0, help="stop distance in bps from entry (0.30%)")
+    ap.add_argument("--tp-r", type=float, default=1.5, help="take profit = stop_distance * tp-r")
+    ap.add_argument("--max-leverage", type=float, default=1.0, help="cap notional: qty*entry <= equity*max_leverage")
+    ap.add_argument("--intrabar-mode", choices=["conservative", "optimistic"], default="conservative",
+                   help="conservative: stop first; optimistic: tp first")
     args = ap.parse_args()
 
     # Ensure runs/latest exists before we start
@@ -1077,7 +1781,16 @@ def main() -> int:
     starting_balance = 10_000.0
     error_message = ""
 
-    append_event({"event": "RunStarted", "run_id": run_id, "source": args.source, "symbol": args.symbol, "interval": args.interval, "backtest": args.backtest})
+    # Determine mode
+    if args.mode is None:
+        if args.backtest > 0:
+            mode = "backtest"
+        else:
+            mode = "single"
+    else:
+        mode = args.mode
+
+    append_event({"event": "RunStarted", "run_id": run_id, "source": args.source, "symbol": args.symbol, "interval": args.interval, "backtest": args.backtest, "mode": mode})
 
     try:
         if args.source == "bitunix":
@@ -1090,11 +1803,92 @@ def main() -> int:
 
         # Normalize candle order (handle newest-first if needed)
         candles = normalize_candle_order(candles)
-        
+         
         if len(candles) < 2:
             raise RuntimeError("Need at least 2 candles to simulate a one-bar trade")
 
-        if args.backtest > 0:
+        if mode == "live":
+            # Live paper trading mode
+            trades, ending_balance, state = run_live_paper_trading(
+                candles=candles,
+                starting_balance=starting_balance,
+                fees_bps=float(args.fees_bps),
+                slip_bps=float(args.slip_bps),
+                symbol=args.symbol,
+                interval=args.interval,
+                source=args.source,
+                risk_pct=float(args.risk_pct),
+                stop_bps=float(args.stop_bps),
+                tp_r=float(args.tp_r),
+                max_leverage=float(args.max_leverage),
+                intrabar_mode=args.intrabar_mode,
+            )
+            append_event({"event": "LivePaperFinished", "trades": len(trades), "ending_balance": ending_balance}, paper=True)
+        elif mode == "backtest":
+            # Backtest mode
+            append_event({"event": "BacktestStarted", "candles": len(candles), "backtest": args.backtest,
+                         "mode": args.backtest_mode})
+            
+            # Cap backtest to available candles
+            backtest_candles = min(args.backtest, len(candles))
+            backtest_slice = candles[-backtest_candles:] if backtest_candles > 0 else candles
+            
+            # Use appropriate backtest function based on mode
+            if args.backtest_mode == "bar":
+                backtest_result = run_backtest_bar_mode(
+                    candles=backtest_slice,
+                    starting_balance=starting_balance,
+                    fees_bps=float(args.fees_bps),
+                    slip_bps=float(args.slip_bps)
+                )
+            else:  # position mode
+                backtest_result = run_backtest_position_mode(
+                    candles=backtest_slice,
+                    starting_balance=starting_balance,
+                    fees_bps=float(args.fees_bps),
+                    slip_bps=float(args.slip_bps),
+                    risk_pct=float(args.risk_pct),
+                    stop_bps=float(args.stop_bps),
+                    tp_r=float(args.tp_r),
+                    max_leverage=float(args.max_leverage),
+                    intrabar_mode=args.intrabar_mode,
+                )
+            
+            trades = backtest_result["trades"]
+            ending_balance = backtest_result["ending_balance"]
+            stats = backtest_result["stats"]
+            
+            append_event({"event": "BacktestFinished", "trades": len(trades), "net_pnl": stats["net_pnl"],
+                         "mode": args.backtest_mode})
+            
+        elif mode == "single":
+            # Single trade mode (original behavior)
+            last = candles[-1]
+            prev = candles[-2]
+            append_event({"event": "LastCandle", "ts": last.ts, "close": last.close})
+            append_event({"event": "PrevCandle", "ts": prev.ts, "close": prev.close})
+
+            signal = generate_signal(candles)
+            append_event({"event": "SignalGenerated", "signal": signal})
+
+            trades: List[Dict[str, Any]] = []
+            ending_balance = starting_balance
+
+            if signal in ("BUY", "SELL"):
+                trade = simulate_trade_one_bar(
+                    signal=signal,
+                    entry_px=float(prev.close),
+                    exit_px=float(last.close),
+                    starting_balance=starting_balance,
+                    fees_bps=float(args.fees_bps),
+                    slip_bps=float(args.slip_bps),
+                )
+                trades.append(trade)
+                ending_balance = starting_balance + float(trade["pnl"])
+                append_event({"event": "TradeSimulated", "trade": trade})
+            else:
+                append_event({"event": "NoTrade", "reason": "insufficient data for SMA(10/30)"})
+        else:
             # Backtest mode
             append_event({"event": "BacktestStarted", "candles": len(candles), "backtest": args.backtest,
                          "mode": args.backtest_mode})
@@ -1125,34 +1919,6 @@ def main() -> int:
             
             append_event({"event": "BacktestFinished", "trades": len(trades), "net_pnl": stats["net_pnl"],
                          "mode": args.backtest_mode})
-            
-        else:
-            # Single trade mode (original behavior)
-            last = candles[-1]
-            prev = candles[-2]
-            append_event({"event": "LastCandle", "ts": last.ts, "close": last.close})
-            append_event({"event": "PrevCandle", "ts": prev.ts, "close": prev.close})
-
-            signal = generate_signal(candles)
-            append_event({"event": "SignalGenerated", "signal": signal})
-
-            trades: List[Dict[str, Any]] = []
-            ending_balance = starting_balance
-
-            if signal in ("BUY", "SELL"):
-                trade = simulate_trade_one_bar(
-                    signal=signal,
-                    entry_px=float(prev.close),
-                    exit_px=float(last.close),
-                    starting_balance=starting_balance,
-                    fees_bps=float(args.fees_bps),
-                    slip_bps=float(args.slip_bps),
-                )
-                trades.append(trade)
-                ending_balance = starting_balance + float(trade["pnl"])
-                append_event({"event": "TradeSimulated", "trade": trade})
-            else:
-                append_event({"event": "NoTrade", "reason": "insufficient data for SMA(10/30)"})
 
         # Write trades.csv with atomic write
         write_trades_csv(trades)
@@ -1173,10 +1939,11 @@ def main() -> int:
             "ending_balance": float(ending_balance),
             "net_pnl": float(ending_balance - starting_balance),
             "trades": len(trades),
+            "mode": mode,
         }
-        
+         
         # Add backtest stats if in backtest mode
-        if args.backtest > 0:
+        if mode == "backtest":
             stats_path = LATEST_DIR / "stats.json"
             if stats_path.exists():
                 with stats_path.open("r", encoding="utf-8") as f:
@@ -1186,6 +1953,16 @@ def main() -> int:
                         "max_drawdown": backtest_stats.get("max_drawdown", 0.0),
                         "fees_total": backtest_stats.get("fees_total", 0.0),
                     })
+        
+        # Add live paper trading stats if in live mode
+        if mode == "live":
+            summary.update({
+                "position": state.get("position"),
+                "realized_pnl": state.get("realized_pnl", 0.0),
+                "unrealized_pnl": state.get("unrealized_pnl", 0.0),
+                "net_pnl": state.get("net_pnl", 0.0),
+                "fees_total": state.get("fees_total", 0.0),
+            })
         
         write_state({"summary": summary})
         
