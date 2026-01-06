@@ -10,3 +10,12 @@ Quick start (PowerShell):
 - pip install -e .
 - la run --agent planner "Create a plan for X"
 - la tail --n 20
+
+## Sync Pack
+
+Generate a compact sync pack for AI assistants:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\make_sync_pack.ps1
+```
+
+Paste the generated `assistant_sync_pack.md` into chat to sync state.
