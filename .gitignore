@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.pyd
 *.pyo
+*.pyc
 *.egg-info/
 dist/
 build/
@@ -11,31 +12,41 @@ build/
 .venv/
 venv/
 ENV/
-env/
 
 # Local secrets
 .env
+.env.*
 
 # Logs & local data
 *.log
-src/laptop_agents/data/*
-!src/laptop_agents/data/.gitkeep
-
-# OS
-.DS_Store
-Thumbs.db
-logs/
-data/
 *.pid
 *.lock
+logs/
+
+# Generated data files only (keep providers/ directory)
+src/laptop_agents/data/*.jsonl
+src/laptop_agents/data/*.db
+src/laptop_agents/data/*.pid
+!src/laptop_agents/data/.gitkeep
 
 # Generated outputs
 runs/
 paper/
 assistant_sync_pack.md
-.pytest_cache/
 cleanup_*.md
+
+# Testing artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 
 # IDE/Editor
 .vscode/
 .idea/
+
+# OS
+.DS_Store
+Thumbs.db

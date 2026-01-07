@@ -5,8 +5,8 @@ This is a local-only, laptop-run paper trading system for Bitcoin trading simula
 ## MVP Contract (Read This First)
 
 This MVP is intentionally frozen. The main branch contains only the minimal viable product:
-- 6 commands: verify, run once, start live, status, stop, open
-- Mock data by default; optional Bitunix via --source bitunix
+- 6 scripts: verify, run once, start live, status, stop, open
+- Mock data by default (no API keys required); optional Bitunix real market data via --source bitunix
 - Local PowerShell execution
 - Paper trading (simulated, no real money)
 
@@ -25,7 +25,7 @@ Future work belongs in feature branches, not main. This contract ensures stabili
 - No real trading (paper only)
 - No OpenAI API calls
 - No cloud services
-- No live market data (mock only)
+- No live market data by default (mock data used unless --source bitunix specified)
 - No automated strategy optimization
 - No backtesting beyond basic validation
 
@@ -179,9 +179,9 @@ Tag v1.0.0 after:
 - No cloud services
 - No API keys required
 
-## Optional Bitunix mode (real candles)
+## Optional Bitunix mode (real market data)
 
-To use real market data from Bitunix instead of mock data:
+To use real market data from Bitunix instead of the default mock data:
 
 ```powershell
 python -m src.laptop_agents.run --source bitunix --symbol BTCUSDT --interval 1m
@@ -203,8 +203,8 @@ BITUNIX_API_SECRET=your_api_secret
 
 ## MVP Completeness Checklist
 
-- [x] 5 core commands working (verify, run once, start, status, stop)
-- [x] Mock data only (no external APIs)
+- [x] 6 core scripts working (verify, run once, start live, status, stop, open)
+- [x] Mock data by default (no API keys required)
 - [x] Local PowerShell execution
 - [x] Paper trading simulation
 - [x] HTML reports generated
@@ -215,3 +215,4 @@ BITUNIX_API_SECRET=your_api_secret
 - [x] Comprehensive README
 
 This MVP is complete and frozen. No additional features will be added to main.
+

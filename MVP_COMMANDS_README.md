@@ -1,8 +1,8 @@
 # BTC Laptop Agents - MVP Control Surface
 
-## MVP Control Surface - 6 Key Commands
+## MVP Control Surface - 6 Key Scripts
 
-These 6 commands provide complete control over the paper trading system:
+These 6 scripts provide complete control over the paper trading system:
 
 ```powershell
 # 1. VERIFY - Check system integrity (quick mode)
@@ -62,10 +62,10 @@ python -m src.laptop_agents.run --mode backtest --backtest-mode position  # Posi
 
 ### Data Source Options
 ```bash
-# Mock data (default, no API needed)
+# Mock data (default, no API keys needed)
 python -m src.laptop_agents.run --source mock
 
-# Bitunix futures (requires API keys)
+# Bitunix futures (requires API keys in .env file)
 python -m src.laptop_agents.run --source bitunix --symbol BTCUSDT --interval 1m
 ```
 
@@ -116,8 +116,8 @@ python -m src.laptop_agents.run --source bitunix --symbol BTCUSDT --interval 1m
 
 The system supports two data sources:
 
-- **Mock data** (default, no API needed): Simulated market data for testing
-- **Bitunix futures** (optional): Real market data requiring API keys
+- **Mock data** (default, no API keys needed): Simulated market data for testing
+- **Bitunix futures** (optional): Real market data requiring API keys in .env file
 
 For Bitunix mode, configure your API keys in `.env` file:
 
