@@ -1,1 +1,0 @@
-﻿repo_root=C:\Users\lovel\trading\btc-laptop-agents

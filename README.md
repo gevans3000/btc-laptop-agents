@@ -5,8 +5,8 @@ This is a local-only, laptop-run paper trading system for Bitcoin trading simula
 ## MVP Contract (Read This First)
 
 This MVP is intentionally frozen. The main branch contains only the minimal viable product:
-- 5 commands: verify, run once, start live, status, stop
-- Mock data only (no external APIs)
+- 6 commands: verify, run once, start live, status, stop, open
+- Mock data by default; optional Bitunix via --source bitunix
 - Local PowerShell execution
 - Paper trading (simulated, no real money)
 
@@ -178,6 +178,21 @@ Tag v1.0.0 after:
 - Python 3.12+ (venv recommended)
 - No cloud services
 - No API keys required
+
+## Optional Bitunix mode (real candles)
+
+To use real market data from Bitunix instead of mock data:
+
+```powershell
+python -m src.laptop_agents.run --source bitunix --symbol BTCUSDT --interval 1m
+```
+
+Note: Bitunix mode requires API keys to be configured in `.env` file:
+
+```
+BITUNIX_API_KEY=your_api_key
+BITUNIX_API_SECRET=your_api_secret
+```
 
 ## Assumptions
 

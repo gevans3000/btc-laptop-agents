@@ -5,8 +5,8 @@ This document provides essential context for AI assistants working with the BTC 
 ## Project Intent + MVP Contract
 
 The project is a minimal, local-only paper trading system for Bitcoin trading simulation. The MVP contract ensures:
-- Only 5 core commands are supported (verify, run once, start live, status, stop)
-- Mock data only (no external APIs)
+- 6 core commands are supported (verify, run once, start live, status, stop, open)
+- Mock data by default; optional Bitunix via --source bitunix
 - Local PowerShell execution
 - Paper trading (simulated, no real money)
 
@@ -74,6 +74,23 @@ Check the specific error message and refer to the troubleshooting section in [`R
 
 ### No Events or Trades
 Ensure the background process is running and check logs in `paper/live.out.txt` and `paper/live.err.txt`.
+
+## What We Intentionally Keep
+
+- Core MVP scripts: `verify.ps1`, `mvp_run_once.ps1`, `mvp_start_live.ps1`, `mvp_status.ps1`, `mvp_stop_live.ps1`, `mvp_open.ps1` (6 commands total)
+- Documentation: `README.md`, `MVP_COMMANDS_README.md`, `docs/AI_HANDOFF.md`, `docs/ASSISTANT_CONTEXT.md`, `docs/NEXT.md`
+- Source code: `src/laptop_agents/` (supports mock by default, optional Bitunix via --source bitunix)
+- Configuration: `.env.example`, `pyproject.toml`, `requirements.txt`
+
+## What Is Always Generated and Ignored
+
+- Generated outputs: `runs/`, `paper/`
+- Environment files: `.venv/`, `venv/`, `ENV/`, `env/`
+- Python cache: `__pycache__/`, `*.py[cod]`, `*.pyd`, `*.pyo`
+- Logs and local data: `*.log`, `logs/`, `data/`
+- OS files: `.DS_Store`, `Thumbs.db`
+- Test cache: `.pytest_cache/`
+- Lock files: `*.pid`, `*.lock`
 
 ## Best Practices
 

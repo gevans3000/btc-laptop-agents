@@ -27,22 +27,15 @@ Thumbs.db
 logs/
 data/
 *.pid
+*.lock
 
 # Generated outputs
 runs/
 paper/
 assistant_sync_pack.md
 .pytest_cache/
-__pycache__/
-*.pyc
+cleanup_*.md
 
-# Local env / venv
-.env
-.venv/
-__pycache__/
-*.pyc
-runs/latest/
-paper/
-logs/
-*.pid
-*.lock
+# IDE/Editor
+.vscode/
+.idea/

@@ -95,9 +95,8 @@ if ($Mode -eq "full") {
     $summaryPath = Join-Path $repoRoot "runs" "latest" "summary.html"
     if (Test-Path $summaryPath) {
         Write-Host "✓ summary.html created successfully"
-        
         # Open the summary in default browser
-        Start-Process $summaryPath
+        Start-Process $summaryPath -ErrorAction SilentlyContinue
     } else {
         Write-Host "✗ summary.html not found"
         $allPassed = $false
