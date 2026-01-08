@@ -24,6 +24,222 @@ LATEST_DIR = RUNS_DIR / "latest"
 PAPER_DIR = repo / "paper"
 
 
+# Required keys for valid events.jsonl lines
+REQUIRED_EVENT_KEYS = {"event", "timestamp"}
+
+# Required columns for trades.csv
+REQUIRED_TRADE_COLUMNS = {"trade_id", "side", "signal", "entry", "exit", "quantity", "pnl", "fees", "timestamp"}
+
+
+def validate_events_jsonl(events_path: Path) -> tuple[bool, str]:
+    """Validate events.jsonl - each line must be valid JSON with required keys."""
+    if not events_path.exists():
+        return False, f"events.jsonl does not exist at {events_path}"
+    
+    valid_lines = 0
+    invalid_lines = 0
+    with events_path.open("r", encoding="utf-8") as f:
+        for line_num, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                # Check for required keys
+                missing_keys = REQUIRED_EVENT_KEYS - set(obj.keys())
+                if missing_keys:
+                    invalid_lines += 1
+                    append_event({"event": "EventsValidationError", "line": line_num, "missing_keys": list(missing_keys)})
+                else:
+                    valid_lines += 1
+            except json.JSONDecodeError:
+                invalid_lines += 1
+                append_event({"event": "EventsValidationError", "line": line_num, "error": "invalid JSON"})
+    
+    if invalid_lines > 0:
+        return False, f"events.jsonl: {valid_lines} valid, {invalid_lines} invalid lines"
+    if valid_lines == 0:
+        return False, "events.jsonl: no valid lines found"
+    return True, f"events.jsonl: {valid_lines} valid lines"
+
+
+def validate_trades_csv(trades_path: Path) -> tuple[bool, str]:
+    """Validate trades.csv - must have required header columns and at least 1 data row."""
+    if not trades_path.exists():
+        return False, f"trades.csv does not exist at {trades_path}"
+    
+    try:
+        with trades_path.open("r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            header = reader.fieldnames or []
+            
+            # Check required columns
+            missing_cols = REQUIRED_TRADE_COLUMNS - set(header)
+            if missing_cols:
+                return False, f"trades.csv: missing required columns: {sorted(missing_cols)}"
+            
+            # Count data rows
+            rows = list(reader)
+            if len(rows) == 0:
+                # Check for "no trades" marker in header or special row
+                return False, "trades.csv: no data rows (no trades executed)"
+            
+            return True, f"trades.csv: {len(rows)} trades, all required columns present"
+    except Exception as e:
+        return False, f"trades.csv: validation error - {e}"
+
+
+def validate_summary_html(summary_path: Path) -> tuple[bool, str]:
+    """Validate summary.html - must exist and contain recognizable marker."""
+    if not summary_path.exists():
+        return False, f"summary.html does not exist at {summary_path}"
+    
+    content = summary_path.read_text(encoding="utf-8")
+    # Check for recognizable markers
+    markers = ["<title>Run Summary</title>", "Run Summary", "run_id"]
+    for marker in markers:
+        if marker in content:
+            return True, f"summary.html: contains marker '{marker}'"
+    
+    return False, "summary.html: no recognizable marker found"
+
+
+def run_orchestrated_mode(
+    symbol: str,
+    interval: str,
+    source: str,
+    limit: int,
+    fees_bps: float,
+    slip_bps: float,
+) -> tuple[bool, str]:
+    """Run orchestrated mode - end-to-end execution with artifact validation."""
+    run_id = str(uuid.uuid4())
+    run_dir = RUNS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create run-specific LATEST_DIR symlink/copy
+    reset_latest_dir()
+    
+    append_event({"event": "OrchestratedRunStarted", "run_id": run_id, "source": source, "symbol": symbol, "interval": interval})
+    
+    try:
+        # Load candles
+        if source == "bitunix":
+            candles = load_bitunix_candles(symbol, interval, limit)
+        else:
+            candles = load_mock_candles(max(int(limit), 50))
+        
+        candles = normalize_candle_order(candles)
+        
+        if len(candles) < 2:
+            raise RuntimeError("Need at least 2 candles to run orchestrated mode")
+        
+        append_event({"event": "MarketDataLoaded", "source": source, "symbol": symbol, "count": len(candles)})
+        
+        # Run backtest in position mode
+        backtest_result = run_backtest_position_mode(
+            candles=candles,
+            starting_balance=10_000.0,
+            fees_bps=fees_bps,
+            slip_bps=slip_bps,
+            risk_pct=1.0,
+            stop_bps=30.0,
+            tp_r=1.5,
+            max_leverage=1.0,
+            intrabar_mode="conservative",
+        )
+        
+        trades = backtest_result["trades"]
+        ending_balance = backtest_result["ending_balance"]
+        
+        # Write trades.csv to LATEST_DIR
+        write_trades_csv(trades)
+        
+        append_event({"event": "OrchestratedBacktestFinished", "trades": len(trades), "ending_balance": ending_balance})
+        
+        # Write trades.csv (already done in run_backtest_position_mode to LATEST_DIR)
+        # But also copy to run_dir
+        trades_csv_src = LATEST_DIR / "trades.csv"
+        if trades_csv_src.exists():
+            shutil.copy2(trades_csv_src, run_dir / "trades.csv")
+        
+        # Copy events.jsonl
+        events_src = LATEST_DIR / "events.jsonl"
+        if events_src.exists():
+            shutil.copy2(events_src, run_dir / "events.jsonl")
+        
+        # Copy other artifacts
+        equity_src = LATEST_DIR / "equity.csv"
+        if equity_src.exists():
+            shutil.copy2(equity_src, run_dir / "equity.csv")
+        
+        stats_src = LATEST_DIR / "stats.json"
+        if stats_src.exists():
+            shutil.copy2(stats_src, run_dir / "stats.json")
+        
+        # Write summary.html
+        last_candle = candles[-1]
+        summary = {
+            "run_id": run_id,
+            "source": source,
+            "symbol": symbol,
+            "interval": interval,
+            "candle_count": len(candles),
+            "last_ts": str(last_candle.ts),
+            "last_close": float(last_candle.close),
+            "fees_bps": fees_bps,
+            "slip_bps": slip_bps,
+            "starting_balance": 10_000.0,
+            "ending_balance": float(ending_balance),
+            "net_pnl": float(ending_balance - 10_000.0),
+            "trades": len(trades),
+            "mode": "orchestrated",
+        }
+        write_state({"summary": summary})
+        render_html(summary, trades, "")
+        
+        # Copy summary.html to run_dir
+        summary_src = LATEST_DIR / "summary.html"
+        if summary_src.exists():
+            shutil.copy2(summary_src, run_dir / "summary.html")
+        
+        # Validate artifacts
+        events_valid, events_msg = validate_events_jsonl(run_dir / "events.jsonl")
+        trades_valid, trades_msg = validate_trades_csv(run_dir / "trades.csv")
+        summary_valid, summary_msg = validate_summary_html(run_dir / "summary.html")
+        
+        append_event({"event": "ArtifactValidation", "events": events_msg, "trades": trades_msg, "summary": summary_msg})
+        
+        if not (events_valid and trades_valid and summary_valid):
+            errors = []
+            if not events_valid:
+                errors.append(f"events.jsonl: {events_msg}")
+            if not trades_valid:
+                errors.append(f"trades.csv: {trades_msg}")
+            if not summary_valid:
+                errors.append(f"summary.html: {summary_msg}")
+            raise RuntimeError(f"Artifact validation failed: {'; '.join(errors)}")
+        
+        append_event({"event": "OrchestratedRunFinished", "run_id": run_id, "trades": len(trades), "ending_balance": ending_balance})
+        
+        return True, f"Orchestrated run completed successfully. Run ID: {run_id}"
+        
+    except Exception as e:
+        append_event({"event": "OrchestratedRunError", "error": str(e)})
+        return False, str(e)
+
+
+def check_bitunix_config() -> tuple[bool, str]:
+    """Check if bitunix configuration is available."""
+    import os
+    api_key = os.environ.get("BITUNIX_API_KEY", "")
+    secret_key = os.environ.get("BITUNIX_SECRET_KEY", "")
+    
+    if not api_key or not secret_key:
+        return False, "Bitunix API credentials not configured. Set BITUNIX_API_KEY and BITUNIX_SECRET_KEY environment variables."
+    return True, "Bitunix configured"
+
+
 def utc_ts() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -2563,8 +2779,10 @@ def main() -> int:
     ap.add_argument("--backtest", type=int, default=0, help="Backtest mode: 0=single trade (default), N=backtest last N candles")
     ap.add_argument("--backtest-mode", choices=["bar", "position"], default="position",
                    help="Backtest strategy: bar (one trade per bar) or position (position management)")
-    ap.add_argument("--mode", choices=["single", "backtest", "live", "validate", "selftest"], default=None,
-                   help="Run mode: single (default), backtest, live paper trading, validate, or selftest")
+    ap.add_argument("--mode", choices=["single", "backtest", "live", "validate", "selftest", "orchestrated"], default=None,
+                   help="Run mode: single (default), backtest, live paper trading, validate, selftest, or orchestrated")
+    ap.add_argument("--once", action="store_true", default=False,
+                   help="Run once and exit (for orchestrated mode)")
     ap.add_argument("--risk-pct", type=float, default=1.0, help="% equity risked per trade")
     ap.add_argument("--stop-bps", type=float, default=30.0, help="stop distance in bps from entry (0.30%)")
     ap.add_argument("--tp-r", type=float, default=1.5, help="take profit = stop_distance * tp-r")
@@ -2891,6 +3109,25 @@ def main() -> int:
                 return 0
             else:
                 print(f"SELFTEST FAIL: {message}", file=sys.stderr)
+                return 1
+
+        elif mode == "orchestrated":
+            # Orchestrated mode - end-to-end with artifact validation
+            # Run orchestrated mode (bitunix public API doesn't require credentials)
+            success, message = run_orchestrated_mode(
+                symbol=args.symbol,
+                interval=args.interval,
+                source=args.source,
+                limit=args.limit,
+                fees_bps=float(args.fees_bps),
+                slip_bps=float(args.slip_bps),
+            )
+            
+            if success:
+                print(message)
+                return 0
+            else:
+                print(f"ERROR: {message}", file=sys.stderr)
                 return 1
 
         elif mode == "single":
