@@ -19,6 +19,10 @@ for _ in range(10):
     if (repo / "pyproject.toml").exists():
         break
     repo = repo.parent
+
+# Put 'src' in path so 'import laptop_agents' works regardless of CWD
+sys.path.append(str(repo / "src"))
+
 RUNS_DIR = repo / "runs"
 LATEST_DIR = RUNS_DIR / "latest"
 PAPER_DIR = repo / "paper"
@@ -212,7 +216,7 @@ def run_orchestrated_mode(
             "mode": "orchestrated",
         }
         write_state({"summary": summary})
-        render_html(summary, trades, "")
+        render_html(summary, trades, "", candles=candles)
         
         # Copy summary.html to run_dir
         summary_src = LATEST_DIR / "summary.html"
@@ -249,10 +253,11 @@ def check_bitunix_config() -> tuple[bool, str]:
     """Check if bitunix configuration is available."""
     import os
     api_key = os.environ.get("BITUNIX_API_KEY", "")
-    secret_key = os.environ.get("BITUNIX_SECRET_KEY", "")
+    # Support both naming conventions for secret key
+    secret_key = os.environ.get("BITUNIX_API_SECRET") or os.environ.get("BITUNIX_SECRET_KEY", "")
     
     if not api_key or not secret_key:
-        return False, "Bitunix API credentials not configured. Set BITUNIX_API_KEY and BITUNIX_SECRET_KEY environment variables."
+        return False, "Bitunix API credentials not configured. Set BITUNIX_API_KEY and BITUNIX_API_SECRET in .env"
     return True, "Bitunix configured"
 
 
@@ -2199,7 +2204,7 @@ def write_state(state: Dict[str, Any]) -> None:
         json.dump(state, f, indent=2)
 
 
-def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_message: str = "") -> None:
+def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_message: str = "", candles: List[Candle] = None) -> None:
     events_tail = ""
     ep = LATEST_DIR / "events.jsonl"
     if ep.exists():
@@ -2228,8 +2233,23 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
     </div>
 """
 
-    # Equity curve visualization (if equity.csv exists)
-    equity_chart = ""
+    # Prepare data for Plotly
+    candle_json = "[]"
+    if candles:
+        candle_list = []
+        for c in candles:
+            candle_list.append({
+                "t": str(c.ts),
+                "o": float(c.open),
+                "h": float(c.high),
+                "l": float(c.low),
+                "c": float(c.close)
+            })
+        candle_json = json.dumps(candle_list)
+    
+    trades_json = json.dumps(trades)
+    
+    equity_json = "[]"
     equity_csv = LATEST_DIR / "equity.csv"
     if equity_csv.exists():
         try:
@@ -2237,37 +2257,10 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
             with equity_csv.open("r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    equity_data.append((row["ts"], float(row["equity"])))
-            
-            if equity_data:
-                # Normalize equity values for SVG scaling
-                min_equity = min(e[1] for e in equity_data)
-                max_equity = max(e[1] for e in equity_data)
-                range_equity = max_equity - min_equity if max_equity != min_equity else 1
-                
-                # Create SVG points
-                points = []
-                for i, (ts, equity_val) in enumerate(equity_data):
-                    x = i / (len(equity_data) - 1) * 100
-                    y = 100 - ((equity_val - min_equity) / range_equity) * 100
-                    points.append(f"{x},{y}")
-                
-                equity_chart = f"""
-    <div class="section">
-        <h2>Equity Curve</h2>
-        <div style="background: white; border: 1px solid #e1e8ed; border-radius: 6px; padding: 15px; margin: 10px 0;">
-            <svg width="100%" height="200" viewBox="0 0 100 100" preserveAspectRatio="none">
-                <rect width="100%" height="100%" fill="#f8f9fa"/>
-                <polyline points="{' '.join(points)}" fill="none" stroke="#3498db" stroke-width="2"/>
-                <text x="50" y="15" text-anchor="middle" font-size="3" fill="#7f8c8d">Equity Curve</text>
-                <text x="50" y="95" text-anchor="middle" font-size="2" fill="#7f8c8d">Time</text>
-                <text x="5" y="50" text-anchor="start" font-size="2" fill="#7f8c8d" transform="rotate(-90 5,50)">Equity</text>
-            </svg>
-        </div>
-    </div>
-"""
+                    equity_data.append({"t": row["ts"], "v": float(row["equity"])})
+            equity_json = json.dumps(equity_data)
         except Exception as e:
-            append_event({"event": "EquityChartError", "message": str(e)})
+            append_event({"event": "EquityDataError", "message": str(e)})
 
     # Backtest stats section (if available)
     backtest_stats_section = ""
@@ -2451,52 +2444,9 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
         except Exception as e:
             append_event({"event": "ValidationRenderError", "message": str(e)})
 
-    # Enhanced metric cards with backtest stats
-    win_rate_card = ""
-    max_drawdown_card = ""
-    fees_total_card = ""
-    
-    if stats_json.exists():
-        try:
-            with stats_json.open("r", encoding="utf-8") as f:
-                stats = json.load(f)
-                win_rate_pct = stats.get("win_rate", 0.0) * 100
-                max_drawdown_pct = stats.get("max_drawdown", 0.0) * 100
-                
-                win_rate_card = f"""
-            <div class="card">
-                <div class="card-label">Win Rate</div>
-                <div class="card-value">{win_rate_pct:.1f}%</div>
-            </div>
-"""
-                max_drawdown_card = f"""
-            <div class="card">
-                <div class="card-label">Max Drawdown</div>
-                <div class="card-value" style="color: #e74c3c;">{max_drawdown_pct:.2f}%</div>
-            </div>
-"""
-                fees_total_card = f"""
-            <div class="card">
-                <div class="card-label">Total Fees</div>
-                <div class="card-value">${stats.get('fees_total', 0.0):.2f}</div>
-            </div>
-"""
-        except Exception as e:
-            append_event({"event": "StatsReadError", "message": str(e)})
-    
-    # Mode card
-    mode_card = ""
-    if summary.get("mode") == "live":
-        mode_card = """
-        <div class="card">
-            <div class="card-label">Mode</div>
-            <div class="card-value" style="color: #e74c3c;">live</div>
-        </div>
-"""
-    
     # Risk settings cards
     risk_settings_section = ""
-    if summary.get("mode") in ["live", "backtest"]:
+    if summary.get("mode") in ["live", "backtest", "orchestrated"]:
         risk_settings_section = f"""
     <div class="section">
         <h2>Risk Settings</h2>
@@ -2557,207 +2507,79 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
     </div>
 """
 
-    # Improved CSS with system font stack and better typography
     html = f"""<!doctype html>
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Run Summary</title>
+  <title>Run Summary - {summary.get('run_id','')[:8]}</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <style>
     body {{
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-      line-height: 1.6;
-      color: #333;
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 20px;
-    }}
-    
-    h1, h2, h3 {{
-      color: #2c3e50;
-      font-weight: 600;
-    }}
-    
-    h1 {{
-      border-bottom: 2px solid #eee;
-      padding-bottom: 10px;
-    }}
-    
-    /* Metric cards */
-    .cards {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 15px;
-      margin: 20px 0;
-    }}
-    
-    .card {{
-      background: white;
-      border: 1px solid #e1e8ed;
-      border-radius: 6px;
-      padding: 15px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }}
-    
-    .card-label {{
-      font-size: 0.8em;
-      color: #7f8c8d;
-      text-transform: uppercase;
-      font-weight: 600;
-      margin-bottom: 5px;
-    }}
-    
-    .card-value {{
-      font-size: 1.3em;
-      font-weight: 500;
-      color: #2c3e50;
-    }}
-    
-    /* Table styling */
-    table {{
-      border-collapse: collapse;
-      width: 100%;
-      margin: 20px 0;
-      font-size: 0.95em;
-    }}
-    
-    th, td {{
-      border: 1px solid #e1e8ed;
-      padding: 12px;
-      text-align: left;
-    }}
-    
-    th {{
-      background: #f8f9fa;
-      font-weight: 600;
-      color: #2c3e50;
-      text-transform: uppercase;
-      font-size: 0.85em;
-    }}
-    
-    tr:nth-child(even) {{
-      background-color: #fafafa;
-    }}
-    
-    tr:hover {{
-      background-color: #f5f7fa;
-    }}
-    
-    /* Monospace for IDs and timestamps */
-    td:nth-child(1), td:nth-child(9) {{
-      font-family: 'Courier New', Courier, monospace;
-      font-size: 0.9em;
-    }}
-    
-    /* Events section */
-    pre {{
-      background: #f8f9fa;
-      padding: 15px;
-      border-radius: 4px;
-      overflow: auto;
-      font-size: 0.85em;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       line-height: 1.5;
-      border: 1px solid #e1e8ed;
+      color: #1a1a1a;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background-color: #f8f9fa;
     }}
-    
-    /* Spacing */
-    .section {{
-      margin: 30px 0;
-    }}
-    
-    .meta {{
-      color: #7f8c8d;
-      margin-bottom: 20px;
-      font-size: 0.9em;
-    }}
-    
-    /* Collapsible events */
-    details {{
-      border: 1px solid #e1e8ed;
-      border-radius: 6px;
-      padding: 10px;
-      margin: 10px 0;
-    }}
-    
-    summary {{
-      font-weight: 600;
-      cursor: pointer;
-      color: #2c3e50;
-    }}
+    h1, h2, h3 {{ color: #1a1a1a; font-weight: 700; margin-top: 0; }}
+    .section {{ background: white; border: 1px solid #e1e8ed; border-radius: 12px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }}
+    .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }}
+    .card {{ background: #fdfdfd; border: 1px solid #eee; border-radius: 8px; padding: 16px; }}
+    .card-label {{ font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 4px; }}
+    .card-value {{ font-size: 20px; font-weight: 700; color: #111; }}
+    table {{ border-collapse: collapse; width: 100%; font-size: 14px; overflow: hidden; border-radius: 8px; }}
+    th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }}
+    th {{ background: #f1f3f5; font-weight: 600; color: #495057; }}
+    tr:last-child td {{ border-bottom: none; }}
+    .chart-container {{ height: 600px; width: 100%; }}
+    .status-badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }}
+    .status-live {{ background: #fff5f5; color: #e03131; border: 1px solid #ffc9c9; }}
+    .status-backtest {{ background: #f8f9fa; color: #495057; border: 1px solid #dee2e6; }}
+    pre {{ background: #1a1a1a; color: #f8f9fa; padding: 16px; border-radius: 8px; font-size: 12px; overflow-x: auto; }}
   </style>
 </head>
 <body>
-  <h1>Run Summary</h1>
-  
-  {error_section}
-  
-  <div class="cards">
-      <div class="card">
-          <div class="card-label">Run ID</div>
-          <div class="card-value">{summary['run_id'][:8]}</div>
-      </div>
-      <div class="card">
-          <div class="card-label">Mode</div>
-          <div class="card-value" style="color: {'#e74c3c' if summary.get('mode') == 'live' else '#2c3e50'};">{summary.get('mode', 'single')}</div>
-      </div>
-      <div class="card">
-          <div class="card-label">Source</div>
-          <div class="card-value">{summary['source']}</div>
-      </div>
-      <div class="card">
-          <div class="card-label">Symbol</div>
-          <div class="card-value">{summary['symbol']}</div>
-      </div>
-      <div class="card">
-          <div class="card-label">Interval</div>
-          <div class="card-value">{summary['interval']}</div>
-      </div>
-      <div class="card">
-          <div class="card-label">Candles</div>
-          <div class="card-value">{summary['candle_count']}</div>
-      </div>
-      <div class="card">
-          <div class="card-label">Start Balance</div>
-          <div class="card-value">${summary['starting_balance']:.2f}</div>
-      </div>
-      <div class="card">
-          <div class="card-label">End Balance</div>
-          <div class="card-value">${summary['ending_balance']:.2f}</div>
-      </div>
-      <div class="card">
-          <div class="card-label">Net PnL</div>
-          <div class="card-value" style="color: {'#2ecc71' if summary['net_pnl'] >= 0 else '#e74c3c'};">
-              ${summary['net_pnl']:.2f}
-          </div>
-      </div>
-      {win_rate_card}
-      {max_drawdown_card}
-      <div class="card">
-          <div class="card-label">Fees (bps)</div>
-          <div class="card-value">${summary['fees_bps']} bps</div>
-      </div>
-      <div class="card">
-          <div class="card-label">Slippage (bps)</div>
-          <div class="card-value">${summary['slip_bps']} bps</div>
-      </div>
-      {fees_total_card}
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px;">
+    <div>
+      <h1 style="margin-bottom: 4px;">Run Summary</h1>
+      <div style="color: #666; font-size: 14px;">Run ID: {summary.get('run_id')} | {summary.get('timestamp')}</div>
+    </div>
+    <div class="status-badge status-{summary.get('mode','backtest')}">
+      {summary.get('mode','backtest').upper()} MODE
+    </div>
   </div>
 
-  {equity_chart}
-  {risk_settings_section}
+  {error_section}
+
+  <div class="section">
+    <div class="cards">
+      <div class="card"><div class="card-label">Symbol</div><div class="card-value">{summary['symbol']}</div></div>
+      <div class="card"><div class="card-label">Interval</div><div class="card-value">{summary['interval']}</div></div>
+      <div class="card"><div class="card-label">Source</div><div class="card-value">{summary['source']}</div></div>
+      <div class="card"><div class="card-label">Starting</div><div class="card-value">${summary['starting_balance']:.2f}</div></div>
+      <div class="card"><div class="card-label">Ending</div><div class="card-value" style="color: {'#2f9e44' if summary['ending_balance'] >= summary['starting_balance'] else '#e03131'}">${summary['ending_balance']:.2f}</div></div>
+      <div class="card"><div class="card-label">Net PnL</div><div class="card-value" style="color: {'#2f9e44' if summary['net_pnl'] >= 0 else '#e03131'}">${summary['net_pnl']:.2f}</div></div>
+    </div>
+    
+    <div id="main-chart" class="chart-container"></div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+    {risk_settings_section}
+    {backtest_stats_section}
+  </div>
+
   {open_position_section}
   {validation_section}
-  {backtest_stats_section}
   {live_stats_section}
 
   <div class="section">
     <h2>Last 10 Trades</h2>
     <table>
       <thead>
-        <tr>
-          <th>Trade ID</th><th>Side</th><th>Signal</th><th>Entry</th><th>Exit</th>
-          <th>Quantity</th><th>PnL</th><th>Fees</th><th>Timestamp</th>
-        </tr>
+        <tr><th>Trade ID</th><th>Side</th><th>Entry</th><th>Exit</th><th>Quantity</th><th>PnL</th><th>Fees</th><th>Timestamp</th></tr>
       </thead>
       <tbody>{rows}</tbody>
     </table>
@@ -2765,10 +2587,96 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
 
   <div class="section">
     <details>
-      <summary>Events Tail (click to expand)</summary>
+      <summary style="cursor: pointer; font-weight: 600;">System Logs (Tail)</summary>
       <pre>{events_tail}</pre>
     </details>
   </div>
+
+  <script>
+    const candles = {candle_json};
+    const trades = {trades_json};
+    const equity = {equity_json};
+
+    if (candles.length > 0) {{
+        const traceCandles = {{
+            x: candles.map(c => c.t),
+            close: candles.map(c => c.c),
+            high: candles.map(c => c.h),
+            low: candles.map(c => c.l),
+            open: candles.map(c => c.o),
+            type: 'candlestick',
+            name: 'Price',
+            xaxis: 'x',
+            yaxis: 'y'
+        }};
+
+        const buyMarkers = {{
+            x: trades.filter(t => t.side === 'LONG').map(t => t.entry_ts),
+            y: trades.filter(t => t.side === 'LONG').map(t => t.entry),
+            mode: 'markers',
+            type: 'scatter',
+            name: 'Buy',
+            marker: {{ symbol: 'triangle-up', size: 12, color: '#2f9e44' }},
+            xaxis: 'x',
+            yaxis: 'y'
+        }};
+
+        const sellMarkers = {{
+            x: trades.filter(t => t.side === 'SHORT').map(t => t.entry_ts),
+            y: trades.filter(t => t.side === 'SHORT').map(t => t.entry),
+            mode: 'markers',
+            type: 'scatter',
+            name: 'Sell',
+            marker: {{ symbol: 'triangle-down', size: 12, color: '#e03131' }},
+            xaxis: 'x',
+            yaxis: 'y'
+        }};
+
+        const traceEquity = {{
+            x: equity.map(e => e.t),
+            y: equity.map(e => e.v),
+            type: 'scatter',
+            name: 'Equity',
+            line: {{ color: '#339af0', width: 2 }},
+            xaxis: 'x',
+            yaxis: 'y2'
+        }};
+
+        const layout = {{
+            dragmode: 'zoom',
+            showlegend: true,
+            margin: {{ t: 30, b: 30, l: 60, r: 60 }},
+            grid: {{ rows: 2, columns: 1, roworder: 'top to bottom' }},
+            xaxis: {{ rangeslider: {{ visible: false }}, type: 'date' }},
+            yaxis: {{ title: 'Price', domain: [0.4, 1] }},
+            yaxis2: {{ title: 'Equity', domain: [0, 0.3], anchor: 'x' }},
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+        }};
+
+        Plotly.newPlot('main-chart', [traceCandles, buyMarkers, sellMarkers, traceEquity], layout, {{ responsive: true }});
+    }} else if (equity.length > 0) {{
+        // Fallback for simple equity chart if no candles
+        const traceEquity = {{
+            x: equity.map(e => e.t),
+            y: equity.map(e => e.v),
+            type: 'scatter',
+            name: 'Equity',
+            line: {{ color: '#339af0', width: 3 }},
+            fill: 'tozeroy',
+            fillcolor: 'rgba(51, 154, 240, 0.1)'
+        }};
+        const layout = {{
+            title: 'Equity Growth',
+            margin: {{ t: 40, b: 40, l: 60, r: 40 }},
+            xaxis: {{ type: 'date' }},
+            yaxis: {{ title: 'Balance ($)' }},
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)'
+        }};
+        Plotly.newPlot('main-chart', [traceEquity], layout, {{ responsive: true }});
+    }}
+  </script>
 </body>
 </html>
 """
@@ -2781,7 +2689,7 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
     except Exception as e:
         if temp_p.exists():
             temp_p.unlink()
-        raise RuntimeError(f"Failed to write summary.html: {e}")
+        append_event({"event": "HtmlWriteError", "message": str(e)})
 
 
 def main() -> int:
@@ -3252,7 +3160,7 @@ def main() -> int:
         write_state({"summary": summary})
         
         # Always write summary.html, even if we succeed
-        render_html(summary, trades, error_message)
+        render_html(summary, trades, error_message, candles=candles)
 
         append_event({"event": "RunFinished", "run_id": run_id})
         return 0
