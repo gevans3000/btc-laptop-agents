@@ -136,12 +136,24 @@ def run_orchestrated_mode(
         
         append_event({"event": "MarketDataLoaded", "source": source, "symbol": symbol, "count": len(candles)})
         
-        # Run backtest in position mode
-        backtest_result = run_backtest_position_mode(
+        # Run live trading cycle (single iteration) using the same code path as live mode
+        # Use run_live_paper_trading with a fresh state for this orchestrated run
+        starting_balance = 10_000.0
+        
+        # Ensure we start with a fresh state by removing any existing paper state
+        state_path = PAPER_DIR / "state.json"
+        if state_path.exists():
+            state_path.unlink()
+        
+        # Call run_live_paper_trading which will use the same logic as live mode
+        trades, ending_balance, state = run_live_paper_trading(
             candles=candles,
-            starting_balance=10_000.0,
+            starting_balance=starting_balance,
             fees_bps=fees_bps,
             slip_bps=slip_bps,
+            symbol=symbol,
+            interval=interval,
+            source=source,
             risk_pct=1.0,
             stop_bps=30.0,
             tp_r=1.5,
@@ -149,13 +161,17 @@ def run_orchestrated_mode(
             intrabar_mode="conservative",
         )
         
-        trades = backtest_result["trades"]
-        ending_balance = backtest_result["ending_balance"]
-        
         # Write trades.csv to LATEST_DIR
-        write_trades_csv(trades)
+        # Note: run_live_paper_trading writes trades to paper/trades.csv, so we need to copy them
+        paper_trades_csv = PAPER_DIR / "trades.csv"
+        if paper_trades_csv.exists():
+            # Copy trades from paper directory to latest directory
+            shutil.copy2(paper_trades_csv, LATEST_DIR / "trades.csv")
+        else:
+            # If no trades were generated, create an empty trades.csv
+            write_trades_csv(trades)
         
-        append_event({"event": "OrchestratedBacktestFinished", "trades": len(trades), "ending_balance": ending_balance})
+        append_event({"event": "OrchestratedLiveCycleFinished", "trades": len(trades), "ending_balance": ending_balance})
         
         # Write trades.csv (already done in run_backtest_position_mode to LATEST_DIR)
         # But also copy to run_dir

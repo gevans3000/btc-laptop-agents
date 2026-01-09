@@ -1,101 +1,20 @@
-# BTC Laptop Agents - AI Handoff
+# AI_HANDOFF.md — Sync Pack Context
 
-This document provides essential context for AI assistants working with the BTC Laptop Agents project.
+> **Audience**: AI Agents starting a session.
 
-## Project Intent + MVP Contract
+## IMPORTANT: The Sync Pack
+The file `assistant_sync_pack.md` in the root is a **GENERATED ARTIFACT**.
+*   **Do not edit it manually.**
+*   It serves as a snapshot of the system state (File tree, recent logs, config dump).
+*   If it is missing or stale, generate it using `scripts/generate_sync_pack.ps1` (Forward looking - functionality to be added).
 
-The project is a minimal, local-only paper trading system for Bitcoin trading simulation. The MVP contract ensures:
-- 6 core commands are supported (verify, run once, start live, status, stop, open)
-- Mock data by default; optional Bitunix via --source bitunix
-- Local PowerShell execution
-- Paper trading (simulated, no real money)
+## Context Loading Order
+1.  **Read `docs/START_HERE.md`** (Map of the world).
+2.  **Read `docs/MVP_SPEC.md`** (The Law).
+3.  **Read `docs/DEV_AGENTS.md`** (Your constraints).
+4.  **Check `task.md`** (Current objectives).
 
-**Ground Rules:**
-- No API costs unless explicitly approved
-- Keep outputs gitignored
-- Favor PowerShell automation
-- No scope expansion on main branch
-
-## Where to Look First for Truth
-
-1. **Scripts Directory**: [`scripts/`](scripts/) contains all MVP control scripts
-2. **CLI Help**: [`src/laptop_agents/run.py`](src/laptop_agents/run.py) provides CLI options
-3. **Outputs**: `runs/latest/summary.html` and `paper/events.jsonl`
-4. **Configuration**: `.env.example` for environment variables
-
-## Assistant Sync Pack
-
-To generate and paste the assistant sync pack:
-
-```powershell
-.\[scripts](scripts/make_sync_pack.ps1)
-```
-
-This script generates `assistant_sync_pack.md` containing:
-- Git status
-- Key file hashes
-- Last run snapshot
-- System configuration
-
-## Known Sharp Edges
-
-1. **Candle Order Reversal**: Some data providers return candles in newest-first order. The system automatically detects and reverses this.
-2. **Validate Mode Requirements**: Ensure you have enough candles for validation splits (train + splits*test).
-3. **PID File Management**: Always use the provided scripts to manage the background process to avoid stale PID files.
-4. **Atomic File Writes**: The system uses atomic writes for all output files to prevent corruption.
-
-## Command Reference
-
-| Command | Purpose | Logs | PID File |
-|---------|---------|------|----------|
-| `verify.ps1 -Mode quick` | System integrity check | N/A | N/A |
-| `mvp_run_once.ps1` | Single trade cycle + report | `paper/live.out.txt` | N/A |
-| `mvp_start_live.ps1` | Background paper trading | `paper/live.out.txt` | `paper/mvp.pid` |
-| `mvp_status.ps1` | Show running status + events | N/A | N/A |
-| `mvp_stop_live.ps1` | Stop background process | N/A | Removes `paper/mvp.pid` |
-| `mvp_open.ps1` | Open latest report | N/A | N/A |
-
-## Troubleshooting for AI
-
-### Missing summary.html
-Run a trade cycle first:
-```powershell
-.\[scripts](scripts/mvp_run_once.ps1)
-```
-
-### Stale PID File
-Clean up using:
-```powershell
-.\[scripts](scripts/mvp_stop_live.ps1)
-```
-
-### Verify Failures
-Check the specific error message and refer to the troubleshooting section in [`README.md`](README.md).
-
-### No Events or Trades
-Ensure the background process is running and check logs in `paper/live.out.txt` and `paper/live.err.txt`.
-
-## What We Intentionally Keep
-
-- Core MVP scripts: `verify.ps1`, `mvp_run_once.ps1`, `mvp_start_live.ps1`, `mvp_status.ps1`, `mvp_stop_live.ps1`, `mvp_open.ps1` (6 commands total)
-- Documentation: `README.md`, `MVP_COMMANDS_README.md`, `docs/AI_HANDOFF.md`, `docs/ASSISTANT_CONTEXT.md`, `docs/NEXT.md`
-- Source code: `src/laptop_agents/` (supports mock by default, optional Bitunix via --source bitunix)
-- Configuration: `.env.example`, `pyproject.toml`, `requirements.txt`
-
-## What Is Always Generated and Ignored
-
-- Generated outputs: `runs/`, `paper/`
-- Environment files: `.venv/`, `venv/`, `ENV/`, `env/`
-- Python cache: `__pycache__/`, `*.py[cod]`, `*.pyd`, `*.pyo`
-- Logs and local data: `*.log`, `logs/`, `data/`
-- OS files: `.DS_Store`, `Thumbs.db`
-- Test cache: `.pytest_cache/`
-- Lock files: `*.pid`, `*.lock`
-
-## Best Practices
-
-1. Always verify first: Run `verify.ps1` before trading
-2. Start with mock data: Test with `--source mock` before using real APIs
-3. Check status frequently: Use `mvp_status.ps1` to monitor
-4. Review results: Always open `summary.html` after runs
-5. Use conservative settings: Start with low risk percentages
+## Active Constraints & Reminders
+*   **Monolith**: Work in `src/laptop_agents/run.py`.
+*   **Verify**: Always run `verify.ps1`.
+*   **Drift**: Do not assume docs are perfect, but assume `MVP_SPEC` is intended to be true. Fix it if it's wrong.
