@@ -38,6 +38,8 @@ class ExecutionRiskSentinelAgent:
             entry = float(setup["entry"])
         elif entry_type == "market_on_trigger":
             entry = None
+        elif entry_type == "market":
+            entry = None
         else:
             state.order = {"go": False, "reason": "unknown_entry_type", "setup": setup}
             return state

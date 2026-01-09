@@ -89,7 +89,11 @@ class Supervisor:
             order["entry_type"] = "market"
             order["entry"] = entry
 
-        entry = float(order["entry"])
+        if order["entry_type"] == "market" and order["entry"] is None:
+             entry = float(candle.close)
+             order["entry"] = entry
+        else:
+             entry = float(order["entry"])
         sl = float(order["sl"])
         tp = float(order["tp"])
 

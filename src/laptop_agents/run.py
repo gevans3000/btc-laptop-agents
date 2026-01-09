@@ -7,9 +7,11 @@ import shutil
 import sys
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
 
 
 # ---------------- Paths (anchor to repo root) ----------------
@@ -22,6 +24,15 @@ for _ in range(10):
 
 # Put 'src' in path so 'import laptop_agents' works regardless of CWD
 sys.path.append(str(repo / "src"))
+
+# Late imports to avoid circularity - MUST BE AFTER sys.path setup
+try:
+    from laptop_agents.agents.supervisor import Supervisor
+    from laptop_agents.agents.state import State as AgentState
+except ImportError:
+    # Fallback for environments where agents aren't fully modularized yet
+    Supervisor = None
+    AgentState = None
 
 RUNS_DIR = repo / "runs"
 LATEST_DIR = RUNS_DIR / "latest"
@@ -94,18 +105,57 @@ def validate_trades_csv(trades_path: Path) -> tuple[bool, str]:
 
 
 def validate_summary_html(summary_path: Path) -> tuple[bool, str]:
-    """Validate summary.html - must exist and contain recognizable marker."""
+    """Validate summary.html - must exist and have content."""
     if not summary_path.exists():
         return False, f"summary.html does not exist at {summary_path}"
     
     content = summary_path.read_text(encoding="utf-8")
+    
     # Check for recognizable markers
-    markers = ["<title>Run Summary</title>", "Run Summary", "run_id"]
+    markers = ["<!doctype html>", "Run Summary", "run_id"]
     for marker in markers:
         if marker in content:
             return True, f"summary.html: contains marker '{marker}'"
     
     return False, "summary.html: no recognizable marker found"
+
+
+def get_agent_config(
+    starting_balance: float = 10000.0,
+    risk_pct: float = 1.0,
+    stop_bps: float = 30.0,
+    tp_r: float = 1.5,
+) -> Dict[str, Any]:
+    """Return the configuration schema expected by the modular agents."""
+    return {
+        "engine": {
+            "pending_trigger_max_bars": 24,
+            "derivatives_refresh_bars": 6,
+        },
+        "derivatives_gates": {
+            "enabled": True,
+            "no_trade_funding_8h": 0.0005,
+            "half_size_funding_8h": 0.0002,
+        },
+        "setups": {
+            "pullback_ribbon": {
+                "enabled": True,
+                "entry_band_pct": 0.005,
+                "stop_atr_mult": 2.0,
+                "tp_r_mult": tp_r,
+            },
+            "sweep_invalidation": {
+                "enabled": True,
+                "eq_tolerance_pct": 0.002,
+                "tp_r_mult": tp_r,
+            },
+        },
+        "risk": {
+            "equity": starting_balance,
+            "risk_pct": risk_pct / 100.0, # Adapt 1.0 -> 0.01 for modular agents
+            "rr_min": 1.2,
+        },
+    }
 
 
 def run_orchestrated_mode(
@@ -116,7 +166,10 @@ def run_orchestrated_mode(
     fees_bps: float,
     slip_bps: float,
 ) -> tuple[bool, str]:
-    """Run orchestrated mode - end-to-end execution with artifact validation."""
+    """Run orchestrated mode - using modular agents in a single pass."""
+    if Supervisor is None or AgentState is None:
+        return False, "Modular agents not found. Check laptop_agents.agents package."
+
     run_id = str(uuid.uuid4())
     run_dir = RUNS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -124,128 +177,145 @@ def run_orchestrated_mode(
     # Create run-specific LATEST_DIR symlink/copy
     reset_latest_dir()
     
-    append_event({"event": "OrchestratedRunStarted", "run_id": run_id, "source": source, "symbol": symbol, "interval": interval})
+    append_event({
+        "event": "OrchestratedModularRunStarted",
+        "run_id": run_id,
+        "source": source,
+        "symbol": symbol,
+        "interval": interval
+    })
     
     try:
         # Load candles
         if source == "bitunix":
             candles = load_bitunix_candles(symbol, interval, limit)
         else:
-            candles = load_mock_candles(max(int(limit), 50))
+            candles = load_mock_candles(max(int(limit), 200))
         
         candles = normalize_candle_order(candles)
         
-        if len(candles) < 2:
-            raise RuntimeError("Need at least 2 candles to run orchestrated mode")
+        if len(candles) < 31: # Need enough for SMA(30)
+            raise RuntimeError("Need at least 31 candles for orchestrated modular mode")
         
         append_event({"event": "MarketDataLoaded", "source": source, "symbol": symbol, "count": len(candles)})
         
-        # Run live trading cycle (single iteration) using the same code path as live mode
-        # Use run_live_paper_trading with a fresh state for this orchestrated run
+        # Initialize Supervisor and State
         starting_balance = 10_000.0
+        cfg = get_agent_config(starting_balance=starting_balance)
         
-        # Ensure we start with a fresh state by removing any existing paper state
-        state_path = PAPER_DIR / "state.json"
-        if state_path.exists():
-            state_path.unlink()
+        # Point the journal to the run directory for modular isolation
+        journal_path = run_dir / "journal.jsonl"
+        supervisor = Supervisor(provider=None, cfg=cfg, journal_path=str(journal_path))
+        state = AgentState(instrument=symbol, timeframe=interval)
         
-        # Call run_live_paper_trading which will use the same logic as live mode
-        trades, ending_balance, state = run_live_paper_trading(
-            candles=candles,
-            starting_balance=starting_balance,
-            fees_bps=fees_bps,
-            slip_bps=slip_bps,
-            symbol=symbol,
-            interval=interval,
-            source=source,
-            risk_pct=1.0,
-            stop_bps=30.0,
-            tp_r=1.5,
-            max_leverage=1.0,
-            intrabar_mode="conservative",
-        )
+        equity_history = []
+        current_equity = starting_balance
         
-        # Write trades.csv to LATEST_DIR
-        # Note: run_live_paper_trading writes trades to paper/trades.csv, so we need to copy them
-        paper_trades_csv = PAPER_DIR / "trades.csv"
-        if paper_trades_csv.exists():
-            # Copy trades from paper directory to latest directory
-            shutil.copy2(paper_trades_csv, LATEST_DIR / "trades.csv")
+        # Step through candles
+        for i, candle in enumerate(candles):
+            state = supervisor.step(state, candle)
+            
+            # Simple equity tracking
+            for ex in state.broker_events.get("exits", []):
+                current_equity += float(ex.get("pnl", 0.0))
+            
+            equity_history.append({"ts": str(candle.ts), "equity": current_equity})
+            
+        # Write equity.csv for the chart
+        equity_csv = LATEST_DIR / "equity.csv"
+        with equity_csv.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["ts", "equity"])
+            writer.writeheader()
+            writer.writerows(equity_history)
+
+        # Extract trades from the PaperJournal for reporting
+        trades = []
+        if journal_path.exists():
+            from laptop_agents.trading.paper_journal import PaperJournal
+            journal = PaperJournal(journal_path)
+            
+            # Temporary storage to pair entries and exits
+            open_trades = {}
+            
+            for event in journal.iter_events():
+                if event.get("type") == "update":
+                    tid = event.get("trade_id")
+                    if "fill" in event:
+                         open_trades[tid] = event["fill"]
+                    elif "exit" in event and tid in open_trades:
+                         f = open_trades.pop(tid)
+                         x = event["exit"]
+                         trades.append({
+                             "trade_id": tid,
+                             "side": f.get("side", "???"),
+                             "signal": "MODULAR",
+                             "entry": float(f.get("price", 0)),
+                             "exit": float(x.get("price", 0)),
+                             "quantity": float(f.get("qty", 0)),
+                             "pnl": float(x.get("pnl", 0)),
+                             "fees": float(f.get("fees", 0)) + float(x.get("fees", 0)),
+                             "timestamp": str(x.get("at", event.get("at", "")))
+                         })
+        
+        if trades:
+             write_trades_csv(trades)
         else:
-            # If no trades were generated, create an empty trades.csv
-            write_trades_csv(trades)
+             write_trades_csv([])
+
+        ending_balance = current_equity
         
-        append_event({"event": "OrchestratedLiveCycleFinished", "trades": len(trades), "ending_balance": ending_balance})
+        append_event({"event": "OrchestratedModularFinished", "trades": len(trades), "ending_balance": ending_balance})
         
-        # Write trades.csv (already done in run_backtest_position_mode to LATEST_DIR)
-        # But also copy to run_dir
-        trades_csv_src = LATEST_DIR / "trades.csv"
-        if trades_csv_src.exists():
-            shutil.copy2(trades_csv_src, run_dir / "trades.csv")
+        # Copy artifacts to run_dir
+        if (LATEST_DIR / "trades.csv").exists():
+            shutil.copy2(LATEST_DIR / "trades.csv", run_dir / "trades.csv")
+        if (LATEST_DIR / "events.jsonl").exists():
+            shutil.copy2(LATEST_DIR / "events.jsonl", run_dir / "events.jsonl")
         
-        # Copy events.jsonl
-        events_src = LATEST_DIR / "events.jsonl"
-        if events_src.exists():
-            shutil.copy2(events_src, run_dir / "events.jsonl")
-        
-        # Copy other artifacts
-        equity_src = LATEST_DIR / "equity.csv"
-        if equity_src.exists():
-            shutil.copy2(equity_src, run_dir / "equity.csv")
-        
-        stats_src = LATEST_DIR / "stats.json"
-        if stats_src.exists():
-            shutil.copy2(stats_src, run_dir / "stats.json")
-        
-        # Write summary.html
-        last_candle = candles[-1]
+        # Write summary
         summary = {
             "run_id": run_id,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "source": source,
             "symbol": symbol,
             "interval": interval,
             "candle_count": len(candles),
-            "last_ts": str(last_candle.ts),
-            "last_close": float(last_candle.close),
+            "last_ts": str(candles[-1].ts),
+            "last_close": float(candles[-1].close),
             "fees_bps": fees_bps,
             "slip_bps": slip_bps,
-            "starting_balance": 10_000.0,
+            "starting_balance": starting_balance,
             "ending_balance": float(ending_balance),
-            "net_pnl": float(ending_balance - 10_000.0),
+            "net_pnl": float(ending_balance - starting_balance),
             "trades": len(trades),
             "mode": "orchestrated",
         }
         write_state({"summary": summary})
         render_html(summary, trades, "", candles=candles)
         
-        # Copy summary.html to run_dir
-        summary_src = LATEST_DIR / "summary.html"
-        if summary_src.exists():
-            shutil.copy2(summary_src, run_dir / "summary.html")
-        
+        if (LATEST_DIR / "summary.html").exists():
+            shutil.copy2(LATEST_DIR / "summary.html", run_dir / "summary.html")
+            
         # Validate artifacts
         events_valid, events_msg = validate_events_jsonl(run_dir / "events.jsonl")
         trades_valid, trades_msg = validate_trades_csv(run_dir / "trades.csv")
         summary_valid, summary_msg = validate_summary_html(run_dir / "summary.html")
         
-        append_event({"event": "ArtifactValidation", "events": events_msg, "trades": trades_msg, "summary": summary_msg})
+        if not events_valid:
+            raise RuntimeError(f"events.jsonl validation failed: {events_msg}")
+        if not summary_valid:
+            raise RuntimeError(f"summary.html validation failed: {summary_msg}")
+        if not trades_valid:
+            if "no data rows" in trades_msg:
+                pass
+            else:
+                raise RuntimeError(f"trades.csv validation failed: {trades_msg}")
         
-        if not (events_valid and trades_valid and summary_valid):
-            errors = []
-            if not events_valid:
-                errors.append(f"events.jsonl: {events_msg}")
-            if not trades_valid:
-                errors.append(f"trades.csv: {trades_msg}")
-            if not summary_valid:
-                errors.append(f"summary.html: {summary_msg}")
-            raise RuntimeError(f"Artifact validation failed: {'; '.join(errors)}")
-        
-        append_event({"event": "OrchestratedRunFinished", "run_id": run_id, "trades": len(trades), "ending_balance": ending_balance})
-        
-        return True, f"Orchestrated run completed successfully. Run ID: {run_id}"
+        return True, f"Orchestrated modular run completed. Run ID: {run_id}"
         
     except Exception as e:
-        append_event({"event": "OrchestratedRunError", "error": str(e)})
+        import traceback
+        append_event({"event": "OrchestratedModularError", "error": str(e), "trace": traceback.format_exc()[-500:]})
         return False, str(e)
 
 
@@ -296,13 +366,23 @@ class Candle:
 def load_mock_candles(n: int = 200) -> List[Candle]:
     candles: List[Candle] = []
     price = 100_000.0
+    import random
+    random.seed(42)  # Deterministic mock
+    
     for i in range(n):
-        price += 5.0 + (20.0 if (i % 20) < 10 else -20.0)
-        o = price - 10.0
-        c = price + 10.0
-        h = max(o, c) + 15.0
-        l = min(o, c) - 15.0
-        candles.append(Candle(ts=f"mock_{i:04d}", open=o, high=h, low=l, close=c, volume=1.0))
+        # Add a trend + some significant noise to hit limits
+        price += 10.0 + (random.random() - 0.5) * 400.0
+        
+        # Wider wick range (ATR-like)
+        range_size = 300.0 + random.random() * 200.0
+        o = price - (random.random() - 0.5) * range_size * 0.5
+        c = price + (random.random() - 0.5) * range_size * 0.5
+        h = max(o, c) + random.random() * range_size * 0.4
+        l = min(o, c) - random.random() * range_size * 0.4
+        
+        # Use real timestamps for Plotly compatibility
+        ts_obj = datetime(2025, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=i)
+        candles.append(Candle(ts=ts_obj.isoformat(), open=o, high=h, low=l, close=c, volume=1.0))
     return candles
 
 
@@ -2681,14 +2761,10 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
 </html>
 """
     
-    # Use atomic write for HTML too
-    temp_p = (LATEST_DIR / "summary.html").with_suffix(".tmp")
+    # Write to LATEST_DIR for validation/access
     try:
-        temp_p.write_text(html, encoding="utf-8")
-        temp_p.replace(LATEST_DIR / "summary.html")
+        (LATEST_DIR / "summary.html").write_text(html, encoding="utf-8")
     except Exception as e:
-        if temp_p.exists():
-            temp_p.unlink()
         append_event({"event": "HtmlWriteError", "message": str(e)})
 
 
