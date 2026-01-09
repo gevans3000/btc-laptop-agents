@@ -65,3 +65,31 @@ Before applying any code update:
 2. **Pull/Edit** code.
 3. **Verify**: `.\scripts\verify.ps1 -Mode quick`
 4. **Start**: `.\scripts\mvp_start_live.ps1`
+
+## 5. Live & Shadow Trading (Bitunix)
+
+The `bitunix_cli.py` tool allows for controlled live trading sessions.
+
+### A. Shadow Mode (Safe Simulation)
+Simulates trades with **real live data** but **does not execute orders**.
+
+*   **Quick Connectivity Check (5 mins)**:
+    ```powershell
+    python -m laptop_agents.bitunix_cli live-session --symbol BTCUSD --interval 1m --duration-min 5
+    ```
+*   **Standard Session (1 hour)**:
+    ```powershell
+    python -m laptop_agents.bitunix_cli live-session --symbol BTCUSD --interval 1m --duration-min 60
+    ```
+*   **USDT Futures**:
+    ```powershell
+    python -m laptop_agents.bitunix_cli live-session --symbol BTCUSDT --interval 1m --duration-min 60
+    ```
+
+### B. Live Trading (Real Money ⚠️)
+**WARNING**: This executes real orders on your Bitunix account. Use with caution.
+
+*   **Command**:
+    ```powershell
+    python -m laptop_agents.bitunix_cli live-session --symbol BTCUSD --interval 1m --duration-min 60 --no-shadow
+    ```
