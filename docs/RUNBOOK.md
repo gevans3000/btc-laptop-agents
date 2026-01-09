@@ -66,7 +66,66 @@ Before applying any code update:
 3. **Verify**: `.\scripts\verify.ps1 -Mode quick`
 4. **Start**: `.\scripts\mvp_start_live.ps1`
 
-## 5. Live & Shadow Trading (Bitunix)
+## 5. Backtesting
+
+Run historical simulations to test strategy performance.
+
+### A. Basic Backtest Commands
+
+*   **Position Mode (Default - Recommended)**:
+    ```powershell
+    python -m src.laptop_agents.run --mode backtest --backtest 500
+    ```
+    Uses risk-based position sizing with stop-loss and take-profit management.
+
+*   **Bar Mode (Simple)**:
+    ```powershell
+    python -m src.laptop_agents.run --mode backtest --backtest 500 --backtest-mode bar
+    ```
+    One trade per bar, simpler logic.
+
+### B. Backtest with Real Data (Bitunix)
+
+*   **Backtest on Bitunix Historical Data**:
+    ```powershell
+    python -m src.laptop_agents.run --mode backtest --source bitunix --symbol BTCUSD --interval 5m --backtest 1000
+    ```
+
+### C. Risk Parameters
+
+Customize risk management settings:
+
+```powershell
+python -m src.laptop_agents.run --mode backtest --backtest 500 \
+  --risk-pct 1.0 \
+  --stop-bps 30.0 \
+  --tp-r 1.5 \
+  --max-leverage 1.0 \
+  --intrabar-mode conservative
+```
+
+**Parameters**:
+- `--risk-pct`: % of equity risked per trade (default: 1.0)
+- `--stop-bps`: Stop distance in basis points (default: 30.0 = 0.30%)
+- `--tp-r`: Take profit ratio (default: 1.5 = 1.5x stop distance)
+- `--max-leverage`: Maximum leverage (default: 1.0 = no leverage)
+- `--intrabar-mode`: `conservative` (stop first) or `optimistic` (TP first)
+
+### D. Outputs
+
+All backtest results are saved to `runs/latest/`:
+- `summary.html`: Interactive dashboard with charts
+- `trades.csv`: All trade details
+- `equity.csv`: Equity curve data
+- `stats.json`: Performance metrics
+- `events.jsonl`: Event log
+
+**View Results**:
+```powershell
+.\scripts\mvp_open.ps1
+```
+
+## 6. Live & Shadow Trading (Bitunix)
 
 The `bitunix_cli.py` tool allows for controlled live trading sessions.
 
