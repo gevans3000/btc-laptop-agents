@@ -83,10 +83,20 @@ class BitunixFuturesProvider:
 
     BASE_URL = "https://fapi.bitunix.com"
 
-    def __init__(self, *, symbol: str, allowed_symbols: Optional[Iterable[str]] = None, timeout_s: float = 20.0):
+    def __init__(
+        self,
+        *,
+        symbol: str,
+        allowed_symbols: Optional[Iterable[str]] = None,
+        timeout_s: float = 20.0,
+        api_key: Optional[str] = None,
+        secret_key: Optional[str] = None,
+    ):
         self.symbol = symbol
         self.allowed_symbols = set(allowed_symbols) if allowed_symbols else {symbol}
         self.timeout_s = timeout_s
+        self.api_key = api_key
+        self.secret_key = secret_key
         self._assert_allowed()
         
         # Resilience components
@@ -112,6 +122,107 @@ class BitunixFuturesProvider:
         if isinstance(payload, dict) and payload.get("code") != 0:
             raise RuntimeError(f"Bitunix API error: {payload}")
         return payload
+
+    def _get_signed(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        """Make authenticated HTTP GET request with resilience patterns."""
+        return self._call_exchange("bitunix", "GET_SIGNED", lambda: self._raw_get_signed(path, params))
+
+    def _raw_get_signed(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        """Raw authenticated HTTP GET request."""
+        if not self.api_key or not self.secret_key:
+            raise RuntimeError("API key and secret key required for signed requests")
+
+        uri = self.BASE_URL + path
+        ts = _now_ms()
+        nonce = str(int(time.time() * 1000000))  # Simple microsecond nonce
+        
+        # Prepare params for signature
+        final_params = params.copy() if params else {}
+        
+        # Bitunix signature requirement:
+        # digest = sha256(nonce + timestamp + apiKey + sorted_params_string + body)
+        # sign = sha256(digest + secretKey)
+        # NOTE: For GET requests, body is empty string
+        
+        qs = build_query_string(final_params)
+        
+        # Manually compute signature
+        # digest = _sha256_hex(nonce + str(ts) + self.api_key + qs + "")
+        # signature = _sha256_hex(digest + self.secret_key)
+        
+        # Use helper
+        signature = sign_rest(
+            nonce=nonce,
+            timestamp_ms=ts,
+            api_key=self.api_key,
+            secret_key=self.secret_key,
+            query_params=qs,
+            body=""
+        )
+
+        headers = {
+            "User-Agent": "btc-laptop-agents/0.1",
+            "api-key": self.api_key,
+            "timestamp": str(ts),
+            "nonce": nonce,
+            "sign": signature,
+            # Content-Type optional for GET but good practice
+            "Content-Type": "application/json",
+        }
+
+        with httpx.Client(timeout=self.timeout_s, headers=headers) as c:
+            r = c.get(uri, params=final_params)
+            r.raise_for_status()
+            payload = r.json()
+            
+        if isinstance(payload, dict) and payload.get("code") != 0:
+            raise RuntimeError(f"Bitunix Signed API error: {payload}")
+        return payload
+
+    def _post_signed(self, path: str, body: Dict[str, Any]) -> Any:
+        """Make authenticated HTTP POST request with resilience patterns."""
+        return self._call_exchange("bitunix", "POST_SIGNED", lambda: self._raw_post_signed(path, body))
+
+    def _raw_post_signed(self, path: str, body: Dict[str, Any]) -> Any:
+        """Raw authenticated HTTP POST request."""
+        if not self.api_key or not self.secret_key:
+            raise RuntimeError("API key and secret key required for signed requests")
+
+        uri = self.BASE_URL + path
+        ts = _now_ms()
+        nonce = str(int(time.time() * 1000000))
+        
+        # Minify body for signature
+        body_str = _minified_json(body)
+        
+        # Use helper (queryParams is empty for POST normally in Bitunix docs)
+        signature = sign_rest(
+            nonce=nonce,
+            timestamp_ms=ts,
+            api_key=self.api_key,
+            secret_key=self.secret_key,
+            query_params="",
+            body=body_str
+        )
+
+        headers = {
+            "User-Agent": "btc-laptop-agents/0.1",
+            "api-key": self.api_key,
+            "timestamp": str(ts),
+            "nonce": nonce,
+            "sign": signature,
+            "Content-Type": "application/json",
+        }
+
+        with httpx.Client(timeout=self.timeout_s, headers=headers) as c:
+            r = c.post(uri, content=body_str)
+            r.raise_for_status()
+            payload = r.json()
+            
+        if isinstance(payload, dict) and payload.get("code") != 0:
+            raise RuntimeError(f"Bitunix Signed POST error: {payload}")
+        return payload
+
     
     def _call_exchange(self, exchange_name: str, operation: str, fn: callable) -> Any:
         """Wrapper function for exchange calls with resilience patterns."""
@@ -250,3 +361,51 @@ class BitunixFuturesProvider:
             "liq_map": None,
             "errors": [],
         }
+
+    def get_pending_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Fetch current open positions."""
+        params = {}
+        if symbol:
+            params["symbol"] = symbol
+            
+        payload = self._get_signed("/api/v1/futures/position/get_pending_positions", params=params)
+        return payload.get("data") or []
+
+    def place_order(
+        self,
+        *,
+        side: str,
+        qty: float,
+        order_type: str = "MARKET",
+        price: Optional[float] = None,
+        trade_side: str = "OPEN",
+        symbol: Optional[str] = None,
+        tp_price: Optional[float] = None,
+        sl_price: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Place a futures order."""
+        sym = symbol or self.symbol
+        body = {
+            "symbol": sym,
+            "qty": str(qty),
+            "side": side.upper(),
+            "tradeSide": trade_side.upper(),
+            "orderType": order_type.upper(),
+        }
+        if order_type.upper() == "LIMIT":
+            if price is None:
+                raise ValueError("Price is required for LIMIT orders")
+            body["price"] = str(price)
+            body["effect"] = "GTC"
+            
+        if tp_price is not None:
+            body["tpPrice"] = str(tp_price)
+            body["tpStopType"] = "MARK_PRICE"
+            body["tpOrderType"] = "MARKET"
+            
+        if sl_price is not None:
+            body["slPrice"] = str(sl_price)
+            body["slStopType"] = "MARK_PRICE"
+            body["slOrderType"] = "MARKET"
+
+        return self._post_signed("/api/v1/futures/trade/place_order", body=body)
