@@ -96,3 +96,12 @@ class PaperBroker:
         risk = abs(p.entry - p.sl) * p.qty
         r_mult = (pnl / risk) if risk > 0 else 0.0
         return {"type": "exit", "reason": reason, "price": px, "pnl": pnl, "r": r_mult, "bars_open": p.bars_open, "at": ts}
+
+    def get_unrealized_pnl(self, current_price: float) -> float:
+        if self.pos is None:
+            return 0.0
+        p = self.pos
+        if p.side == "LONG":
+            return (current_price - p.entry) * p.qty
+        else:
+            return (p.entry - current_price) * p.qty

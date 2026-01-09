@@ -63,6 +63,8 @@ class ExecutionRiskSentinelAgent:
             "size_mult": size_mult,
             "risk_pct": risk_pct,
             "equity": equity,
+            "lot_step": 0.001, # Enforce lot step
+            "min_notional": 5.0, # Enforce min notional ($)
             "setup": setup,
         }
         return state

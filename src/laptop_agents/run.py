@@ -219,12 +219,16 @@ def run_orchestrated_mode(
             for ex in state.broker_events.get("exits", []):
                 current_equity += float(ex.get("pnl", 0.0))
             
-            equity_history.append({"ts": str(candle.ts), "equity": current_equity})
+            # Mark-to-Market Equity
+            unrealized = supervisor.broker.get_unrealized_pnl(float(candle.close))
+            total_equity = current_equity + unrealized
+            
+            equity_history.append({"t": candle.ts, "v": total_equity})
             
         # Write equity.csv for the chart
         equity_csv = LATEST_DIR / "equity.csv"
         with equity_csv.open("w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["ts", "equity"])
+            writer = csv.DictWriter(f, fieldnames=["t", "v"])
             writer.writeheader()
             writer.writerows(equity_history)
 

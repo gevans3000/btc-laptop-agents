@@ -32,6 +32,7 @@ src/laptop_agents/data/*.pid
 # Generated outputs
 runs/
 paper/
+!src/laptop_agents/paper/
 assistant_sync_pack.md
 cleanup_*.md
 

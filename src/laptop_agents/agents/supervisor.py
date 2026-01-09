@@ -10,6 +10,7 @@ from .derivatives_flows import DerivativesFlowsAgent
 from .setup_signal import SetupSignalAgent
 from .execution_risk import ExecutionRiskSentinelAgent
 from .journal_coach import JournalCoachAgent
+from .risk_gate import RiskGateAgent
 
 
 class Supervisor:
@@ -26,6 +27,7 @@ class Supervisor:
         self.a2 = DerivativesFlowsAgent(provider, cfg["derivatives_gates"], refresh_bars=refresh_bars)
         self.a3 = SetupSignalAgent(cfg["setups"])
         self.a4 = ExecutionRiskSentinelAgent(cfg["risk"])
+        self.risk_gate = RiskGateAgent(cfg.get("risk", {})) # Use risk cfg for max_risk checks
         self.a5 = JournalCoachAgent(journal_path)
 
     def step(self, state: State, candle: Candle) -> State:
@@ -51,6 +53,11 @@ class Supervisor:
 
         # Resolve trigger -> market entry if needed
         order = self._resolve_order(state, candle)
+        state.order = order # _resolve_order returns Dict, put it back in state for Gate
+
+        # GATE: Check strict risk constraints before broker sees the order
+        state = self.risk_gate.run(state)
+        order = state.order # Refresh order in case Gate blocked it
 
         # Broker handles fills/exits
         broker_events = self.broker.on_candle(candle, order)
@@ -106,6 +113,16 @@ class Supervisor:
             return None
 
         qty = risk_dollars / stop_dist
+        
+        # Enforce Lot Step
+        lot_step = float(order.get("lot_step", 0.001))
+        qty = int(qty / lot_step) * lot_step
+        
+        # Enforce Min Notional
+        min_notional = float(order.get("min_notional", 5.0))
+        if (qty * entry) < min_notional:
+            return None
+
         return {
             "go": True,
             "side": order["side"],
