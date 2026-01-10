@@ -14,10 +14,10 @@ from .risk_gate import RiskGateAgent
 
 
 class Supervisor:
-    def __init__(self, provider: Any, cfg: Dict[str, Any], journal_path: str = "data/paper_journal.jsonl") -> None:
+    def __init__(self, provider: Any, cfg: Dict[str, Any], journal_path: str = "data/paper_journal.jsonl", broker: Optional[Any] = None) -> None:
         self.provider = provider
         self.cfg = cfg
-        self.broker = PaperBroker()
+        self.broker = broker or PaperBroker()
 
         engine = cfg.get("engine", {})
         self.pending_trigger_max_bars = int(engine.get("pending_trigger_max_bars", 24))

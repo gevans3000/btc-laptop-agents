@@ -101,6 +101,7 @@ def run_orchestrated_mode(
     limit: int,
     fees_bps: float,
     slip_bps: float,
+    execution_mode: str = "paper",
 ) -> tuple[bool, str]:
     """Run orchestrated mode - using modular agents in a single pass."""
     if Supervisor is None or AgentState is None:
@@ -118,7 +119,8 @@ def run_orchestrated_mode(
         "run_id": run_id,
         "source": source,
         "symbol": symbol,
-        "interval": interval
+        "interval": interval,
+        "execution_mode": execution_mode
     })
     
     # Initialize Trading Circuit Breaker
@@ -143,9 +145,27 @@ def run_orchestrated_mode(
         starting_balance = 10_000.0
         cfg = get_agent_config(starting_balance=starting_balance)
         
+        # Live Broker Setup
+        broker = None
+        if execution_mode == "live":
+            if source != "bitunix":
+                raise ValueError("Live execution currently only supports bitunix source")
+            
+            from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
+            from laptop_agents.execution.bitunix_broker import BitunixBroker
+            
+            # Use keys from config/env
+            provider = BitunixFuturesProvider(
+                symbol=symbol,
+                api_key=cfg.get("api_key"),
+                secret_key=cfg.get("secret_key")
+            )
+            broker = BitunixBroker(provider)
+            append_event({"event": "LiveBrokerInitialized", "broker": "BitunixBroker"})
+
         # Point the journal to the run directory for modular isolation
         journal_path = run_dir / "journal.jsonl"
-        supervisor = Supervisor(provider=None, cfg=cfg, journal_path=str(journal_path))
+        supervisor = Supervisor(provider=None, cfg=cfg, journal_path=str(journal_path), broker=broker)
         state = AgentState(instrument=symbol, timeframe=interval)
         
         equity_history = []
@@ -2739,6 +2759,8 @@ def main() -> int:
                    help="Run mode: single (default), backtest, live paper trading, validate, selftest, or orchestrated")
     ap.add_argument("--once", action="store_true", default=False,
                    help="Run once and exit (for orchestrated mode)")
+    ap.add_argument("--execution-mode", choices=["paper", "live"], default="paper",
+                   help="Execution mode for orchestrated: paper (default) or live (real exchange orders)")
     ap.add_argument("--risk-pct", type=float, default=1.0, help="% equity risked per trade")
     ap.add_argument("--stop-bps", type=float, default=30.0, help="stop distance in bps from entry (0.30%)")
     ap.add_argument("--tp-r", type=float, default=1.5, help="take profit = stop_distance * tp-r")
@@ -3078,6 +3100,7 @@ def main() -> int:
                 limit=args.limit,
                 fees_bps=float(args.fees_bps),
                 slip_bps=float(args.slip_bps),
+                execution_mode=args.execution_mode,
             )
             
             if success:
