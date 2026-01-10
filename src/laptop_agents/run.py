@@ -294,14 +294,8 @@ def append_event(obj: Dict[str, Any], paper: bool = False) -> None:
             f.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
 
-@dataclass
-class Candle:
-    ts: str
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float
+# Import trading helpers (Phase 1 refactor)
+from laptop_agents.trading.helpers import Candle, sma, normalize_candle_order
 
 
 def load_mock_candles(n: int = 200) -> List[Candle]:
