@@ -53,7 +53,7 @@ class Supervisor:
 
         # Resolve trigger -> market entry if needed
         order = self._resolve_order(state, candle)
-        state.order = order # _resolve_order returns Dict, put it back in state for Gate
+        state.order = order or {} # _resolve_order returns Optional[Dict], ensure it's not None
 
         # GATE: Check strict risk constraints before broker sees the order
         state = self.risk_gate.run(state)

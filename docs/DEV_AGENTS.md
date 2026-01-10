@@ -40,3 +40,19 @@ To ensure "agent-readiness" for the next session:
 2.  **Provide Proof**: In your final report, state specifically which modes were tested (e.g., "Verified via `mode=mock` and `mode=selftest`").
 3.  **Check for Drift**: If you change logic, check if `docs/MAP.md` line ranges need updating.
 
+
+## 8. Git Commit Policy
+### Frequency
+*   **ALWAYS** commit changes immediately after completing a logical unit of work.
+*   **NEVER** wait for multiple tasks to pile up before committing.
+*   If you refactor a file and then add a feature, that must be **two separate commits**.
+
+### Commit Message Format
+*   Use Semantic Commit messages (e.g., `feat:`, `fix:`, `refactor:`, `docs:`).
+*   Keep descriptions concise but specific.
+
+### Workflow
+1.  Make code changes.
+2.  Verify the changes (run tests or lint).
+3.  Stage specific files (`git add <file>`).
+4.  Commit immediately (`git commit -m "..."`).

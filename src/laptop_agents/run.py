@@ -2959,6 +2959,7 @@ def main() -> int:
             
             append_event({"event": "ValidationFinished", "folds": len(validation_result["folds"]),
                          "total_os_pnl": validation_result["total_os_pnl"]})
+
         elif mode == "live":
             # Live paper trading mode
             trades, ending_balance, state = run_live_paper_trading(
