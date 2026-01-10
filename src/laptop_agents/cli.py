@@ -20,9 +20,26 @@ from .indicators import Candle
 app = typer.Typer(help="BTC Laptop Agents — 5-agent paper trading loop (5m)")
 
 
+# Robust path resolution
+HERE = Path(__file__).resolve()
+REPO_ROOT = HERE.parent.parent.parent
+
 def load_cfg(path: str = "config/default.json") -> dict:
+    """Load config with robust path resolution (CWD or REPO_ROOT)."""
     p = Path(path)
-    return json.loads(p.read_text(encoding="utf-8"))
+    if p.is_absolute():
+        return json.loads(p.read_text(encoding="utf-8"))
+    
+    # Try CWD first
+    if p.exists():
+        return json.loads(p.read_text(encoding="utf-8"))
+        
+    # Try REPO_ROOT
+    repo_p = REPO_ROOT / path
+    if repo_p.exists():
+        return json.loads(repo_p.read_text(encoding="utf-8"))
+        
+    raise FileNotFoundError(f"Config not found: {path} or {repo_p}")
 
 
 @app.command()

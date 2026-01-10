@@ -15,15 +15,13 @@ from typing import Any, Dict, List, Optional
 
 
 # ---------------- Paths (anchor to repo root) ----------------
+# Robust path resolution as per docs/FIX_PATHS.md
 HERE = Path(__file__).resolve()
-repo = HERE
-for _ in range(10):
-    if (repo / "pyproject.toml").exists():
-        break
-    repo = repo.parent
+# src/laptop_agents/run.py -> src/laptop_agents -> src -> repo_root
+REPO_ROOT = HERE.parent.parent.parent
 
 # Put 'src' in path so 'import laptop_agents' works regardless of CWD
-sys.path.append(str(repo / "src"))
+sys.path.append(str(REPO_ROOT / "src"))
 
 # Late imports to avoid circularity - MUST BE AFTER sys.path setup
 try:
@@ -34,9 +32,9 @@ except ImportError:
     Supervisor = None
     AgentState = None
 
-RUNS_DIR = repo / "runs"
+RUNS_DIR = REPO_ROOT / "runs"
 LATEST_DIR = RUNS_DIR / "latest"
-PAPER_DIR = repo / "paper"
+PAPER_DIR = REPO_ROOT / "paper"
 
 
 # Required keys for valid events.jsonl lines
@@ -325,6 +323,7 @@ def run_orchestrated_mode(
 
 def check_bitunix_config() -> tuple[bool, str]:
     """Check if bitunix configuration is available."""
+    env_path = REPO_ROOT / ".env"
     import os
     api_key = os.environ.get("BITUNIX_API_KEY", "")
     # Support both naming conventions for secret key

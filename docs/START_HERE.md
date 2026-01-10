@@ -5,8 +5,8 @@
 
 ## User / Operator
 *   **I want to run the system**: Read **[docs/RUNBOOK.md](docs/RUNBOOK.md)**.
-*   **I want to understand the rules**: Read **[docs/MVP_SPEC.md](docs/MVP_SPEC.md)**.
-*   **I want to see the future goals**: Read **[docs/MVP_TARGET.md](docs/MVP_TARGET.md)**.
+*   **I want to understand the rules**: Read **[docs/SPEC.md](docs/SPEC.md)**.
+*   **I want to see the future roadmap**: Read **[docs/NEXT.md](docs/NEXT.md)**.
 
 ## AI Agent / Developer
 *   **I am coding features**: Read **[docs/DEV_AGENTS.md](docs/DEV_AGENTS.md)**.

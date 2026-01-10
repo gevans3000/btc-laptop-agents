@@ -1,5 +1,7 @@
 # MVP Contract for BTC Laptop Agents
 
+> **STATUS**: DEPRECATED - See `docs/SPEC.md`
+
 This document defines the minimum viable product (MVP) contract for the BTC Laptop Agents project. It outlines the required outputs, schemas, and validation criteria for a successful v1 release.
 
 ## Required Outputs

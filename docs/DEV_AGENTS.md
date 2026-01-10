@@ -13,12 +13,11 @@ Every change must pass `.\scripts\verify.ps1 -Mode quick` before you request use
 *   **The Future**: We will refactor later. For now, respect the monolith.
 
 ## 3. Documentation "Law"
-*   **Read `docs/MVP_SPEC.md`**: This is the current truth.
-*   **Read `docs/MVP_TARGET.md`**: This is the future. Do not implement features from here unless explicitly asked.
-*   **Update Responsibility**: If you change CLI args or output schemas, you **MUST** update `MVP_SPEC.md` in the same PR.
+*   **Read `docs/SPEC.md`**: This is the current truth.
+*   **Update Responsibility**: If you change CLI args or output schemas, you **MUST** update `SPEC.md` in the same PR.
 
 ## 4. Workflow Strictness
-1.  **Read First**: Always scan `run.py` outline and `MVP_SPEC.md` before coding.
+1.  **Read First**: Always scan `run.py` outline and `SPEC.md` before coding.
 2.  **Small Diffs**: Limit changes to < 50 lines if possible.
 3.  **No Refactors**: Do not rename functions or split files "for cleanliness" without explicit user instruction.
 4.  **Artifact Respect**: Never change the schema of `events.jsonl` or `trades.csv` (append-only compatible additions are allowed).
@@ -26,7 +25,7 @@ Every change must pass `.\scripts\verify.ps1 -Mode quick` before you request use
 ## 5. Verification Checklist
 Before finishing your turn:
 - [ ] Ran `.\scripts\verify.ps1`?
-- [ ] Updated `docs/MVP_SPEC.md` if args changed?
+- [ ] Updated `docs/SPEC.md` if args changed?
 - [ ] checked `logs/live.err.txt`?
 
 ## 6. Dangerous Zones

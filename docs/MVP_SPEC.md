@@ -1,6 +1,6 @@
 # MVP_SPEC.md — The "Law" of v1
 
-> **STATUS**: ACTIVE & AUTHORITATIVE
+> **STATUS**: DEPRECATED - See `docs/SPEC.md`
 > **SCOPE**: Mirrors `src/laptop_agents/run.py` and `/scripts/` exactly.
 
 This document defines the **current, supported** behavior of the BTC Laptop Agents MVP. Any deviation between this file and the code is a **bug**.

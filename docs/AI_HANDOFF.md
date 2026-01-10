@@ -10,11 +10,11 @@ The file `assistant_sync_pack.md` in the root is a **GENERATED ARTIFACT**.
 
 ## Context Loading Order
 1.  **Read `docs/START_HERE.md`** (Map of the world).
-2.  **Read `docs/MVP_SPEC.md`** (The Law).
+2.  **Read `docs/SPEC.md`** (The Law).
 3.  **Read `docs/DEV_AGENTS.md`** (Your constraints).
 4.  **Check `task.md`** (Current objectives).
 
 ## Active Constraints & Reminders
 *   **Monolith**: Work in `src/laptop_agents/run.py`.
 *   **Verify**: Always run `verify.ps1`.
-*   **Drift**: Do not assume docs are perfect, but assume `MVP_SPEC` is intended to be true. Fix it if it's wrong.
+*   **Drift**: Do not assume docs are perfect, but assume `SPEC.md` is intended to be true. Fix it if it's wrong.
