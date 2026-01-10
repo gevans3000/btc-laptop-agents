@@ -121,6 +121,10 @@ def run_orchestrated_mode(
         "interval": interval
     })
     
+    # Initialize Trading Circuit Breaker
+    from laptop_agents.resilience.trading_circuit_breaker import TradingCircuitBreaker
+    circuit_breaker = TradingCircuitBreaker(max_daily_drawdown_pct=5.0, max_consecutive_losses=5)
+    
     try:
         # Load candles
         if source == "bitunix":
@@ -147,13 +151,30 @@ def run_orchestrated_mode(
         equity_history = []
         current_equity = starting_balance
         
+        # Initialize circuit breaker with starting equity
+        circuit_breaker.set_starting_equity(starting_balance)
+        
         # Step through candles
         for i, candle in enumerate(candles):
+            # Check circuit breaker before trading
+            if circuit_breaker.is_tripped():
+                append_event({
+                    "event": "CircuitBreakerTripped",
+                    "status": circuit_breaker.get_status()
+                })
+                break
+            
             state = supervisor.step(state, candle)
             
             # Simple equity tracking
+            trade_pnl = None
             for ex in state.broker_events.get("exits", []):
-                current_equity += float(ex.get("pnl", 0.0))
+                pnl = float(ex.get("pnl", 0.0))
+                current_equity += pnl
+                trade_pnl = pnl
+            
+            # Update circuit breaker with equity and trade result
+            circuit_breaker.update_equity(current_equity, trade_pnl)
             
             # Mark-to-Market Equity
             unrealized = supervisor.broker.get_unrealized_pnl(float(candle.close))
