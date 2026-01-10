@@ -22,6 +22,12 @@ ENV/
 *.pid
 *.lock
 logs/
+data/
+src/data/
+temp_journal.jsonl
+*.txt
+!LICENSE
+!requirements.txt
 
 # Generated data files only (keep providers/ directory)
 src/laptop_agents/data/*.jsonl
