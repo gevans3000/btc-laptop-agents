@@ -76,5 +76,50 @@ class TestSafetyManual(unittest.TestCase):
         self.assertTrue(any("REJECTED: Order notional" in err for err in errors), f"Expected rejection error, got: {errors}")
         provider.place_order.assert_not_called()
 
+    def test_inverse_pnl_calculation(self):
+        """Verify BTCUSD Inverse PnL: PnL(BTC) = Notional * (1/Entry - 1/Exit)"""
+        from laptop_agents.paper.broker import PaperBroker
+        from dataclasses import dataclass
+        
+        @dataclass
+        class MockCandle:
+            ts: str = "2026-01-01T00:00:00Z"
+            open: float = 90000.0
+            high: float = 91000.0
+            low: float = 89000.0
+            close: float = 90500.0
+        
+        broker = PaperBroker(symbol="BTCUSD")
+        candle = MockCandle()
+        
+        # Simulate a LONG fill at market (90500)
+        # Input qty is 0.01 BTC. Notional = 0.01 * 90500 = 905 USD.
+        order = {
+            "go": True,
+            "side": "LONG",
+            "entry_type": "market",
+            "entry": 90500.0,
+            "qty": 0.01,
+            "sl": 89500.0,
+            "tp": 92000.0,
+            "equity": 10000.0
+        }
+        events = broker.on_candle(candle, order)
+        self.assertEqual(len(events["fills"]), 1, f"Expected 1 fill, got {events}")
+        
+        # Simulate TP hit (high reaches 92000)
+        exit_candle = MockCandle(high=92000.0, low=90000.0)
+        events = broker.on_candle(exit_candle, None)
+        self.assertEqual(len(events["exits"]), 1, f"Expected 1 exit, got {events}")
+        
+        exit_event = events["exits"][0]
+        # PnL = Notional * (1/Entry - 1/Exit)
+        # PnL = 905 * (1/90500 - 1/92000)
+        # PnL = 905 * (0.0000110497... - 0.0000108695...)
+        # PnL should be positive.
+        self.assertGreater(exit_event["pnl"], 0, f"Expected positive PnL for profitable long, got {exit_event['pnl']}")
+        self.assertGreater(exit_event["r"], 0, f"Expected positive R-mult, got {exit_event['r']}")
+        print(f"Inverse PnL Test Passed: PnL={exit_event['pnl']:.8f} BTC, R={exit_event['r']:.2f}")
+
 if __name__ == '__main__':
     unittest.main()
