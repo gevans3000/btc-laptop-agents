@@ -28,6 +28,9 @@ class BitunixBroker:
         self._initialized = False
         self._instrument_info: Optional[Dict[str, Any]] = None
         self._order_generated_at: Optional[float] = None
+        self._entry_price: Optional[float] = None
+        self._entry_side: Optional[str] = None
+        self._entry_qty: Optional[float] = None
 
     def _get_info(self) -> Dict[str, Any]:
         if self._instrument_info is None:
@@ -156,24 +159,45 @@ class BitunixBroker:
                 else:
                     logger.info(f"LIVE Fill Detected: {fill_event}")
                 
+                self._entry_price = px
+                self._entry_side = side
+                self._entry_qty = abs(qty)
+                
                 events["fills"].append(fill_event)
 
             # Case: Pos -> No pos (EXIT)
             elif self.last_pos and not current_pos:
-                # We don't have the exit price from the position list (it's gone)
-                # In a robust system we'd poll order history, but for MVP 
-                # we'll use candle close as a proxy or just report the exit.
-                px = float(candle.close) 
-                
+                px = float(candle.close)
+                pnl = 0.0
+
+                if self._entry_price and self._entry_price > 0:
+                    if self.is_inverse:
+                        # Notional = Qty(Coins) * Entry
+                        notional = self._entry_qty * self._entry_price
+                        if self._entry_side == "LONG":
+                            pnl = notional * (1.0/self._entry_price - 1.0/px)
+                        else:
+                            pnl = notional * (1.0/px - 1.0/self._entry_price)
+                    else:
+                        if self._entry_side == "LONG":
+                            pnl = (px - self._entry_price) * self._entry_qty
+                        else:
+                            pnl = (self._entry_price - px) * self._entry_qty
+
                 exit_event = {
                     "type": "exit",
                     "reason": "exchange_detected",
                     "price": px,
-                    "pnl": 0.0, # Will be reconciled by journal/equity check if needed
+                    "pnl": pnl,
                     "at": candle.ts
                 }
                 events["exits"].append(exit_event)
                 logger.info(f"LIVE Exit Detected: {exit_event}")
+
+                # Reset entry tracking
+                self._entry_price = None
+                self._entry_side = None
+                self._entry_qty = None
 
             self.last_pos = current_pos
 
