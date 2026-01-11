@@ -8,7 +8,7 @@ from .errors import (
     UnknownProviderError,
 )
 from .retry import RetryPolicy, with_retry
-from .circuit import CircuitBreaker
+from .circuit import CircuitBreaker, CircuitBreakerOpenError
 from .log import log_event, log_provider_error
 
 __all__ = [
@@ -20,6 +20,7 @@ __all__ = [
     "RetryPolicy",
     "with_retry",
     "CircuitBreaker",
+    "CircuitBreakerOpenError",
     "guarded_call",
     "log_event",
     "log_provider_error",

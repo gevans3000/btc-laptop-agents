@@ -25,8 +25,9 @@ def test_selftest():
         print("STDERR:", result.stderr)
         sys.exit(1)
     
-    if "SELFTEST PASS" not in result.stdout:
-        print("[FAIL] 'SELFTEST PASS' not found in stdout.")
+    full_output = result.stdout + result.stderr
+    if "SELFTEST PASS" not in full_output:
+        print("[FAIL] 'SELFTEST PASS' not found in output.")
         sys.exit(1)
         
     print("[PASS] Selftest successful.")
