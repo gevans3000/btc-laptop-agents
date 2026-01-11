@@ -7,11 +7,14 @@
 
 | Action | Script | Expected Output |
 | :--- | :--- | :--- |
-| **Start** | `.\scripts\mvp_start_live.ps1` | `Live paper trading started with PID 12345` |
+| Action | Script | Expected Output |
+| :--- | :--- | :--- |
+| **Start (Resilient)**| `.\scripts\watchdog.ps1` | Mantains background run, auto-restarts on crash. |
+| **Start (Standard)** | `.\scripts\mvp_start_live.ps1` | `Live paper trading started with PID 12345` |
 | **Stop** | `.\scripts\mvp_stop_live.ps1` | `Process 12345 stopped` |
 | **Status** | `.\scripts\mvp_status.ps1` | `Status: RUNNING` or `OFF` |
 | **Run Once** | `.\scripts\mvp_run_once.ps1` | Generates `runs/latest/summary.html` |
-| **View** | `.\scripts\mvp_open.ps1` | Opens default browser to summary |
+| **Dashboard** | `.\scripts\dashboard_up.ps1` | Serves results on `http://localhost:8000` |
 | **Verify** | `.\scripts\verify.ps1` | `VERIFY: PASS` |
 
 ## 2. Detailed Procedures
@@ -152,3 +155,43 @@ Simulates trades with **real live data** but **does not execute orders**.
     ```powershell
     python -m laptop_agents.bitunix_cli live-session --symbol BTCUSD --interval 1m --duration-min 60 --no-shadow
     ```
+
+## 7. Resilience & Safety (Production)
+
+### A. Process Watchdog
+To run the system with auto-restart capability (resilience):
+```powershell
+.\scripts\watchdog.ps1 --mode orchestrated --source bitunix --limit 200 --execution-mode live
+```
+- **Failsafe**: If the python process crashes/exits, the watchdog waits 10s and restarts it.
+- **Log**: View watchdog activity in `logs/watchdog.log`.
+
+### B. Safety Kill Switch
+If you need to instantly block all new order submissions:
+1. Open or create `config/KILL_SWITCH.txt`.
+2. Write `TRUE` inside the file.
+3. The system will log `KILL SWITCH DETECTED!` and block any further `place_order` calls.
+
+### C. Hard-Coded Limits
+The following "Hardware" limits are enforced in `src/laptop_agents/core/hard_limits.py` and cannot be overridden by CLI arguments:
+- **Max Position Size**: $1,000 USD.
+- **Max Daily Loss**: $50 USD.
+- **Max Leverage**: 5.0x.
+
+## 8. Monitoring & Observability
+
+### A. Live Dashboard Server
+Instead of opening a static file, serve the results locally:
+```powershell
+.\scripts\dashboard_up.ps1
+```
+- **Access**: `http://localhost:8000/summary.html`
+- **Benefit**: Keeps the dashboard accessible and allows for automated refreshes (future).
+
+### B. Structured JSON Logs
+The system produces machine-readable logs in `logs/system.jsonl`:
+- **Format**: JSON Lines.
+- **Contents**: Includes every `EVENT` logged by the system, plus error stack traces and latency metrics.
+
+### C. Latency Tracking
+Every trade fill in `live` mode now includes `latency_sec` in its event data (logged to `system.jsonl`). This measures the time from signal generation to exchange fill confirmation.
