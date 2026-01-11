@@ -23,7 +23,7 @@ class RiskGateAgent:
         flags = deriv.get("flags", [])
         
         # Check standard flags that imply "Do Not Trade"
-        blockers = [f for f in flags if "NO_TRADE" in f]
+        blockers = [f for f in flags if "NO_TRADE" in f or "HALT" in f]
         if blockers:
             state.order = {
                 "go": False, 

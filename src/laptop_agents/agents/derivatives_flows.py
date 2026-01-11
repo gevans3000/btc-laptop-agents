@@ -40,9 +40,12 @@ class DerivativesFlowsAgent:
         if funding is None:
             flags.append("funding_missing")
         else:
-            if funding >= self.gates["no_trade_funding_8h"]:
+            extreme = self.gates.get("extreme_funding_8h", 0.001)
+            if abs(funding) >= extreme:
+                flags.append("HALT_funding_extreme")
+            elif abs(funding) >= self.gates["no_trade_funding_8h"]:
                 flags.append("NO_TRADE_funding_hot")
-            elif funding >= self.gates["half_size_funding_8h"]:
+            elif abs(funding) >= self.gates["half_size_funding_8h"]:
                 flags.append("HALF_SIZE_funding_warm")
 
         state.derivatives = {**snap, "flags": flags, "gates": self.gates}

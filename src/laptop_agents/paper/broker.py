@@ -17,6 +17,8 @@ class Position:
     tp: float
     opened_at: str
     bars_open: int = 0
+    trail_active: bool = False
+    trail_stop: float = 0.0
 
 
 class PaperBroker:
@@ -88,6 +90,31 @@ class PaperBroker:
     def _check_exit(self, candle: Any) -> Optional[Dict[str, Any]]:
         assert self.pos is not None
         p = self.pos
+
+        # ATR Trailing Stop Logic (simplified: 1.5 ATR from highest close)
+        atr_mult = 1.5  # Could be configurable
+        if not p.trail_active:
+            # Activate trail if profit > 0.5R
+            if p.side == "LONG" and float(candle.close) > p.entry + abs(p.entry - p.sl) * 0.5:
+                p.trail_active = True
+                p.trail_stop = float(candle.close) - abs(p.entry - p.sl) * atr_mult
+            elif p.side == "SHORT" and float(candle.close) < p.entry - abs(p.entry - p.sl) * 0.5:
+                p.trail_active = True
+                p.trail_stop = float(candle.close) + abs(p.entry - p.sl) * atr_mult
+        else:
+            # Update trail stop
+            if p.side == "LONG":
+                new_trail = float(candle.close) - abs(p.entry - p.sl) * atr_mult
+                p.trail_stop = max(p.trail_stop, new_trail)
+            else:
+                new_trail = float(candle.close) + abs(p.entry - p.sl) * atr_mult
+                p.trail_stop = min(p.trail_stop, new_trail)
+
+            # Check trail hit
+            if p.side == "LONG" and candle.low <= p.trail_stop:
+                return self._exit(candle.ts, p.trail_stop, "TRAIL")
+            elif p.side == "SHORT" and candle.high >= p.trail_stop:
+                return self._exit(candle.ts, p.trail_stop, "TRAIL")
 
         if p.side == "LONG":
             sl_hit = candle.low <= p.sl

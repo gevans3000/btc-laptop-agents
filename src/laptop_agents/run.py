@@ -76,6 +76,7 @@ def get_agent_config(
             "enabled": True,
             "no_trade_funding_8h": 0.0005,
             "half_size_funding_8h": 0.0002,
+            "extreme_funding_8h": 0.001,  # NEW: Block at 0.1%
         },
         "setups": {
             "pullback_ribbon": {
