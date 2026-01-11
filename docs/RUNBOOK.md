@@ -179,6 +179,22 @@ Simulates trades with **real live data** but **does not execute orders**.
     python -m laptop_agents.bitunix_cli live-session --symbol BTCUSD --interval 1m --duration-min 60 --no-shadow
     ```
 
+### C. Rate Limit Protection
+When running in `--execution-mode live`, the system only sends orders to the exchange for the **final candle** in the historical batch. This prevents hitting API rate limits during the initial candle load.
+
+### D. Environment Variables
+Live trading requires the following in `.env`:
+```env
+BITUNIX_API_KEY=your_api_key
+BITUNIX_API_SECRET=your_secret_key
+```
+
+### E. Watchdog Parameters
+The watchdog now supports all CLI parameters:
+```powershell
+.\scripts\watchdog.ps1 -Mode orchestrated -Source bitunix -Symbol BTCUSD -Interval 1m -Limit 480 -ExecutionMode live -RiskPct 0.5
+```
+
 ## 8. Resilience & Safety (Production)
 
 ### A. Process Watchdog

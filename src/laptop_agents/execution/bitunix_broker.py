@@ -219,6 +219,9 @@ class BitunixBroker:
         side = self.last_pos.get("side") or ("LONG" if qty > 0 else "SHORT")
         
         
+        if entry <= 0 or current_price <= 0:
+            return 0.0
+            
         if self.is_inverse:
              # Bitunix reports Inverse Qty in COINS (e.g. 0.1 BTC).
              # Standard Inverse Formula expects Notional Value in USD.

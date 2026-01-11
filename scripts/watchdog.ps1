@@ -4,6 +4,8 @@
 param(
     [string]$Mode = "orchestrated",
     [string]$Source = "bitunix",
+    [string]$Symbol = "BTCUSD",
+    [string]$Interval = "1m",
     [int]$Limit = 200,
     [string]$ExecutionMode = "paper",
     [float]$RiskPct = 1.0,
@@ -19,14 +21,14 @@ Write-Host "Args: --mode $Mode --source $Source --limit $Limit --execution-mode 
 
 while ($true) {
     # Construct command
-    $cmd = "python -m src.laptop_agents.run --mode $Mode --source $Source --limit $Limit --execution-mode $ExecutionMode --risk-pct $RiskPct --stop-bps $StopBps --tp-r $TpR"
+    $cmd = "python -m src.laptop_agents.run --mode $Mode --source $Source --symbol $Symbol --interval $Interval --limit $Limit --execution-mode $ExecutionMode --risk-pct $RiskPct --stop-bps $StopBps --tp-r $TpR"
     
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Add-Content -Path $LogFile -Value "$timestamp [INFO] Launching process: $cmd"
     Write-Host "Launching process at $timestamp"
 
     # Start the process
-    $process = Start-Process python -ArgumentList "-m src.laptop_agents.run --mode $Mode --source $Source --limit $Limit --execution-mode $ExecutionMode --risk-pct $RiskPct --stop-bps $StopBps --tp-r $TpR" -Wait -PassThru -NoNewWindow
+    $process = Start-Process python -ArgumentList "-m src.laptop_agents.run --mode $Mode --source $Source --symbol $Symbol --interval $Interval --limit $Limit --execution-mode $ExecutionMode --risk-pct $RiskPct --stop-bps $StopBps --tp-r $TpR" -Wait -PassThru -NoNewWindow
     
     $exitCode = $process.ExitCode
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"

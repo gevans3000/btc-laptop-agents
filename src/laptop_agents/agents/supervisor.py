@@ -30,7 +30,7 @@ class Supervisor:
         self.risk_gate = RiskGateAgent(cfg.get("risk", {})) # Use risk cfg for max_risk checks
         self.a5 = JournalCoachAgent(journal_path)
 
-    def step(self, state: State, candle: Candle) -> State:
+    def step(self, state: State, candle: Candle, skip_broker: bool = False) -> State:
         state.candles.append(candle)
         state.candles = state.candles[-800:]
 
@@ -60,8 +60,12 @@ class Supervisor:
         order = state.order # Refresh order in case Gate blocked it
 
         # Broker handles fills/exits
-        broker_events = self.broker.on_candle(candle, order)
-        broker_events["cancels"] = cancels
+        if skip_broker:
+            broker_events = {"fills": [], "exits": [], "errors": [], "cancels": cancels}
+        else:
+            broker_events = self.broker.on_candle(candle, order)
+            broker_events["cancels"] = cancels
+        
         state.broker_events = broker_events
 
         # Journal/Coach logs everything + resets trade_id on exit/cancel

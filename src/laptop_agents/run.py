@@ -10,7 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
+from dotenv import load_dotenv
+load_dotenv()
 
 
 
@@ -181,12 +182,18 @@ def run_orchestrated_mode(
             
             from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
             from laptop_agents.execution.bitunix_broker import BitunixBroker
+            import os
             
-            # Use keys from config/env
+            api_key = os.environ.get("BITUNIX_API_KEY")
+            secret_key = os.environ.get("BITUNIX_API_SECRET") or os.environ.get("BITUNIX_SECRET_KEY")
+            
+            if not api_key or not secret_key:
+                raise ValueError("Live execution requires BITUNIX_API_KEY and BITUNIX_API_SECRET environment variables")
+                
             provider = BitunixFuturesProvider(
                 symbol=symbol,
-                api_key=cfg.get("api_key"),
-                secret_key=cfg.get("secret_key")
+                api_key=api_key,
+                secret_key=secret_key
             )
             broker = BitunixBroker(provider)
             append_event({"event": "LiveBrokerInitialized", "broker": "BitunixBroker"})
@@ -229,7 +236,9 @@ def run_orchestrated_mode(
                 })
                 break
             
-            state = supervisor.step(state, candle)
+            # If live, only hit the exchange for the last candle to avoid rate limits
+            skip_broker = (execution_mode == "live" and i < len(candles) - 1)
+            state = supervisor.step(state, candle, skip_broker=skip_broker)
             
             # Simple equity tracking
             trade_pnl = None
@@ -2430,6 +2439,7 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
 
     # Backtest stats section (if available)
     backtest_stats_section = ""
+    live_stats_section = ""
     stats_json = LATEST_DIR / "stats.json"
     if stats_json.exists():
         try:
@@ -2861,8 +2871,8 @@ def main() -> int:
                    help="Run once and exit (for orchestrated mode)")
     ap.add_argument("--execution-mode", choices=["paper", "live"], default="paper",
                    help="Execution mode for orchestrated: paper (default) or live (real exchange orders)")
-    ap.add_argument("--risk-pct", type=float, default=1.0, help="% equity risked per trade")
-    ap.add_argument("--stop-bps", type=float, default=30.0, help="stop distance in bps from entry (0.30%)")
+    ap.add_argument("--risk-pct", type=float, default=1.0, help="%% equity risked per trade")
+    ap.add_argument("--stop-bps", type=float, default=30.0, help="stop distance in bps from entry (0.30%%)")
     ap.add_argument("--tp-r", type=float, default=1.5, help="take profit = stop_distance * tp-r")
     ap.add_argument("--max-leverage", type=float, default=1.0, help="cap notional: qty*entry <= equity*max_leverage")
     ap.add_argument("--intrabar-mode", choices=["conservative", "optimistic"], default="conservative",
