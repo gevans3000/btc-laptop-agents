@@ -168,8 +168,10 @@ def run_orchestrated_mode(
         if dry_run:
             from laptop_agents.paper.broker import PaperBroker
             class DryRunBroker(PaperBroker):
-                def execute(self, order):
-                    logger.info(f"[DRY-RUN] Would execute: {order}")
+                def on_candle(self, candle, order):
+                    if order and order.get("go"):
+                        logger.info(f"[DRY-RUN] Would execute: {order.get('side')} {order.get('qty')} at {order.get('entry')}")
+                        append_event({"event": "DryRunOrder", "order": order})
                     return {"fills": [], "exits": []}
             broker = DryRunBroker(symbol=symbol)
             append_event({"event": "DryRunModeActive"})
@@ -369,7 +371,6 @@ Net PnL:    ${ending_balance - starting_balance:,.2f}
 =======================================
 """
         logger.info(summary_text)
-        print(summary_text)
             
         # Validate artifacts
         events_valid, events_msg = validate_events_jsonl(run_dir / "events.jsonl")
