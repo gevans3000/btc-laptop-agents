@@ -5,6 +5,7 @@ Syncs local state with exchange positions and handles order submission.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, List, Optional, Tuple
 from ..data.providers.bitunix_futures import BitunixFuturesProvider
 from ..resilience.errors import SafetyException
@@ -25,6 +26,7 @@ class BitunixBroker:
         self.last_pos: Optional[Dict[str, Any]] = None
         self._initialized = False
         self._instrument_info: Optional[Dict[str, Any]] = None
+        self._order_generated_at: Optional[float] = None
 
     def _get_info(self) -> Dict[str, Any]:
         if self._instrument_info is None:
@@ -56,6 +58,9 @@ class BitunixBroker:
             try:
                 # We only submit if we don't think we have a position already 
                 if not self.last_pos:
+                    if self._order_generated_at is None:
+                         self._order_generated_at = time.time()
+                    
                     info = self._get_info()
                     qty = self._round_step(float(order["qty"]), info["lotSize"])
                     px = self._round_step(float(order["entry"]), info["tickSize"]) if order.get("entry") else float(candle.close)
@@ -133,8 +138,16 @@ class BitunixBroker:
                     "at": candle.ts,
                     "exchange_id": current_pos.get("positionId")
                 }
+                
+                if self._order_generated_at:
+                    latency = time.time() - self._order_generated_at
+                    fill_event["latency_sec"] = round(latency, 3)
+                    logger.info(f"LIVE Fill Detected. Latency: {latency:.3f}s", {"fill": fill_event})
+                    self._order_generated_at = None
+                else:
+                    logger.info(f"LIVE Fill Detected: {fill_event}")
+                
                 events["fills"].append(fill_event)
-                logger.info(f"LIVE Fill Detected: {fill_event}")
 
             # Case: Pos -> No pos (EXIT)
             elif self.last_pos and not current_pos:
