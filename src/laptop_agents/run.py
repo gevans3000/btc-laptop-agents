@@ -192,6 +192,18 @@ def run_orchestrated_mode(
         equity_history = []
         current_equity = starting_balance
         
+        # Load daily checkpoint if exists
+        checkpoint_path = REPO_ROOT / "logs" / "daily_checkpoint.json"
+        if checkpoint_path.exists():
+            try:
+                with checkpoint_path.open("r") as f:
+                    ckpt = json.load(f)
+                if ckpt.get("date") == datetime.now(timezone.utc).strftime("%Y-%m-%d"):
+                    starting_balance = float(ckpt.get("starting_equity", starting_balance))
+                    append_event({"event": "CheckpointLoaded", "equity": starting_balance})
+            except Exception as e:
+                append_event({"event": "CheckpointLoadError", "error": str(e)})
+
         # Initialize circuit breaker with starting equity
         circuit_breaker.set_starting_equity(starting_balance)
         
@@ -276,6 +288,19 @@ def run_orchestrated_mode(
         ending_balance = current_equity
         
         append_event({"event": "OrchestratedModularFinished", "trades": len(trades), "ending_balance": ending_balance})
+        
+        # Save daily checkpoint
+        try:
+            checkpoint_path = REPO_ROOT / "logs" / "daily_checkpoint.json"
+            checkpoint_path.parent.mkdir(exist_ok=True)
+            with checkpoint_path.open("w") as f:
+                json.dump({
+                    "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    "starting_equity": starting_balance,
+                    "ending_equity": float(ending_balance),
+                }, f)
+        except Exception as e:
+            append_event({"event": "CheckpointSaveError", "error": str(e)})
         
         # Copy artifacts to run_dir
         if (LATEST_DIR / "trades.csv").exists():
