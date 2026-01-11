@@ -21,6 +21,17 @@ class BitunixBroker:
         self.symbol = provider.symbol
         self.last_pos: Optional[Dict[str, Any]] = None
         self._initialized = False
+        self._instrument_info: Optional[Dict[str, Any]] = None
+
+    def _get_info(self) -> Dict[str, Any]:
+        if self._instrument_info is None:
+            self._instrument_info = self.provider.fetch_instrument_info(self.symbol)
+        return self._instrument_info
+
+    def _round_step(self, val: float, step: float) -> float:
+        if not step or step <= 0:
+            return val
+        return round(round(val / step) * step, 8)
 
     def on_candle(self, candle: Any, order: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -36,14 +47,20 @@ class BitunixBroker:
                 # We only submit if we don't think we have a position already 
                 # (Safety check handled by Supervisor usually, but extra check here)
                 if not self.last_pos:
-                    logger.info(f"Submitting LIVE order: {order}")
+                    info = self._get_info()
+                    qty = self._round_step(float(order["qty"]), info["lotSize"])
+                    px = self._round_step(float(order["entry"]), info["tickSize"]) if order.get("entry") else None
+                    sl = self._round_step(float(order["sl"]), info["tickSize"]) if order.get("sl") else None
+                    tp = self._round_step(float(order["tp"]), info["tickSize"]) if order.get("tp") else None
+
+                    logger.info(f"Submitting LIVE order: {order} (Rounded: qty={qty}, px={px}, sl={sl}, tp={tp})")
                     resp = self.provider.place_order(
                         side=order["side"],
-                        qty=order["qty"],
+                        qty=qty,
                         order_type=order.get("entry_type", "MARKET").upper(),
-                        price=order.get("entry"),
-                        sl_price=order.get("sl"),
-                        tp_price=order.get("tp")
+                        price=px,
+                        sl_price=sl,
+                        tp_price=tp
                     )
                     events["order_submission"] = resp
             except Exception as e:

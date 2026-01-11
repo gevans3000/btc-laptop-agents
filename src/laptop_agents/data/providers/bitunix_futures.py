@@ -275,6 +275,21 @@ class BitunixFuturesProvider:
         payload = self._get("/api/v1/futures/market/trading_pairs", params={"symbols": self.symbol})
         return payload.get("data") or []
 
+    def fetch_instrument_info(self, symbol: Optional[str] = None) -> Dict[str, Any]:
+        """Fetch precision and size limits for the symbol."""
+        pairs = self.trading_pairs()
+        sym = symbol or self.symbol
+        for p in pairs:
+            if p.get("symbol") == sym or p.get("symbolName") == sym:
+                return {
+                    "tickSize": float(p.get("tickSize", 0.01)),
+                    "lotSize": float(p.get("lotSize", 0.001)),
+                    "minQty": float(p.get("minQty", 0.001)),
+                    "maxQty": float(p.get("maxQty", 100.0)),
+                }
+        # Fallback defaults
+        return {"tickSize": 0.01, "lotSize": 0.001, "minQty": 0.001, "maxQty": 1000.0}
+
     def tickers(self) -> List[Dict[str, Any]]:
         payload = self._get("/api/v1/futures/market/tickers", params={"symbols": self.symbol})
         return payload.get("data") or []

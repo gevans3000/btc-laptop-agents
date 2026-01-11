@@ -11,6 +11,9 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Core Logger
+from laptop_agents.core.logger import logger
+
 
 
 
@@ -326,6 +329,10 @@ def reset_latest_dir() -> None:
 
 def append_event(obj: Dict[str, Any], paper: bool = False) -> None:
     obj.setdefault("timestamp", utc_ts())
+    # Structured logging to JSONL and Console
+    event_name = obj.get("event", "UnnamedEvent")
+    logger.info(f"EVENT: {event_name}", obj)
+    
     if paper:
         PAPER_DIR.mkdir(exist_ok=True)
         with (PAPER_DIR / "events.jsonl").open("a", encoding="utf-8") as f:
@@ -3084,10 +3091,10 @@ def main() -> int:
             append_event({"event": "SelfTestFinished", "success": success, "message": message})
             
             if success:
-                print(f"SELFTEST PASS: {message}")
+                logger.info(f"SELFTEST PASS: {message}")
                 return 0
             else:
-                print(f"SELFTEST FAIL: {message}", file=sys.stderr)
+                logger.error(f"SELFTEST FAIL: {message}")
                 return 1
 
         elif mode == "orchestrated":
@@ -3104,10 +3111,10 @@ def main() -> int:
             )
             
             if success:
-                print(message)
+                logger.info(message)
                 return 0
             else:
-                print(f"ERROR: {message}", file=sys.stderr)
+                logger.error(f"ORCHESTRATED ERROR: {message}")
                 return 1
 
         elif mode == "single":
@@ -3246,7 +3253,7 @@ def main() -> int:
         }
         render_html(summary, [], error_message)
         
-        print("ERROR:", error_message, file=sys.stderr)
+        logger.error(f"RUNTIME ERROR: {error_message}")
         return 1
 
 
