@@ -383,7 +383,6 @@ Net PnL:    ${ending_balance - starting_balance:,.2f}
 =======================================
 """
         logger.info(summary_text)
-        print(summary_text)
             
         # Validate artifacts
         events_valid, events_msg = validate_events_jsonl(run_dir / "events.jsonl")
