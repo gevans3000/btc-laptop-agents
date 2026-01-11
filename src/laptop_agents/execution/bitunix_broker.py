@@ -192,7 +192,6 @@ class BitunixBroker:
         entry = float(self.last_pos.get("entryPrice") or self.last_pos.get("avgPrice") or 0)
         side = self.last_pos.get("side") or ("LONG" if qty > 0 else "SHORT")
         
-        side = self.last_pos.get("side") or ("LONG" if qty > 0 else "SHORT")
         
         if self.is_inverse:
              # Inverse PnL (BTC) = Qty * (1/Entry - 1/Current) for Long

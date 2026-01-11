@@ -5,7 +5,10 @@ param(
     [string]$Mode = "orchestrated",
     [string]$Source = "bitunix",
     [int]$Limit = 200,
-    [string]$ExecutionMode = "paper"
+    [string]$ExecutionMode = "paper",
+    [float]$RiskPct = 1.0,
+    [float]$StopBps = 30.0,
+    [float]$TpR = 1.5
 )
 
 $LogFile = "logs/watchdog.log"
@@ -16,14 +19,14 @@ Write-Host "Args: --mode $Mode --source $Source --limit $Limit --execution-mode 
 
 while ($true) {
     # Construct command
-    $cmd = "python -m src.laptop_agents.run --mode $Mode --source $Source --limit $Limit --execution-mode $ExecutionMode"
+    $cmd = "python -m src.laptop_agents.run --mode $Mode --source $Source --limit $Limit --execution-mode $ExecutionMode --risk-pct $RiskPct --stop-bps $StopBps --tp-r $TpR"
     
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Add-Content -Path $LogFile -Value "$timestamp [INFO] Launching process: $cmd"
     Write-Host "Launching process at $timestamp"
 
     # Start the process
-    $process = Start-Process python -ArgumentList "-m src.laptop_agents.run --mode $Mode --source $Source --limit $Limit --execution-mode $ExecutionMode" -Wait -PassThru -NoNewWindow
+    $process = Start-Process python -ArgumentList "-m src.laptop_agents.run --mode $Mode --source $Source --limit $Limit --execution-mode $ExecutionMode --risk-pct $RiskPct --stop-bps $StopBps --tp-r $TpR" -Wait -PassThru -NoNewWindow
     
     $exitCode = $process.ExitCode
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -31,7 +34,8 @@ while ($true) {
     if ($exitCode -ne 0) {
         Add-Content -Path $LogFile -Value "$timestamp [ERROR] Process crashed with exit code $exitCode. Restarting in 10s..."
         Write-Error "Process crashed ($exitCode). Restarting in 10s..."
-    } else {
+    }
+    else {
         Add-Content -Path $LogFile -Value "$timestamp [INFO] Process exited normally. Restarting in 10s..."
         Write-Host "Process exited normally. Restarting in 10s..."
     }

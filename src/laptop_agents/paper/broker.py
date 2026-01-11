@@ -122,9 +122,11 @@ class PaperBroker:
             else:
                 pnl = p.qty * (1.0/px - 1.0/p.entry)
                 
-            # Risk is roughly Notional * (1/Entry - 1/SL)
-            # Simplified risk calc
-            risk = 0.0 # TODO: correct risk calc for inverse stats
+            # Inverse Risk (BTC) = Notional * |1/Entry - 1/SL|
+            if p.side == "LONG":
+                risk = p.qty * abs(1.0/p.entry - 1.0/p.sl)
+            else:
+                risk = p.qty * abs(1.0/p.sl - 1.0/p.entry)
         else:
             pnl = (px - p.entry) * p.qty if p.side == "LONG" else (p.entry - px) * p.qty
             risk = abs(p.entry - p.sl) * p.qty
