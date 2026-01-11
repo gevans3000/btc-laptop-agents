@@ -104,6 +104,9 @@ def run_orchestrated_mode(
     limit: int,
     fees_bps: float,
     slip_bps: float,
+    risk_pct: float = 1.0,
+    stop_bps: float = 30.0,
+    tp_r: float = 1.5,
     execution_mode: str = "paper",
 ) -> tuple[bool, str]:
     """Run orchestrated mode - using modular agents in a single pass."""
@@ -139,14 +142,23 @@ def run_orchestrated_mode(
         
         candles = normalize_candle_order(candles)
         
-        if len(candles) < 31: # Need enough for SMA(30)
+        if len(candles) < 51: # Need enough for EMA(50)
+            logger.warning(f"Only {len(candles)} candles provided. This is below the EMA(50) warm-up required for trend detection. Results may be flat.")
+            append_event({"event": "LowCandleCountWarning", "count": len(candles), "required": 51})
+        
+        if len(candles) < 31:
             raise RuntimeError("Need at least 31 candles for orchestrated modular mode")
         
         append_event({"event": "MarketDataLoaded", "source": source, "symbol": symbol, "count": len(candles)})
         
         # Initialize Supervisor and State
         starting_balance = 10_000.0
-        cfg = get_agent_config(starting_balance=starting_balance)
+        cfg = get_agent_config(
+            starting_balance=starting_balance,
+            risk_pct=risk_pct,
+            stop_bps=stop_bps,
+            tp_r=tp_r
+        )
         
         # Live Broker Setup
         broker = None
@@ -168,6 +180,11 @@ def run_orchestrated_mode(
 
         # Point the journal to the run directory for modular isolation
         journal_path = run_dir / "journal.jsonl"
+        # If no live broker, initialize PaperBroker with the correct symbol
+        if broker is None:
+             from laptop_agents.paper.broker import PaperBroker
+             broker = PaperBroker(symbol=symbol)
+             
         supervisor = Supervisor(provider=None, cfg=cfg, journal_path=str(journal_path), broker=broker)
         state = AgentState(instrument=symbol, timeframe=interval)
         
@@ -203,12 +220,12 @@ def run_orchestrated_mode(
             unrealized = supervisor.broker.get_unrealized_pnl(float(candle.close))
             total_equity = current_equity + unrealized
             
-            equity_history.append({"t": candle.ts, "v": total_equity})
+            equity_history.append({"ts": candle.ts, "equity": total_equity})
             
         # Write equity.csv for the chart
         equity_csv = LATEST_DIR / "equity.csv"
         with equity_csv.open("w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["t", "v"])
+            writer = csv.DictWriter(f, fieldnames=["ts", "equity"])
             writer.writeheader()
             writer.writerows(equity_history)
 
@@ -273,6 +290,7 @@ def run_orchestrated_mode(
             "net_pnl": float(ending_balance - starting_balance),
             "trades": len(trades),
             "mode": "orchestrated",
+            "setup": state.setup,
         }
         write_state({"summary": summary})
         render_html(summary, trades, "", candles=candles)
@@ -381,7 +399,8 @@ def _get_bitunix_provider_class():
 def load_bitunix_candles(symbol: str, interval: str, limit: int) -> List[Candle]:
     Provider = _get_bitunix_provider_class()
     client = Provider(symbol=symbol)
-    rows = client.klines(interval=interval, limit=int(limit))
+    # Use paged fetch to support limits > 200
+    rows = client.klines_paged(interval=interval, total=int(limit))
 
     out: List[Candle] = []
     for c in rows:
@@ -2320,7 +2339,10 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
             with equity_csv.open("r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    equity_data.append({"t": row["ts"], "v": float(row["equity"])})
+                    # Support both old "t"/"v" and new "ts"/"equity" formats
+                    t = row.get("ts") or row.get("t")
+                    v = float(row.get("equity") or row.get("v") or 0.0)
+                    equity_data.append({"t": t, "v": v})
             equity_json = json.dumps(equity_data)
         except Exception as e:
             append_event({"event": "EquityDataError", "message": str(e)})
@@ -2369,42 +2391,32 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
         except Exception as e:
             append_event({"event": "StatsReadError", "message": str(e)})
 
-    # Live mode section (if available)
-    live_stats_section = ""
-    if summary.get("mode") == "live":
-        position = summary.get("position")
-        position_info = "flat"
-        if position is not None:
-            position_info = f"{position['side']} @ ${position['entry_price']:.2f} ({position['quantity']:.8f})"
+    if summary.get("mode") == "orchestrated" or summary.get("mode") == "live":
+        # Extract current setup/order from summary if available
+        setup = summary.get("setup", {})
+        setup_name = setup.get("name", "NONE")
+        setup_side = setup.get("side", "FLAT")
+        setup_info = f"{setup_name} ({setup_side})"
         
         live_stats_section = f"""
     <div class="section">
-        <h2>Live Paper Trading</h2>
+        <h2>Modular Agent State</h2>
         <div class="cards">
             <div class="card">
-                <div class="card-label">Position</div>
-                <div class="card-value">{position_info}</div>
+                <div class="card-label">Current Setup</div>
+                <div class="card-value">{setup_info}</div>
             </div>
             <div class="card">
                 <div class="card-label">Realized PnL</div>
-                <div class="card-value">${summary.get('realized_pnl', 0.0):.2f}</div>
-            </div>
-            <div class="card">
-                <div class="card-label">Unrealized PnL</div>
-                <div class="card-value">${summary.get('unrealized_pnl', 0.0):.2f}</div>
-            </div>
-            <div class="card">
-                <div class="card-label">Net PnL</div>
                 <div class="card-value">${summary.get('net_pnl', 0.0):.2f}</div>
             </div>
             <div class="card">
-                <div class="card-label">Total Fees</div>
-                <div class="card-value">${summary.get('fees_total', 0.0):.2f}</div>
+                <div class="card-label">Trade Count</div>
+                <div class="card-value">{summary.get('trades', 0)}</div>
             </div>
         </div>
     </div>
 """
-    
     # Validation mode section (if available)
     validation_section = ""
     validation_json_path = LATEST_DIR / "validation.json"
@@ -2674,7 +2686,7 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
         }};
 
         const buyMarkers = {{
-            x: trades.filter(t => t.side === 'LONG').map(t => t.entry_ts),
+            x: trades.filter(t => t.side === 'LONG').map(t => t.timestamp),
             y: trades.filter(t => t.side === 'LONG').map(t => t.entry),
             mode: 'markers',
             type: 'scatter',
@@ -2685,7 +2697,7 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
         }};
 
         const sellMarkers = {{
-            x: trades.filter(t => t.side === 'SHORT').map(t => t.entry_ts),
+            x: trades.filter(t => t.side === 'SHORT').map(t => t.timestamp),
             y: trades.filter(t => t.side === 'SHORT').map(t => t.entry),
             mode: 'markers',
             type: 'scatter',
@@ -2754,7 +2766,7 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", choices=["mock", "bitunix"], default="mock")
-    ap.add_argument("--symbol", default="BTCUSDT")
+    ap.add_argument("--symbol", default="BTCUSD")
     ap.add_argument("--interval", default="1m")
     ap.add_argument("--limit", type=int, default=200)
     ap.add_argument("--fees-bps", type=float, default=2.0)   # 2 bps per side (simple)
@@ -3107,6 +3119,9 @@ def main() -> int:
                 limit=args.limit,
                 fees_bps=float(args.fees_bps),
                 slip_bps=float(args.slip_bps),
+                risk_pct=float(args.risk_pct),
+                stop_bps=float(args.stop_bps),
+                tp_r=float(args.tp_r),
                 execution_mode=args.execution_mode,
             )
             

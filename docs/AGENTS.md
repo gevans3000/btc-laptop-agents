@@ -1,14 +1,17 @@
 ﻿# AGENTS.md — Collaboration Architecture
 
-## Wiring Status (v1 MVP)
+## Wiring Status (v1.1 Modular Beta)
 
-> **CRITICAL**: The active codebase is **MONOLITHIC**.
+> **UPDATE**: The system now supports a **MODULAR PIPELINE** in Orchestrated mode.
 
-*   **Active Implementation**: `src/laptop_agents/run.py` contains ALL logic (Data, Strategy, Execution, Risk).
-*   **Directory `/src/laptop_agents/agents/`**: **EXPERIMENTAL / UNWIRED**.
-    *   These files exist as forward-looking stubs for a future modular refactor (v1.1).
-    *   **DO NOT** modify these expecting them to change system behavior.
-    *   **DO NOT** wire them into `run.py` without a specific refactor plan.
+*   **Stable Implementation**: `src/laptop_agents/run.py` still contains the original monolithic logic for basic backtests and single runs.
+*   **Orchestrated Mode (`--mode orchestrated`)**: Successfully wires the modular agents in `src/laptop_agents/agents/` into a single E2E pass.
+*   **Active Modular Agents**:
+    *   `MarketIntakeAgent`: Data normalization.
+    *   `DerivativesFlowsAgent`: Funding & OI snapshots.
+    *   `SetupSignalAgent`: Trend Ribbon + Sweep logic.
+    *   `ExecutionRiskSentinelAgent`: Risk sizing & safety gates.
+    *   `JournalCoachAgent`: Trade logging.
 
 ## Logical Roles
 Even within the `run.py` monolith, we observe these logical roles:

@@ -23,6 +23,7 @@ class BitunixBroker:
     def __init__(self, provider: BitunixFuturesProvider):
         self.provider = provider
         self.symbol = provider.symbol
+        self.is_inverse = self.symbol == "BTCUSD"
         self.last_pos: Optional[Dict[str, Any]] = None
         self._initialized = False
         self._instrument_info: Optional[Dict[str, Any]] = None
@@ -69,6 +70,14 @@ class BitunixBroker:
                     notional = qty * px
                     if notional > hard_limits.MAX_POSITION_SIZE_USD:
                         msg = f"REJECTED: Order notional ${notional:.2f} exceeds hard limit ${hard_limits.MAX_POSITION_SIZE_USD}"
+                        logger.error(msg)
+                        raise SafetyException(msg)
+                    
+                    # Leverage Check
+                    equity = float(order.get("equity") or 10000.0)
+                    leverage = notional / equity
+                    if leverage > hard_limits.MAX_LEVERAGE:
+                        msg = f"REJECTED: Leverage {leverage:.1f}x exceeds hard limit {hard_limits.MAX_LEVERAGE}x"
                         logger.error(msg)
                         raise SafetyException(msg)
                     
@@ -183,7 +192,16 @@ class BitunixBroker:
         entry = float(self.last_pos.get("entryPrice") or self.last_pos.get("avgPrice") or 0)
         side = self.last_pos.get("side") or ("LONG" if qty > 0 else "SHORT")
         
-        if side == "LONG":
-            return (current_price - entry) * abs(qty)
+        side = self.last_pos.get("side") or ("LONG" if qty > 0 else "SHORT")
+        
+        if self.is_inverse:
+             # Inverse PnL (BTC) = Qty * (1/Entry - 1/Current) for Long
+             if side == "LONG":
+                 return abs(qty) * (1.0/entry - 1.0/current_price)
+             else:
+                 return abs(qty) * (1.0/current_price - 1.0/entry)
         else:
-            return (entry - current_price) * abs(qty)
+            if side == "LONG":
+                return (current_price - entry) * abs(qty)
+            else:
+                return (entry - current_price) * abs(qty)

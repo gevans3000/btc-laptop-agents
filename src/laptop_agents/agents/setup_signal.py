@@ -46,8 +46,9 @@ class SetupSignalAgent:
             }
 
         # Setup B: Sweep + invalidation (scaffold)
-        # NOTE: full sweep logic evolves later; here we flag a watch setup if eq zones exist.
-        if self.cfg["sweep_invalidation"]["enabled"]:
+        # Priority: Only look for sweeps if we don't have a trend pullback setup, 
+        # OR if we want to explicitly favor sweeps (for now, let's allow Pullback to stay if it found something)
+        if self.cfg["sweep_invalidation"]["enabled"] and chosen["name"] == "NONE":
             tol = price * float(self.cfg["sweep_invalidation"]["eq_tolerance_pct"])
             if eq_high:
                 chosen = {

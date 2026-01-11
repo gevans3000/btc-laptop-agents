@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
+from ..core import hard_limits
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -22,8 +26,9 @@ class PaperBroker:
     - conservative intrabar resolution (stop-first if both touched)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, symbol: str = "BTCUSDT") -> None:
         self.pos: Optional[Position] = None
+        self.is_inverse = symbol == "BTCUSD"
 
     def on_candle(self, candle: Any, order: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         events: Dict[str, Any] = {"fills": [], "exits": []}
@@ -60,8 +65,25 @@ class PaperBroker:
                 return None
             fill_px = entry
 
-        self.pos = Position(side=side, entry=fill_px, qty=qty, sl=sl, tp=tp, opened_at=candle.ts)
-        return {"type": "fill", "side": side, "price": fill_px, "qty": qty, "sl": sl, "tp": tp, "at": candle.ts}
+        # HARD LIMIT ENFORCEMENT
+        notional = qty * fill_px
+        if notional > hard_limits.MAX_POSITION_SIZE_USD:
+            logger.warning(f"PAPER REJECTED: Notional ${notional:.2f} > hard limit ${hard_limits.MAX_POSITION_SIZE_USD}")
+            return None
+        
+        # Check leverage - approximate using equity from order if provided
+        equity = float(order.get("equity") or 10000.0)
+        leverage = notional / equity
+        if leverage > hard_limits.MAX_LEVERAGE:
+             logger.warning(f"PAPER REJECTED: Leverage {leverage:.1f}x > hard limit {hard_limits.MAX_LEVERAGE}x")
+             return None
+
+        # For Inverse, we store 'qty' as Notional USD, but the input 'qty' is in Coins.
+        # So we convert it here for the Position record.
+        pos_qty = notional if self.is_inverse else qty
+        
+        self.pos = Position(side=side, entry=fill_px, qty=pos_qty, sl=sl, tp=tp, opened_at=candle.ts)
+        return {"type": "fill", "side": side, "price": fill_px, "qty": pos_qty, "sl": sl, "tp": tp, "at": candle.ts}
 
     def _check_exit(self, candle: Any) -> Optional[Dict[str, Any]]:
         assert self.pos is not None
@@ -92,8 +114,21 @@ class PaperBroker:
     def _exit(self, ts: str, px: float, reason: str) -> Dict[str, Any]:
         assert self.pos is not None
         p = self.pos
-        pnl = (px - p.entry) * p.qty if p.side == "LONG" else (p.entry - px) * p.qty
-        risk = abs(p.entry - p.sl) * p.qty
+        
+        if self.is_inverse:
+            # Inverse PnL (BTC) = Notional * (1/Entry - 1/Exit) for Long
+            if p.side == "LONG":
+                pnl = p.qty * (1.0/p.entry - 1.0/px)
+            else:
+                pnl = p.qty * (1.0/px - 1.0/p.entry)
+                
+            # Risk is roughly Notional * (1/Entry - 1/SL)
+            # Simplified risk calc
+            risk = 0.0 # TODO: correct risk calc for inverse stats
+        else:
+            pnl = (px - p.entry) * p.qty if p.side == "LONG" else (p.entry - px) * p.qty
+            risk = abs(p.entry - p.sl) * p.qty
+            
         r_mult = (pnl / risk) if risk > 0 else 0.0
         return {"type": "exit", "reason": reason, "price": px, "pnl": pnl, "r": r_mult, "bars_open": p.bars_open, "at": ts}
 
@@ -101,7 +136,14 @@ class PaperBroker:
         if self.pos is None:
             return 0.0
         p = self.pos
-        if p.side == "LONG":
-            return (current_price - p.entry) * p.qty
+        
+        if self.is_inverse:
+             if p.side == "LONG":
+                return p.qty * (1.0/p.entry - 1.0/current_price)
+             else:
+                return p.qty * (1.0/current_price - 1.0/p.entry)
         else:
-            return (p.entry - current_price) * p.qty
+            if p.side == "LONG":
+                return (current_price - p.entry) * p.qty
+            else:
+                return (p.entry - current_price) * p.qty
