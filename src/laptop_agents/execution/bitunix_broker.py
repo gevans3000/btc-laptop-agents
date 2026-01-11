@@ -194,11 +194,16 @@ class BitunixBroker:
         
         
         if self.is_inverse:
-             # Inverse PnL (BTC) = Qty * (1/Entry - 1/Current) for Long
+             # Bitunix reports Inverse Qty in COINS (e.g. 0.1 BTC).
+             # Standard Inverse Formula expects Notional Value in USD.
+             # Notional = Qty(Coins) * EntryPrice
+             notional = abs(qty) * entry
+             
+             # Inverse PnL (BTC) = Notional * (1/Entry - 1/Current) for Long
              if side == "LONG":
-                 return abs(qty) * (1.0/entry - 1.0/current_price)
+                 return notional * (1.0/entry - 1.0/current_price)
              else:
-                 return abs(qty) * (1.0/current_price - 1.0/entry)
+                 return notional * (1.0/current_price - 1.0/entry)
         else:
             if side == "LONG":
                 return (current_price - entry) * abs(qty)
