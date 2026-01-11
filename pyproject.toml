@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "btc-laptop-agents"
-version = "0.1.0"
+version = "1.0.1"
 description = "Local-only agent runner that stores memory on disk and runs on a laptop."
 requires-python = ">=3.10"
 dependencies = [

@@ -1,7 +1,7 @@
 # BTC Laptop Agents — System Specification
 
 > **Status**: ACTIVE & AUTHORITATIVE
-> **Version**: 1.0 (Unified)
+> **Version**: 1.0.1 (Resilience & Safety)
 
 This document is the **Single Source of Truth** for the BTC Laptop Agents system. It merges the operational details of the MVP with the validation strictness of the Target Contract.
 
