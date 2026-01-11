@@ -197,9 +197,9 @@ If you need to instantly block all new order submissions:
 
 ### C. Hard-Coded Limits
 The following "Hardware" limits are enforced in `src/laptop_agents/core/hard_limits.py` and cannot be overridden by CLI arguments:
-- **Max Position Size**: $1,000 USD.
+- **Max Position Size**: $200,000 USD.
 - **Max Daily Loss**: $50 USD.
-- **Max Leverage**: 5.0x.
+- **Max Leverage**: 20.0x.
 
 ## 9. Monitoring & Observability
 
