@@ -258,9 +258,12 @@ def run_orchestrated_mode(
             
             # Heartbeat for external monitors
             if i % 10 == 0:
-                with open("logs/heartbeat.json", "w") as f:
+                heartbeat_path = REPO_ROOT / "logs" / "heartbeat.json"
+                heartbeat_path.parent.mkdir(exist_ok=True)
+                with heartbeat_path.open("w") as f:
                     json.dump({
-                        "ts": candle.ts,
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "candle_idx": i,
                         "equity": total_equity,
                         "symbol": symbol,
                     }, f)
@@ -371,6 +374,7 @@ Net PnL:    ${ending_balance - starting_balance:,.2f}
 =======================================
 """
         logger.info(summary_text)
+        print(summary_text)
             
         # Validate artifacts
         events_valid, events_msg = validate_events_jsonl(run_dir / "events.jsonl")
