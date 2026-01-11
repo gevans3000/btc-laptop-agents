@@ -5,8 +5,11 @@ Syncs local state with exchange positions and handles order submission.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from ..data.providers.bitunix_futures import BitunixFuturesProvider
+from ..resilience.errors import SafetyException
+from ..core import hard_limits
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +44,29 @@ class BitunixBroker:
         """
         events: Dict[str, Any] = {"fills": [], "exits": [], "errors": []}
 
+        # 0) Kill Switch Check
+        if os.path.exists("config/KILL_SWITCH.txt"):
+            with open("config/KILL_SWITCH.txt", "r") as f:
+                if "TRUE" in f.read().upper():
+                    logger.warning("KILL SWITCH DETECTED! Blocking all orders.")
+                    return {"fills": [], "exits": [], "errors": ["KILL_SWITCH_ACTIVE"]}
+
         # 1) Handle New Order (Submit to exchange)
         if order and order.get("go"):
             try:
                 # We only submit if we don't think we have a position already 
-                # (Safety check handled by Supervisor usually, but extra check here)
                 if not self.last_pos:
                     info = self._get_info()
                     qty = self._round_step(float(order["qty"]), info["lotSize"])
-                    px = self._round_step(float(order["entry"]), info["tickSize"]) if order.get("entry") else None
+                    px = self._round_step(float(order["entry"]), info["tickSize"]) if order.get("entry") else float(candle.close)
+                    
+                    # HARD LIMIT ENFORCEMENT
+                    notional = qty * px
+                    if notional > hard_limits.MAX_POSITION_SIZE_USD:
+                        msg = f"REJECTED: Order notional ${notional:.2f} exceeds hard limit ${hard_limits.MAX_POSITION_SIZE_USD}"
+                        logger.error(msg)
+                        raise SafetyException(msg)
+                    
                     sl = self._round_step(float(order["sl"]), info["tickSize"]) if order.get("sl") else None
                     tp = self._round_step(float(order["tp"]), info["tickSize"]) if order.get("tp") else None
 
@@ -63,6 +80,8 @@ class BitunixBroker:
                         tp_price=tp
                     )
                     events["order_submission"] = resp
+            except SafetyException as e:
+                events["errors"].append(str(e))
             except Exception as e:
                 logger.error(f"Live order submission failed: {e}")
                 events["errors"].append(str(e))
@@ -83,6 +102,15 @@ class BitunixBroker:
                     if abs(qty) > 0:
                         current_pos = p
                         break
+            
+            # DRIFT DETECTION
+            last_qty = float(self.last_pos.get("qty") or self.last_pos.get("positionAmount") or 0) if self.last_pos else 0.0
+            curr_qty = float(current_pos.get("qty") or current_pos.get("positionAmount") or 0) if current_pos else 0.0
+            
+            if abs(last_qty - curr_qty) > 0.00000001:
+                # If we didn't expect a fill/exit but the qty changed, it's a drift
+                if not events["fills"] and not events["exits"] and self._initialized:
+                     logger.warning(f"STATE DRIFT DETECTED: Internal={last_qty}, Exchange={curr_qty}. Snapping to exchange.")
             
             # 3) Synthesize Events
             if not self._initialized:

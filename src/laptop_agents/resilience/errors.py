@@ -19,3 +19,7 @@ class AuthProviderError(ProviderError):
 class UnknownProviderError(ProviderError):
     """Unexpected or unclassified errors."""
     pass
+
+class SafetyException(Exception):
+    """Raised when a hard-coded safety limit is breached."""
+    pass
