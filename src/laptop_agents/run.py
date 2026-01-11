@@ -366,10 +366,10 @@ def run_orchestrated_mode(
 ========== SESSION COMPLETE ==========
 Run ID:     {run_id}
 Symbol:     {symbol}
-Duration:   {len(candles)} candles
+Candles:    {len(candles)}
 Trades:     {len(trades)}
-Starting:   ${starting_balance:,.2f}
-Ending:     ${ending_balance:,.2f}
+Start:      ${starting_balance:,.2f}
+End:        ${ending_balance:,.2f}
 Net PnL:    ${ending_balance - starting_balance:,.2f}
 =======================================
 """
@@ -2880,7 +2880,7 @@ def main() -> int:
     # Symbol validation
     SUPPORTED_SYMBOLS = {"BTCUSD", "BTCUSDT", "ETHUSD", "ETHUSDT"}
     if args.symbol not in SUPPORTED_SYMBOLS:
-        logger.warning(f"Symbol '{args.symbol}' not in supported list: {SUPPORTED_SYMBOLS}")
+        logger.warning(f"Symbol '{args.symbol}' not in tested list: {SUPPORTED_SYMBOLS}")
 
     # Ensure runs/latest exists before we start
     RUNS_DIR.mkdir(exist_ok=True)
