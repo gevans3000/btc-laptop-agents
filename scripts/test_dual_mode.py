@@ -171,6 +171,69 @@ class TestBitunixDualMode(unittest.TestCase):
             
         self.assertAlmostEqual(pnl, 0.5, places=5, msg="PnL should be 0.5 BTC for 1 BTC Long doubling. Logic likely missing Qty->Notional conversion.")
 
+class TestBitunixExitPnL(unittest.TestCase):
+    """Verify BitunixBroker calculates PnL on exit correctly"""
+
+    def test_linear_exit_pnl(self):
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeCandle:
+            ts: str = "2026-01-01T00:00:00Z"
+            close: float = 52000.0
+
+        provider = MagicMock()
+        provider.symbol = "BTCUSDT"
+        provider.get_pending_positions = MagicMock(return_value=[])
+
+        broker = BitunixBroker(provider)
+        broker._initialized = True
+
+        # Simulate a filled position
+        broker._entry_price = 50000.0
+        broker._entry_side = "LONG"
+        broker._entry_qty = 0.1
+        broker.last_pos = {"qty": 0.1, "entryPrice": 50000.0, "side": "LONG"}
+
+        # Simulate exit (position gone, candle at 52k)
+        events = broker.on_candle(FakeCandle(), None)
+
+        self.assertEqual(len(events["exits"]), 1)
+        exit_event = events["exits"][0]
+        # Expected PnL: (52000 - 50000) * 0.1 = 200
+        self.assertAlmostEqual(exit_event["pnl"], 200.0, places=2)
+        print("Linear Exit PnL Test Passed: +$200")
+
+    def test_inverse_exit_pnl(self):
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeCandle:
+            ts: str = "2026-01-01T00:00:00Z"
+            close: float = 100000.0
+
+        provider = MagicMock()
+        provider.symbol = "BTCUSD"
+        provider.get_pending_positions = MagicMock(return_value=[])
+
+        broker = BitunixBroker(provider)
+        broker._initialized = True
+
+        # Simulate a filled position: 1 BTC Long at $50k
+        broker._entry_price = 50000.0
+        broker._entry_side = "LONG"
+        broker._entry_qty = 1.0
+        broker.last_pos = {"qty": 1.0, "entryPrice": 50000.0, "side": "LONG"}
+
+        # Simulate exit at 100k
+        events = broker.on_candle(FakeCandle(), None)
+
+        self.assertEqual(len(events["exits"]), 1)
+        exit_event = events["exits"][0]
+        # Expected PnL: 50000 * (1/50000 - 1/100000) = 0.5 BTC
+        self.assertAlmostEqual(exit_event["pnl"], 0.5, places=5)
+        print("Inverse Exit PnL Test Passed: +0.5 BTC")
+
 if __name__ == '__main__':
     unittest.main()
 
