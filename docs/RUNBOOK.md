@@ -7,44 +7,56 @@
 
 | Action | Script | Expected Output |
 | :--- | :--- | :--- |
-| Action | Script | Expected Output |
-| :--- | :--- | :--- |
-| **Start (Resilient)**| `.\scripts\watchdog.ps1` | Mantains background run, auto-restarts on crash. |
-| **Start (Standard)** | `.\scripts\mvp_start_live.ps1` | `Live paper trading started with PID 12345` |
-| **Stop** | `.\scripts\mvp_stop_live.ps1` | `Process 12345 stopped` |
-| **Status** | `.\scripts\mvp_status.ps1` | `Status: RUNNING` or `OFF` |
-| **Run Once** | `.\scripts\mvp_run_once.ps1` | Generates `runs/latest/summary.html` |
-| **Dashboard** | `.\scripts\dashboard_up.ps1` | Serves results on `http://localhost:8000` |
-| **Verify** | `.\scripts\verify.ps1` | `VERIFY: PASS` |
+| **Verify System** | `.\scripts\verify.ps1` | `VERIFY: PASS` |
+| **Start (Agents)** | `.\scripts\watchdog.ps1` | Monitors and restarts trading daemon. |
+| **View Dashboard** | `.\scripts\dashboard_up.ps1` | Interactive UI on `http://localhost:8000` |
+| **Backtest** | `python -m src.laptop_agents.run --mode backtest` | Results in `runs/latest/` |
+| **Emergency Stop**| `Edit config/KILL_SWITCH.txt -> TRUE` | Blocks all order submissions. |
 
-## 2. Detailed Procedures
+## 2. Prerequisites & Setup
 
-### A. Start Live Trading (Daemon)
-**Command**: `.\scripts\mvp_start_live.ps1`
-*   **What it does**: Checks for existing PID. Starts `run.py --mode live` in background (hidden window). Writes PID to `paper/mvp.pid`. Redirects logs to `paper/live.out.txt`.
-*   **Verification**: Run `.\scripts\mvp_status.ps1` immediately after. It should say "RUNNING".
+### A. Environment
+- **Python**: 3.10 or higher.
+- **Dependencies**: Install via `pip install -e .` from the repo root.
+- **API Keys**: Create a `.env` file in the root directory:
+  ```env
+  BITUNIX_API_KEY=your_key_here
+  BITUNIX_API_SECRET=your_secret_here
+  ```
 
-### B. Stop Live Trading
-**Command**: `.\scripts\mvp_stop_live.ps1`
-*   **What it does**: Reads PID from `paper/mvp.pid`. Kills the process. Removes the PID file.
-*   **Note**: This is a hard kill. The system is designed to handle this safely (atomic table writes).
+### B. Verification
+Before running any live code, ALWAYS run the verification suite:
+```powershell
+.\scripts\verify.ps1
+```
+This checks compilation, runs deterministic risk engine tests, and validates artifact schemas.
 
-### C. Check Status
-**Command**: `.\scripts\mvp_status.ps1`
-*   **Output meanings**:
-    *   **RUNNING**: Process exists and PID file exists.
-    *   **OFF**: No PID file.
-    *   **STALE**: PID file exists, but process is gone. (Script will offer to clean up).
-*   **Logs**: Displays the last 10 lines of `paper/events.jsonl`.
+## 3. Operational Modes
 
-### D. Recovery (Stale PID)
-If status says **STALE**:
-1. Run `.\scripts\mvp_stop_live.ps1` to clean the orphan PID file.
-2. Check `paper/live.err.txt` for crash reasons.
-3. Run `.\scripts\verify.ps1` to ensure code integrity.
-4. Restart with `.\scripts\mvp_start_live.ps1`.
+The system primarily runs through `src/laptop_agents/run.py`.
 
-### E. Manual Verification
+### A. Orchestrated Mode (Multi-Agent)
+This is the modern pipeline using the modular agent stack (Market Intake -> Analysis -> Execution).
+- **Run Once (Simulation)**: 
+  `python -m src.laptop_agents.run --mode orchestrated --source mock`
+- **Live Trading**: 
+  `python -m src.laptop_agents.run --mode orchestrated --source bitunix --execution-mode live`
+
+### B. Production Deployment (Recommended)
+Use the **Watchdog** for live trading to ensure the bot survives crashes or internet blips:
+```powershell
+.\scripts\watchdog.ps1 --mode orchestrated --source bitunix --execution-mode live
+```
+- Logs are located in `logs/watchdog.log`.
+- Trading state events are in `logs/system.jsonl`.
+
+### C. Checking Status & Recovery
+If the watchdog is running, you can monitor the system via:
+1. **The Dashboard**: `.\scripts\dashboard_up.ps1`
+2. **The Logs**: `Get-Content logs/system.jsonl -Wait`
+3. **Recovery**: To stop the watchdog, press `Ctrl+C` in its terminal window. If a process is stuck, the watchdog will attempt to kill and restart it every 10 seconds.
+
+### D. Manual Verification
 To confirm "OFF" status manually:
 ```powershell
 Get-Process python | Where-Object { $_.MainWindowTitle -like '*run.py*' }
@@ -53,23 +65,34 @@ Test-Path paper\mvp.pid
 # Should return False
 ```
 
-## 3. Logs & Artifacts
+## 4. Logs & Artifacts
 
-All live artifacts are in the `paper/` directory (gitignored):
-*   `live.out.txt`: Stdout capture.
-*   `live.err.txt`: Stderr capture (check here for crashes).
-*   `events.jsonl`: Structured event log.
-*   `trades.csv`: Record of all paper trades.
-*   `state.json`: Current positions and balance.
+The system produces artifacts in two locations depending on the mode:
 
-## 4. Updates & Maintenance
+### A. Orchestrated Mode (Recommended)
+Artifacts are saved in `runs/<id>/` and the latest run is symlinked to `runs/latest/`.
+- `runs/latest/summary.html`: Interactive dashboard.
+- `runs/latest/trades.csv`: Detailed trade log.
+- `runs/latest/events.jsonl`: Orchestration step log.
+
+### B. Machine/System Logs
+- `logs/system.jsonl`: Every system event, including errors and latencies.
+- `logs/watchdog.log`: Logs from the process supervisor.
+
+### C. Legacy Mode (Paper)
+If using the old `--mode live`, artifacts are in `paper/`:
+- `paper/events.jsonl`
+- `paper/trades.csv`
+- `paper/state.json`
+
+## 5. Updates & Maintenance
 Before applying any code update:
-1. **Stop** the live runner: `.\scripts\mvp_stop_live.ps1`
+1. **Stop** the watchdog (`Ctrl+C`).
 2. **Pull/Edit** code.
-3. **Verify**: `.\scripts\verify.ps1 -Mode quick`
-4. **Start**: `.\scripts\mvp_start_live.ps1`
+3. **Verify**: `.\scripts\verify.ps1`
+4. **Restart**: `.\scripts\watchdog.ps1 ...`
 
-## 5. Backtesting
+## 6. Backtesting
 
 Run historical simulations to test strategy performance.
 
@@ -128,7 +151,7 @@ All backtest results are saved to `runs/latest/`:
 .\scripts\mvp_open.ps1
 ```
 
-## 6. Live & Shadow Trading (Bitunix)
+## 7. Live & Shadow Trading (Bitunix)
 
 The `bitunix_cli.py` tool allows for controlled live trading sessions.
 
@@ -156,7 +179,7 @@ Simulates trades with **real live data** but **does not execute orders**.
     python -m laptop_agents.bitunix_cli live-session --symbol BTCUSD --interval 1m --duration-min 60 --no-shadow
     ```
 
-## 7. Resilience & Safety (Production)
+## 8. Resilience & Safety (Production)
 
 ### A. Process Watchdog
 To run the system with auto-restart capability (resilience):
@@ -178,7 +201,7 @@ The following "Hardware" limits are enforced in `src/laptop_agents/core/hard_lim
 - **Max Daily Loss**: $50 USD.
 - **Max Leverage**: 5.0x.
 
-## 8. Monitoring & Observability
+## 9. Monitoring & Observability
 
 ### A. Live Dashboard Server
 Instead of opening a static file, serve the results locally:
