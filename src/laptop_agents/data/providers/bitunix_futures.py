@@ -424,3 +424,8 @@ class BitunixFuturesProvider:
             body["slOrderType"] = "MARKET"
 
         return self._post_signed("/api/v1/futures/trade/place_order", body=body)
+
+    def get_order_status(self, order_id: str) -> Dict[str, Any]:
+        """Check status of an order."""
+        payload = self._get_signed("/api/v1/futures/trade/get_order", params={"orderId": order_id})
+        return payload.get("data") or {}

@@ -31,6 +31,7 @@ class BitunixBroker:
         self._entry_price: Optional[float] = None
         self._entry_side: Optional[str] = None
         self._entry_qty: Optional[float] = None
+        self._last_order_id: Optional[str] = None
 
     def _get_info(self) -> Dict[str, Any]:
         if self._instrument_info is None:
@@ -97,6 +98,7 @@ class BitunixBroker:
                         tp_price=tp
                     )
                     events["order_submission"] = resp
+                    self._last_order_id = resp.get("data", {}).get("orderId")
             except SafetyException as e:
                 events["errors"].append(str(e))
             except Exception as e:
