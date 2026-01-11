@@ -110,6 +110,7 @@ def run_orchestrated_mode(
     stop_bps: float = 30.0,
     tp_r: float = 1.5,
     execution_mode: str = "paper",
+    dry_run: bool = False,
 ) -> tuple[bool, str]:
     """Run orchestrated mode - using modular agents in a single pass."""
     if Supervisor is None or AgentState is None:
@@ -164,7 +165,15 @@ def run_orchestrated_mode(
         
         # Live Broker Setup
         broker = None
-        if execution_mode == "live":
+        if dry_run:
+            from laptop_agents.paper.broker import PaperBroker
+            class DryRunBroker(PaperBroker):
+                def execute(self, order):
+                    logger.info(f"[DRY-RUN] Would execute: {order}")
+                    return {"fills": [], "exits": []}
+            broker = DryRunBroker(symbol=symbol)
+            append_event({"event": "DryRunModeActive"})
+        elif execution_mode == "live":
             if source != "bitunix":
                 raise ValueError("Live execution currently only supports bitunix source")
             
@@ -244,6 +253,15 @@ def run_orchestrated_mode(
             total_equity = current_equity + unrealized
             
             equity_history.append({"ts": candle.ts, "equity": total_equity})
+            
+            # Heartbeat for external monitors
+            if i % 10 == 0:
+                with open("logs/heartbeat.json", "w") as f:
+                    json.dump({
+                        "ts": candle.ts,
+                        "equity": total_equity,
+                        "symbol": symbol,
+                    }, f)
             
         # Write equity.csv for the chart
         equity_csv = LATEST_DIR / "equity.csv"
@@ -337,6 +355,21 @@ def run_orchestrated_mode(
         
         if (LATEST_DIR / "summary.html").exists():
             shutil.copy2(LATEST_DIR / "summary.html", run_dir / "summary.html")
+            
+        # Session Summary Log
+        summary_text = f"""
+========== SESSION COMPLETE ==========
+Run ID:     {run_id}
+Symbol:     {symbol}
+Duration:   {len(candles)} candles
+Trades:     {len(trades)}
+Starting:   ${starting_balance:,.2f}
+Ending:     ${ending_balance:,.2f}
+Net PnL:    ${ending_balance - starting_balance:,.2f}
+=======================================
+"""
+        logger.info(summary_text)
+        print(summary_text)
             
         # Validate artifacts
         events_valid, events_msg = validate_events_jsonl(run_dir / "events.jsonl")
@@ -2836,7 +2869,13 @@ def main() -> int:
                    help="parameter grid: sma=fast,slow;stop=...;tp=...")
     ap.add_argument("--validate-max-candidates", type=int, default=200,
                    help="maximum number of parameter combinations to evaluate in validation mode")
+    ap.add_argument("--dry-run", action="store_true", help="Log orders without executing")
     args = ap.parse_args()
+
+    # Symbol validation
+    SUPPORTED_SYMBOLS = {"BTCUSD", "BTCUSDT", "ETHUSD", "ETHUSDT"}
+    if args.symbol not in SUPPORTED_SYMBOLS:
+        logger.warning(f"Symbol '{args.symbol}' not in supported list: {SUPPORTED_SYMBOLS}")
 
     # Ensure runs/latest exists before we start
     RUNS_DIR.mkdir(exist_ok=True)
@@ -3166,6 +3205,7 @@ def main() -> int:
                 stop_bps=float(args.stop_bps),
                 tp_r=float(args.tp_r),
                 execution_mode=args.execution_mode,
+                dry_run=args.dry_run,
             )
             
             if success:
