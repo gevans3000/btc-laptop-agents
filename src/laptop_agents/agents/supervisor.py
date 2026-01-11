@@ -114,6 +114,20 @@ class Supervisor:
 
         qty = risk_dollars / stop_dist
         
+        # --- HARD LIMIT ENFORCEMENT ---
+        from ..core import hard_limits
+        
+        # 1. Cap by absolute Max Position Size ($)
+        max_notional_abs = hard_limits.MAX_POSITION_SIZE_USD
+        max_qty_abs = max_notional_abs / entry if entry > 0 else 0.0
+        
+        # 2. Cap by Max Leverage (x)
+        max_notional_lev = float(order["equity"]) * hard_limits.MAX_LEVERAGE
+        max_qty_lev = max_notional_lev / entry if entry > 0 else 0.0
+        
+        # Final capped qty
+        qty = min(qty, max_qty_abs, max_qty_lev)
+        
         # Enforce Lot Step
         lot_step = float(order.get("lot_step", 0.001))
         qty = int(qty / lot_step) * lot_step
