@@ -11,9 +11,6 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Core Logger
-from laptop_agents.core.logger import logger
-
 
 
 
@@ -25,6 +22,9 @@ REPO_ROOT = HERE.parent.parent.parent
 
 # Put 'src' in path so 'import laptop_agents' works regardless of CWD
 sys.path.append(str(REPO_ROOT / "src"))
+
+# Core Logger (Must be after sys.path setup)
+from laptop_agents.core.logger import logger
 
 # Late imports to avoid circularity - MUST BE AFTER sys.path setup
 try:
