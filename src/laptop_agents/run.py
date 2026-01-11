@@ -25,6 +25,7 @@ sys.path.append(str(REPO_ROOT / "src"))
 
 # Core Logger (Must be after sys.path setup)
 from laptop_agents.core.logger import logger
+from laptop_agents.core import hard_limits
 
 # Late imports to avoid circularity - MUST BE AFTER sys.path setup
 try:
@@ -208,16 +209,25 @@ def run_orchestrated_mode(
             
             # Simple equity tracking
             trade_pnl = None
+            is_inverse = getattr(supervisor.broker, "is_inverse", False)
             for ex in state.broker_events.get("exits", []):
                 pnl = float(ex.get("pnl", 0.0))
-                current_equity += pnl
-                trade_pnl = pnl
+                # Convert BTC PnL to USD for dashboard tracking if inverse
+                if is_inverse:
+                    pnl_usd = pnl * float(candle.close)
+                    current_equity += pnl_usd
+                    trade_pnl = pnl_usd
+                else:
+                    current_equity += pnl
+                    trade_pnl = pnl
             
             # Update circuit breaker with equity and trade result
             circuit_breaker.update_equity(current_equity, trade_pnl)
             
             # Mark-to-Market Equity
             unrealized = supervisor.broker.get_unrealized_pnl(float(candle.close))
+            if is_inverse:
+                unrealized = unrealized * float(candle.close)
             total_equity = current_equity + unrealized
             
             equity_history.append({"ts": candle.ts, "equity": total_equity})
@@ -291,6 +301,10 @@ def run_orchestrated_mode(
             "trades": len(trades),
             "mode": "orchestrated",
             "setup": state.setup,
+            "risk_pct": risk_pct,
+            "stop_bps": stop_bps,
+            "tp_r": tp_r,
+            "max_leverage": getattr(hard_limits, "MAX_LEVERAGE", 1.0),
         }
         write_state({"summary": summary})
         render_html(summary, trades, "", candles=candles)
@@ -2299,7 +2313,7 @@ def render_html(summary: Dict[str, Any], trades: List[Dict[str, Any]], error_mes
         rows += (
             f"<tr><td>{t['trade_id']}</td><td>{t['side']}</td><td>{t['signal']}</td>"
             f"<td>${float(t['entry']):.2f}</td><td>${float(t['exit']):.2f}</td>"
-            f"<td>{float(t['quantity']):.8f}</td><td>${float(t['pnl']):.2f}</td><td>${float(t['fees']):.2f}</td>"
+            f"<td>{float(t['quantity']):.4f}</td><td>${float(t['pnl']):.4f}</td><td>${float(t['fees']):.4f}</td>"
             f"<td>{t['timestamp']}</td></tr>"
         )
     if not rows:
