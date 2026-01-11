@@ -446,7 +446,10 @@ def calculate_position_size(
     """
     Calculate position size, stop price, and take-profit price.
     Returns (qty, stop_price, tp_price) or (None, None, None) if invalid.
-    
+
+    IMPORTANT: Returned `qty` is always in BASE COINS (e.g., BTC), not USD.
+    For Inverse (Coin-M) futures, the broker will convert Coins to Notional USD internally.
+
     For LONG positions: stop < entry < tp
     For SHORT positions: tp < entry < stop
     """
