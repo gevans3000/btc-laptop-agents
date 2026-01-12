@@ -1,4 +1,4 @@
-﻿# RUNBOOK.md — Operations Manual
+# RUNBOOK.md � Operations Manual
 
 > **Scope**: The authoritative guide for operating the BTC Laptop Agents MVP.
 > **Audience**: Humans and Agents.

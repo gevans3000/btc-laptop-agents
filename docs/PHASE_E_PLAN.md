@@ -1,6 +1,6 @@
 # Phase E Implementation Plan: Hardening & Live-Readiness
 
-> **Status**: IN PROGRESS  
+> **Status**: PARTIALLY COMPLETE  
 > **Goal**: Prepare the system for safe live trading with comprehensive testing, resilience, and observability.
 
 ---
@@ -170,14 +170,14 @@ Phase E focuses on **hardening** the system for live trading:
 ### Tasks
 
 #### E4.1 Clarify Live Modes
-- [ ] Define explicit mode semantics:
+- [x] Define explicit mode semantics:
   - `backtest`: Historical simulation
   - `live-paper`: Paper trading on fresh candles (no real orders)
   - `live-exchange`: Actual Bitunix orders
-- [ ] Update CLI:
-  - `--mode live` → live-paper
-  - `--mode live-exchange` → requires explicit flag + env vars
-- [ ] Add safety checks: refuse live-exchange without API keys
+- [x] Update CLI:
+  - `--mode live` -> live-paper
+  - `--mode live-exchange` -> requires explicit flag + env vars
+- [x] Add safety checks: refuse live-exchange without API keys
 
 #### E4.2 Wire Retry Logic
 - [ ] Identify all external boundaries:
@@ -195,10 +195,10 @@ Phase E focuses on **hardening** the system for live trading:
 - [ ] Stop new orders when tripped, continue processing exits
 
 #### E4.4 Harden BitunixBroker
-- [ ] Standardize broker interface with PaperBroker
-- [ ] Handle min notional, lot size, leverage constraints
-- [ ] Use retry wrappers for network errors
-- [ ] Add "dry-run-live" mode (real data, paper orders)
+- [x] Standardize broker interface with PaperBroker
+- [x] Handle min notional, lot size, leverage constraints
+- [x] Use retry wrappers for network errors
+- [x] Add "dry-run-live" mode (real data, paper orders)
 
 **Deliverables**: Clear mode semantics, retry wrappers, hardened broker
 
@@ -250,10 +250,10 @@ Phase E focuses on **hardening** the system for live trading:
   - Circuit breaker status
 
 #### E6.2 Structured Logging Improvements
-- [ ] Standardize event schema:
+- [x] Standardize event schema:
   - `RunStarted`, `MarketDataLoaded`, `OrderPlaced`, `OrderRejected`
   - `Fill`, `CircuitBreakerTripped`, `CheckpointSaved`
-- [ ] Document event schema in `docs/EVENTS.md`
+- [x] Document event schema in `docs/EVENTS.md`
 
 #### E6.3 Documentation Updates
 - [ ] **README.md**: Architecture overview, mode matrix, quickstart

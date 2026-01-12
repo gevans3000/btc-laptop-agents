@@ -12,12 +12,12 @@ This project provides a minimal, local-only framework for running trading agents
 
 ### Mock run (fast, no API):
 ```powershell
-.\.venv\Scripts\python.exe -m laptop_agents.run --source mock
+python -m src.laptop_agents.run --source mock
 ```
 
 ### Bitunix run (real data):
 ```powershell
-.\.venv\Scripts\python.exe -m laptop_agents.run --source bitunix --symbol BTCUSDT --interval 1m --limit 200
+python -m src.laptop_agents.run --source bitunix --symbol BTCUSDT --interval 1m --limit 200
 ```
 
 ### Open HTML report:

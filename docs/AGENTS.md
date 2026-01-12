@@ -1,4 +1,4 @@
-﻿# AGENTS.md — Collaboration Architecture
+# AGENTS.md � Collaboration Architecture
 
 ## Wiring Status (v1.1 Modular Beta)
 
