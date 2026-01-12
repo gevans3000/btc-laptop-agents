@@ -56,29 +56,35 @@ class SetupSignalAgent:
             cvd_div = state.cvd_divergence.get("divergence", "NONE")
             
             # Logic: If we have an EQ level, we want to see it swept + reclaimed
-            # Optionally confirm with CVD divergence
+            # Mandatory confirmation with CVD divergence
             if eq_high:
-                chosen = {
-                    "name": "sweep_vwap_reclaim_high",
-                    "side": "SHORT",
-                    "entry_type": "market_on_trigger",
-                    "trigger": {"type": "sweep_and_close_back_below", "level": float(eq_high), "tol": tol},
-                    "sl": float(eq_high) + (a * 1.0),
-                    "tp": float(eq_high) - (a * float(self.cfg["sweep_invalidation"]["tp_r_mult"])),
-                    "cvd_conf": cvd_div == "BEARISH",
-                    "conditions_not_to_trade": ["no_sweep_trigger", "funding_gate_violation"],
-                }
+                if cvd_div == "BEARISH":
+                    chosen = {
+                        "name": "sweep_vwap_reclaim_high",
+                        "side": "SHORT",
+                        "entry_type": "market_on_trigger",
+                        "trigger": {"type": "sweep_and_close_back_below", "level": float(eq_high), "tol": tol},
+                        "sl": float(eq_high) + (a * 1.0),
+                        "tp": float(eq_high) - (a * float(self.cfg["sweep_invalidation"]["tp_r_mult"])),
+                        "cvd_conf": True,
+                        "conditions_not_to_trade": ["no_sweep_trigger", "funding_gate_violation"],
+                    }
+                else:
+                    chosen = {"name": "NONE", "side": "FLAT", "reason": "cvd_not_confirmed"}
             elif eq_low:
-                chosen = {
-                    "name": "sweep_vwap_reclaim_low",
-                    "side": "LONG",
-                    "entry_type": "market_on_trigger",
-                    "trigger": {"type": "sweep_and_close_back_above", "level": float(eq_low), "tol": tol},
-                    "sl": float(eq_low) - (a * 1.0),
-                    "tp": float(eq_low) + (a * float(self.cfg["sweep_invalidation"]["tp_r_mult"])),
-                    "cvd_conf": cvd_div == "BULLISH",
-                    "conditions_not_to_trade": ["no_sweep_trigger", "funding_gate_violation"],
-                }
+                if cvd_div == "BULLISH":
+                    chosen = {
+                        "name": "sweep_vwap_reclaim_low",
+                        "side": "LONG",
+                        "entry_type": "market_on_trigger",
+                        "trigger": {"type": "sweep_and_close_back_above", "level": float(eq_low), "tol": tol},
+                        "sl": float(eq_low) - (a * 1.0),
+                        "tp": float(eq_low) + (a * float(self.cfg["sweep_invalidation"]["tp_r_mult"])),
+                        "cvd_conf": True,
+                        "conditions_not_to_trade": ["no_sweep_trigger", "funding_gate_violation"],
+                    }
+                else:
+                    chosen = {"name": "NONE", "side": "FLAT", "reason": "cvd_not_confirmed"}
 
         state.setup = chosen
         return state

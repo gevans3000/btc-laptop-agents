@@ -1,0 +1,11 @@
+{
+    "BTCUSDT": {
+        "eq_tolerance_pct": 0.0005
+    },
+    "ETHUSDT": {
+        "eq_tolerance_pct": 0.0008
+    },
+    "SOLUSDT": {
+        "eq_tolerance_pct": 0.0012
+    }
+}

@@ -18,8 +18,21 @@ class ExecutionRiskSentinelAgent:
         flags = set(deriv.get("flags", []))
 
         if setup.get("name") == "NONE":
-            state.order = {"go": False, "reason": "no_setup"}
+            state.order = {"go": False, "reason": setup.get("reason", "no_setup")}
             return state
+
+        # Trade Cooldown logic
+        current_bar = len(state.candles)
+        last_trade_bar = state.meta.get("last_trade_bar", 0)
+        cooldown = 5
+        
+        # If we have an active trade or just exited, track it
+        if state.trade_id:
+            state.meta["last_trade_bar"] = current_bar
+            
+        if (current_bar - last_trade_bar) < cooldown and not state.trade_id:
+             state.order = {"go": False, "reason": "cooldown_active", "setup": setup}
+             return state
 
         size_mult = 1.0
         if "NO_TRADE_funding_hot" in flags:
