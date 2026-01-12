@@ -8,13 +8,25 @@
 3.  **Read `docs/DEV_AGENTS.md`** (Your constraints).
 4.  **Check `task.md`** (Current objectives, if present).
 
-## Active Constraints & Reminders
-*   **Modular Architecture**: The codebase uses a modular design:
-    *   `src/laptop_agents/run.py` — Thin CLI wrapper (~100 lines).
-    *   `src/laptop_agents/core/orchestrator.py` — Main coordination logic.
-    *   `src/laptop_agents/data/loader.py` — Candle fetching (mock/bitunix).
-    *   `src/laptop_agents/trading/exec_engine.py` — Live paper trading engine.
-    *   `src/laptop_agents/trading/signal.py` — Signal generation with ATR filter.
-*   **Verify**: Always run `.\scripts\verify.ps1 -Mode quick` before finishing.
-*   **Drift**: Do not assume docs are perfect, but assume `SPEC.md` is intended to be true. Fix it if it's wrong.
-*   **No Sync Pack**: The `assistant_sync_pack.md` and `make_sync_pack.ps1` have been removed. They are not needed.
+## Architecture Summary
+- **CLI**: `src/laptop_agents/run.py` - Thin wrapper, delegates to orchestrator.
+- **Orchestrator**: `src/laptop_agents/core/orchestrator.py` - Coordinates all modes.
+- **Timed Session**: `src/laptop_agents/session/timed_session.py` - Live polling loop for `live-session` mode.
+- **Brokers**: `PaperBroker` (simulation), `BitunixBroker` (live).
+- **Hard Limits**: `src/laptop_agents/core/hard_limits.py` - Immutable safety constraints.
+
+## Key Concepts
+1. **Execution Mode**: `--execution-mode paper` vs `live` determines broker selection.
+2. **Data Source**: `--source mock` vs `bitunix` determines candle source.
+3. **Safety**: Hard limits are enforced at the broker level and cannot be bypassed.
+4. **Kill Switch**: `config/KILL_SWITCH.txt` blocks all order placement.
+
+## Recent Changes
+- Added Live Trading System (BitunixBroker with $10 fixed sizing).
+- Added `cancel_order`, `cancel_all_orders` to BitunixFuturesProvider.
+- Added `shutdown()` method for graceful cleanup (cancels orders + closes positions).
+- Added `execution_mode` parameter to `timed_session.py`.
+- Removed legacy `exec_engine.py` in favor of modular Brokers.
+
+## Verification
+Always run `.\scripts\verify.ps1` or `python scripts/test_live_system.py` before finalizing changes.

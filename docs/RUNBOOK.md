@@ -151,33 +151,32 @@ All backtest results are saved to `runs/latest/`:
 .\scripts\mvp_open.ps1
 ```
 
-## 7. Live & Shadow Trading (Bitunix)
+## 7. Live Trading Operations
 
-The `bitunix_cli.py` tool allows for controlled live trading sessions.
+### Pre-Flight
+```powershell
+# Verify API connectivity
+$env:PYTHONPATH='src'; python scripts/check_live_ready.py
+```
 
-### A. Shadow Mode (Safe Simulation)
-Simulates trades with **real live data** but **does not execute orders**.
+### Start Live Session
+```powershell
+# Paper mode (safe - no real money)
+$env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode paper --duration 10
 
-*   **Quick Connectivity Check (5 mins)**:
-    ```powershell
-    python -m laptop_agents.bitunix_cli live-session --symbol BTCUSD --interval 1m --duration-min 5
-    ```
-*   **Standard Session (1 hour)**:
-    ```powershell
-    python -m laptop_agents.bitunix_cli live-session --symbol BTCUSD --interval 1m --duration-min 60
-    ```
-*   **USDT Futures**:
-    ```powershell
-    python -m laptop_agents.bitunix_cli live-session --symbol BTCUSDT --interval 1m --duration-min 60
-    ```
+# Live mode (REAL MONEY)
+$env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode live --duration 10
+```
 
-### B. Live Trading (Real Money ⚠️)
-**WARNING**: This executes real orders on your Bitunix account. Use with caution.
+### Emergency Stop
+1. Press `Ctrl+C` in the terminal (triggers graceful shutdown).
+2. Or create `config/KILL_SWITCH.txt` with content `TRUE`.
+3. Or run: `$env:PYTHONPATH='src'; python -c "from laptop_agents.execution.bitunix_broker import BitunixBroker; ..."`
 
-*   **Command**:
-    ```powershell
-    python -m laptop_agents.bitunix_cli live-session --symbol BTCUSD --interval 1m --duration-min 60 --no-shadow
-    ```
+### Monitoring
+- Heartbeat: `logs/heartbeat.json`
+- Events: `paper/events.jsonl`
+- Equity checkpoint: `logs/daily_checkpoint.json`
 
 ### C. Rate Limit Protection
 When running in `--execution-mode live`, the system only sends orders to the exchange for the **final candle** in the historical batch. This prevents hitting API rate limits during the initial candle load.

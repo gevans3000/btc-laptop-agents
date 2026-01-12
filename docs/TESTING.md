@@ -94,20 +94,32 @@ Final acceptance testing using real exchange connectivity.
 ### A. Shadow Mode (Safe)
 Runs the logic against live data but simulates execution.
 ```powershell
-python -m src.laptop_agents.cli live-session --symbol BTCUSDT --duration-min 5
+$env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode paper --duration 10
 ```
 **Verify**:
-- Logs show `[SHADOW]` tags.
-- Latency metrics are recorded (simulated).
+- Logs show `[PAPER]` tags (since execution-mode is paper).
+- Heartbeat is updated in `logs/heartbeat.json`.
 
 ### B. Live Mode (Real)
 Runs with small capital to verify full round-trip.
 ```powershell
-.\scripts\watchdog.ps1 --execution-mode live
+$env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode live --duration 10
 ```
 **Verify**:
 - Orders appear on Bitunix dashboard.
-- Fills are detected and logged in `logs/system.jsonl`.
+- Fills are detected and logged.
+
+## Live Trading System Tests
+
+### Unit Tests
+```powershell
+$env:PYTHONPATH='src'; python scripts/test_live_system.py
+```
+
+### Integration Test (Paper Mode)
+```powershell
+$env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode paper --duration 2
+```
 
 ---
 
