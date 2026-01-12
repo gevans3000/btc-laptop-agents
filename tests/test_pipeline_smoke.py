@@ -5,9 +5,11 @@ from laptop_agents.indicators import Candle
 import json
 
 
-def test_pipeline_smoke(tmp_path):
+def test_pipeline_smoke():
+    temp_dir = Path(".temp_test")
+    temp_dir.mkdir(exist_ok=True)
     cfg = json.loads(Path("config/default.json").read_text(encoding="utf-8"))
-    journal = tmp_path / "paper_journal.jsonl"
+    journal = temp_dir / "paper_journal.jsonl"
 
     provider = MockProvider(seed=7, start=100_000.0)
     sup = Supervisor(provider=provider, cfg=cfg, journal_path=str(journal))
