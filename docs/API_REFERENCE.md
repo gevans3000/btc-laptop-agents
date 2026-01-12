@@ -1,33 +1,37 @@
 # API Reference
 
-## Core Modules
+## Brokers
 
 ### `laptop_agents.paper.broker.PaperBroker`
 Simulated broker for backtesting and paper trading.
-
-**Methods**:
-- `on_candle(candle, order)` → Dict with fills/exits
-- `get_unrealized_pnl(price)` → float
-- `_try_fill(candle, order)` → Optional fill event
-- `_check_exit(candle)` → Optional exit event
+- `on_candle(candle, order)` → Process candle, return fill/exit events.
+- `get_unrealized_pnl(price)` → Calculate unrealized P&L.
 
 ### `laptop_agents.execution.bitunix_broker.BitunixBroker`
-Live broker for Bitunix exchange.
+Real-money broker for Bitunix Futures.
+- `on_candle(candle, order)` → Submit orders, poll positions, detect drift.
+- `shutdown()` → Emergency cancel all orders + close all positions.
+- `get_unrealized_pnl(price)` → Calculate unrealized P&L.
 
-**Methods**:
-- Same as PaperBroker
-- Syncs position state with exchange
+## Providers
+
+### `laptop_agents.data.providers.bitunix_futures.BitunixFuturesProvider`
+API client for Bitunix Futures exchange.
+- `get_pending_positions(symbol)` → Fetch open positions.
+- `get_open_orders(symbol)` → Fetch unfilled orders.
+- `place_order(side, qty, ...)` → Submit order.
+- `cancel_order(order_id, symbol)` → Cancel specific order.
+- `cancel_all_orders(symbol)` → Cancel all orders for symbol.
+- `klines(interval, limit)` → Fetch candle data.
+
+## Support Modules
 
 ### `laptop_agents.agents.supervisor.Supervisor`
 Orchestrates agent pipeline.
-
-**Methods**:
 - `step(state, candle, skip_broker=False)` → State
 
 ### `laptop_agents.resilience.TradingCircuitBreaker`
 Safety mechanism for drawdown limits.
-
-**Methods**:
 - `set_starting_equity(equity)`
 - `update_equity(equity, trade_pnl)`
 - `is_tripped()` → bool

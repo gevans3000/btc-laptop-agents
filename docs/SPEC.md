@@ -25,6 +25,7 @@ The canonical entrypoint is `python -m src.laptop_agents.run`.
 | **Verify** | `--mode selftest` | Runs internal risk engine deterministic checks. | `summary.html` (Pass/Fail) |
 | **Backtest** | `--mode backtest` | Simulates trading over historical data. | `trades.csv`, `equity.csv` |
 | **Live** | `--mode live` | Runs the continuous background daemon. | `paper/state.json`, `paper/mvp.pid` |
+| **Live Session** | `--mode live-session` | Autonomous polling loop for timed trading. | `paper/events.jsonl` |
 | **Single** | *default* | Single-step simulation (dev/debug). | `events.jsonl` |
 
 ### Experimental Modes
@@ -84,3 +85,29 @@ Operators interact via `scripts/` ONLY.
 *   `mvp_start_live.ps1` / `mvp_stop_live.ps1`: Daemon control.
 *   `mvp_status.ps1`: Process and log monitoring.
 *   `mvp_open.ps1`: Dashboard viewer.
+
+## 7. Live Trading
+
+### Execution Modes
+| Mode | Flag | Description |
+| :--- | :--- | :--- |
+| **Paper** | `--execution-mode paper` | Simulated fills using PaperBroker. |
+| **Live** | `--execution-mode live` | Real orders via BitunixBroker. |
+
+### Safety Features
+1. **Fixed $10 Sizing**: All live orders are forced to $10 notional value.
+2. **Human Confirmation**: Orders require manual `y` confirmation unless `SKIP_LIVE_CONFIRM=TRUE`.
+3. **Kill Switch**: Create `config/KILL_SWITCH.txt` with `TRUE` to halt all orders.
+4. **Graceful Shutdown**: Ctrl+C triggers `shutdown()` which cancels orders and closes positions.
+
+### Quick Start
+```powershell
+# 1. Verify readiness
+$env:PYTHONPATH='src'; python scripts/check_live_ready.py
+
+# 2. Run 10-minute paper session with live data
+$env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode paper --duration 10
+
+# 3. Run live session (REAL MONEY - requires confirmation)
+$env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode live --duration 10
+```
