@@ -1,4 +1,4 @@
-﻿# GATES.md â€” Safety & Validation
+﻿# GATES.md — Safety & Validation
 
 > **STATUS**: ACTIVE
 > **PURPOSE**: Definitions of quality gates that prevent bad trades.

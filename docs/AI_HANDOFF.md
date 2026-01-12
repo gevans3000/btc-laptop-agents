@@ -1,4 +1,4 @@
-﻿# AI_HANDOFF.md â€” Agent Context Loading
+﻿# AI_HANDOFF.md — Agent Context Loading
 
 > **Status**: ACTIVE
 

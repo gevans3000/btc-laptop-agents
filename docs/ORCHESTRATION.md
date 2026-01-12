@@ -1,4 +1,4 @@
-﻿# ORCHESTRATION.md â€” Pipeline Blueprint
+﻿# ORCHESTRATION.md — Pipeline Blueprint
 
 > **STATUS**: ACTIVE
 > **PURPOSE**: Defines how the system will evolve from Monolith to Orchestrated Pipeline.

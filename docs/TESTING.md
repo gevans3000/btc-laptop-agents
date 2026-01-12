@@ -1,4 +1,4 @@
-﻿# TESTING.md â€” Comprehensive Testing Strategy
+﻿# TESTING.md — Comprehensive Testing Strategy
 
 > **Status**: ACTIVE
 > **Version**: 1.0 (Aligns with v1.0.1)

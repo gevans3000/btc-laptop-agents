@@ -1,4 +1,4 @@
-﻿# DEV_AGENTS.md â€” Rules for AI Agents
+﻿# DEV_AGENTS.md — Rules for AI Agents
 
 > **Status**: ACTIVE
 

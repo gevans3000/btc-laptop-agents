@@ -1,4 +1,4 @@
-﻿# VERIFY.md â€” Verification Protocol
+﻿# VERIFY.md — Verification Protocol
 
 > **STATUS**: ACTIVE
 > **PURPOSE**: Define what "Green" means.

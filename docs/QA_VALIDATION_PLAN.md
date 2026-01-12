@@ -175,7 +175,7 @@ python -c "from laptop_agents.core import hard_limits; print(f'MAX_POSITION_SIZE
 |------|--------|---------------|--------|
 | Deterministic replay | Run same candles twice | Identical `trades.csv` output | â˜ |
 | Fee/slippage consistency | Compare PnL with/without fees | Difference matches expected fees | â˜ |
-| Signal reproducibility | Same candles â†’ same signals | 100% match | â˜ |
+| Signal reproducibility | Same candles → same signals | 100% match | â˜ |
 
 ---
 
@@ -200,10 +200,10 @@ python -c "from laptop_agents.core import hard_limits; print(f'MAX_POSITION_SIZE
 
 | Metric | Collection Method | Alert Threshold | Status |
 |--------|-------------------|-----------------|--------|
-| Loop heartbeat | Check `events.jsonl` mtime | >5 min stale â†’ alert | â˜ |
-| Error count | Parse `Error` events | >3 in 5 min â†’ alert | â˜ |
-| Drawdown | Read circuit breaker status | >3% â†’ warning, >5% â†’ halt | â˜ |
-| Position duration | Track `bars_open` | >100 bars â†’ investigate | â˜ |
+| Loop heartbeat | Check `events.jsonl` mtime | >5 min stale → alert | â˜ |
+| Error count | Parse `Error` events | >3 in 5 min → alert | â˜ |
+| Drawdown | Read circuit breaker status | >3% → warning, >5% → halt | â˜ |
+| Position duration | Track `bars_open` | >100 bars → investigate | â˜ |
 
 ### 5.3 Log Retention
 
@@ -382,7 +382,7 @@ pytest tests/test_pipeline_smoke.py tests/test_run_reproducibility.py -v
 | 15 | Monitoring dashboard functional | `scripts/monitor.py` works | â˜ |
 | 16 | 48h unattended run stable | No crashes, expected behavior | â˜ |
 | 17 | Bitunix integration tested | If using real data | â˜ |
-| 18 | Config validation on startup | Bad config â†’ clear error | â˜ |
+| 18 | Config validation on startup | Bad config → clear error | â˜ |
 
 ### 8.4 Sign-Off
 

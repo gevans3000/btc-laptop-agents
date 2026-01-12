@@ -1,4 +1,4 @@
-﻿# BTC Laptop Agents â€” System Specification
+﻿# BTC Laptop Agents — System Specification
 
 > **Status**: ACTIVE & AUTHORITATIVE
 > **Version**: 1.0.1 (Resilience & Safety)

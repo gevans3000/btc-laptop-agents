@@ -1,4 +1,4 @@
-﻿# MAP.md â€” Landmark Map
+﻿# MAP.md — Landmark Map
 
 > **Status**: ACTIVE
 
