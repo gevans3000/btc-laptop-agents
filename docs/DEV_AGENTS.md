@@ -7,10 +7,14 @@
 **Do not break the `verify.ps1` loop.**
 Every change must pass `.\scripts\verify.ps1 -Mode quick` before you request user review.
 
-## 2. Monolith Awareness
-*   **The Code**: The system is currently a Monolith in `src/laptop_agents/run.py`.
-*   **The Trap**: Do not edit files in `src/laptop_agents/agents/` to fix bugs. They are not wired. Edit `run.py` instead.
-*   **The Future**: We will refactor later. For now, respect the monolith.
+## 2. Modular Awareness
+*   **The Code**: The system has transitioned from a monolith to a modular architecture.
+*   **The Structure**:
+    *   `src/laptop_agents/run.py`: Orchestrator and CLI entry point.
+    *   `src/laptop_agents/trading/exec_engine.py`: Live/Paper execution engine.
+    *   `src/laptop_agents/backtest/engine.py`: Backtesting and validation.
+    *   `src/laptop_agents/agents/`: Modular agents (Supervisor, State, Setups).
+*   **The Goal**: Maintain modular isolation. Fix bugs in the specific modules, not the orchestrator.
 
 ## 3. Documentation "Law"
 *   **Read `docs/SPEC.md`**: This is the current truth.

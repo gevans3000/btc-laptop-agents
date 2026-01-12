@@ -1,32 +1,35 @@
 # MAP.md — Landmark Map
 
-> **PURPOSE**: Quick navigation for the `src/laptop_agents/run.py` monolith. Use this to find logic without scanning the entire file.
+> **PURPOSE**: Quick navigation for the `btc-laptop-agents` codebase. Use this to find logic without scanning the entire project.
 
-## 1. Core Logic Landmarks (`run.py`)
+## 1. Modular Architecture Overview
 
-| Logic Area | Line Range (approx) | Primary Function(s) |
+Our architecture has transitioned from a monolithic `run.py` to a modular system.
+
+| Logic Area | Location | Primary Function(s) |
 | :--- | :--- | :--- |
-| **Validation** | 34 - 104 | `validate_events_jsonl`, `validate_trades_csv`, `validate_summary_html` |
-| **Data Sources** | 291 - 327 | `load_mock_candles`, `load_bitunix_candles` |
-| **Risk Engine** | 336 - 393 | `calculate_position_size` (The mathematical core) |
-| **Grid / Search** | 396 - 1057 | `parse_grid`, `run_validation` (Optimization logic) |
-| **Backtest Engine** | 1091 - 1697 | `run_backtest_bar_mode`, `run_backtest_position_mode` |
-| **Live Loop** | 1700 - 2107 | `run_live_paper_trading` (The main daemon loop) |
-| **Signals** | 2110 - 2120 | `generate_signal` (Where strategy lives) |
-| **Execution** | 2123 - 2169 | `simulate_trade_one_bar` (Paper fill logic) |
-| **Reporting** | 2202 - 2784 | `render_html` (Dashboard generation) |
-| **CLI / Main** | 2787 - 3286 | `main()` (Argument parsing and orchestration) |
+| **Orchestrator** | `src/laptop_agents/run.py` | CLI Entry point, configuration injection, and coordination. |
+| **Live Loop** | `src/laptop_agents/trading/exec_engine.py` | `run_live_paper_trading` (The main daemon loop). Wrapper in `run.py` (L559-562). |
+| **Backtest Engine** | `src/laptop_agents/backtest/engine.py` | `run_backtest_bar_mode`, `run_backtest_position_mode`, `run_validation`. Wrappers in `run.py` (L535-556). |
+| **Modular Agents** | `src/laptop_agents/agents/` | `Supervisor`, `AgentState`, and strategy setup signals. |
+| **Trading Math** | `src/laptop_agents/trading/helpers.py` | `calculate_position_size`, `simulate_trade_one_bar`, `sma` |
+| **HTML Renderer** | `src/laptop_agents/reporting/html_renderer.py` | Dashboard generation logic. Wrapper in `run.py` (L610-628). |
+| **Validation** | `src/laptop_agents/tools/validation.py` | `validate_events_jsonl`, `validate_trades_csv`, `validate_summary_html` |
+| **Resilience** | `src/laptop_agents/resilience/` | Circuit breakers, retries, and error handling. |
+| **Core** | `src/laptop_agents/core/` | Logger, registry, and hard limits. |
 
 ## 2. Script Control Surface
 
 | Script | Purpose | Code Link |
 | :--- | :--- | :--- |
-| `verify.ps1` | System health check | Logic in `run.py` (Validation section) |
-| `mvp_start_live.ps1` | Background daemon | Calls `run.py --mode live` |
-| `mvp_status.ps1` | Health check / Logs | Checks `paper/` artifacts |
+| `scripts/verify.ps1` | System health check | Logic in `run.py` and `validation.py` |
+| `scripts/test_dual_mode.py` | Logic parity check | Compares Bar vs Position mode math |
+| `watchdog.ps1` | Background daemon | Calls `run.py --mode live` |
 
-## 3. Dangerous Zones (Read-Only unless asked)
+## 3. Key Data Constants (in `run.py`)
 
-- **Event Loop Timing**: (Lines 1700-1800) The loop interval and exception handling are delicate for daemon stability.
-- **Risk Invariants**: (Lines 336-393) Do not change stop/TP math without updating `run_selftest`.
-- **CSV/JSON Schema**: (Lines 1-33) Constants defining required columns. Breaking these breaks the dashboard.
+- **Event Loop Paths**: `RUNS_DIR`, `LATEST_DIR`, `PAPER_DIR`
+- **Schemas**: `REQUIRED_EVENT_KEYS`, `REQUIRED_TRADE_COLUMNS`
+
+---
+*Note: This map is updated as refactoring phases complete. Phase C (Live Loop Extraction) is current.*

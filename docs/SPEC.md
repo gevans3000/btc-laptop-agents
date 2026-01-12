@@ -67,7 +67,7 @@ Every run MUST generate these artifacts in `runs/<id>/` (or `paper/` for live).
 
 ## 5. Verification Gates
 
-The system enforces these invariants (implemented in `src/laptop_agents/run.py` and `agents/risk_gate.py`):
+The system enforces these invariants (implemented in `src/laptop_agents/run.py`, `src/laptop_agents/trading/exec_engine.py`, and `agents/risk_gate.py`):
 
 1.  **Candle Integrity**: Data must be chronological with no missing timestamps.
 2.  **Feature Sanity**: Indicators (SMA/RSI) must be non-NaN before strategy execution.
