@@ -1,4 +1,6 @@
-# MAP.md — Landmark Map
+﻿# MAP.md â€” Landmark Map
+
+> **Status**: ACTIVE
 
 > **PURPOSE**: Quick navigation for the `btc-laptop-agents` codebase. Use this to find logic without scanning the entire project.
 
@@ -45,3 +47,5 @@ Our architecture has transitioned from a monolithic `run.py` to a modular system
 
 ---
 *Note: This map is updated as refactoring phases complete. Phase E (Live Trading & Deployment) is current.*
+
+

@@ -1,4 +1,4 @@
-# VERIFY.md — Verification Protocol
+﻿# VERIFY.md â€” Verification Protocol
 
 > **STATUS**: ACTIVE
 > **PURPOSE**: Define what "Green" means.
@@ -32,3 +32,4 @@ How to verify the live system:
 2.  **Heartbeat**: `events.jsonl` updates every interval.
 3.  **State**: `state.json` updates balance on trade close.
 4.  **Recovery**: Killing pid and restarting resumes safely.
+

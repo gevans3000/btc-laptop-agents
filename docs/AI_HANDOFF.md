@@ -1,4 +1,6 @@
-# AI_HANDOFF.md — Agent Context Loading
+﻿# AI_HANDOFF.md â€” Agent Context Loading
+
+> **Status**: ACTIVE
 
 > **Audience**: AI Agents starting a session.
 
@@ -30,3 +32,5 @@
 
 ## Verification
 Always run `.\scripts\verify.ps1` or `python scripts/test_live_system.py` before finalizing changes.
+
+

@@ -1,4 +1,4 @@
-# GATES.md — Safety & Validation
+﻿# GATES.md â€” Safety & Validation
 
 > **STATUS**: ACTIVE
 > **PURPOSE**: Definitions of quality gates that prevent bad trades.
@@ -42,3 +42,4 @@
 *   **Slippage**: Fill price is within allowed variance of decision price.
 *   **Fills**: `Quantity` matches `Order.Quantity`.
 **Action on Fail**: Log `ExecutionDrift` (Simulation warning).
+

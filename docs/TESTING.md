@@ -1,6 +1,6 @@
-# TESTING.md — Comprehensive Testing Strategy
+﻿# TESTING.md â€” Comprehensive Testing Strategy
 
-> **Status**: DRAFT
+> **Status**: ACTIVE
 > **Version**: 1.0 (Aligns with v1.0.1)
 
 This document defines the testing strategy for the `btc-laptop-agents` system. Our primary goal is **Safety**, followed by **Correctness** and **Stability**.
@@ -166,3 +166,5 @@ def test_hard_limit_enforcement():
     with pytest.raises(SafetyException):
         broker.place_order(qty=MAX_POSITION_SIZE_USD * 2, ...)
 ```
+
+

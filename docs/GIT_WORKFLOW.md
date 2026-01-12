@@ -1,4 +1,6 @@
-# Git Workflow & Commit Policy
+﻿# Git Workflow & Commit Policy
+
+> **Status**: ACTIVE
 
 To ensure we can easily rollback and track changes ("Incremental Defense"), we adhere to the following strict Git rules.
 
@@ -33,3 +35,4 @@ If a commit introduces a break, use `git revert <hash>` (safe) or check out the 
 
 ---
 **Agent Command**: To trigger this flow, use the workflow `/save-progress`.
+

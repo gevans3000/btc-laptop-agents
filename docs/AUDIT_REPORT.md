@@ -1,6 +1,8 @@
-# Documentation & Operations Audit: BTC Laptop Agents
+﻿# Documentation & Operations Audit: BTC Laptop Agents
 
-> **Phase**: D (Modularization & Stabilization) — COMPLETE
+> **Status**: SUPERSEDED
+
+> **Phase**: D (Modularization & Stabilization) â€” COMPLETE
 > **Last Updated**: 2026-01-12
 
 ---
@@ -33,10 +35,10 @@ The codebase has transitioned from monolith to modular design:
   - `mvp_run_once.ps1`: Single loop execution.
 
 ### Artifacts & Schemas
-- **Events**: `events.jsonl` (JSONL) — Must contain `timestamp` and `event`.
-- **Trades**: `trades.csv` — Columns: `trade_id, side, signal, entry, exit, quantity, pnl, fees, timestamp, exit_reason`.
-- **Reports**: `summary.html` — Standalone dashboard.
-- **State**: `paper/state.json` — Live position/balance tracking.
+- **Events**: `events.jsonl` (JSONL) â€” Must contain `timestamp` and `event`.
+- **Trades**: `trades.csv` â€” Columns: `trade_id, side, signal, entry, exit, quantity, pnl, fees, timestamp, exit_reason`.
+- **Reports**: `summary.html` â€” Standalone dashboard.
+- **State**: `paper/state.json` â€” Live position/balance tracking.
 
 ---
 
@@ -44,32 +46,20 @@ The codebase has transitioned from monolith to modular design:
 
 | File Path | Role | Status | Notes |
 | :--- | :--- | :--- | :--- |
-| `README.md` | Front Door | ✓ ACTIVE | Accurate for MVP usage |
-| `docs/SPEC.md` | The "Law" | ✓ ACTIVE | Authoritative source of truth |
-| `docs/AGENTS.md` | Arch Guide | ✓ UPDATED | Modular pipeline documented |
-| `docs/RUNBOOK.md` | Ops Manual | ✓ ACTIVE | Covers orchestrated + legacy modes |
-| `docs/MAP.md` | Navigation | ✓ UPDATED | Accurate file/line references |
-| `docs/AI_HANDOFF.md` | Agent Context | ✓ UPDATED | Sync pack references removed |
-| `docs/DEV_AGENTS.md` | Dev Rules | ✓ ACTIVE | Modular awareness documented |
-| `docs/NEXT.md` | Roadmap | ✓ UPDATED | Phase D marked complete |
-| `docs/VERIFY.md` | QA Spec | ✓ ACTIVE | Matches verify.ps1 behavior |
+| `README.md` | Front Door | âœ“ ACTIVE | Accurate for MVP usage |
+| `docs/SPEC.md` | The "Law" | âœ“ ACTIVE | Authoritative source of truth |
+| `docs/AGENTS.md` | Arch Guide | âœ“ UPDATED | Modular pipeline documented |
+| `docs/RUNBOOK.md` | Ops Manual | âœ“ ACTIVE | Covers orchestrated + legacy modes |
+| `docs/MAP.md` | Navigation | âœ“ UPDATED | Accurate file/line references |
+| `docs/AI_HANDOFF.md` | Agent Context | âœ“ UPDATED | Sync pack references removed |
+| `docs/DEV_AGENTS.md` | Dev Rules | âœ“ ACTIVE | Modular awareness documented |
+| `docs/NEXT.md` | Roadmap | âœ“ UPDATED | Phase D marked complete |
+| `docs/VERIFY.md` | QA Spec | âœ“ ACTIVE | Matches verify.ps1 behavior |
 
 ---
 
-## 3. Resolved Issues (Phase D)
-
-### ✓ Code Cleanup
-- `exec_engine.py` trailing duplicate code removed
-- `run.py` reduced to thin wrapper
-
-### ✓ Sync Pack Elimination
-- `scripts/make_~~sync_pack~~.ps1` — DELETED
-- `~~assistant_sync_pack~~.md` — DELETED
-
-### ✓ Documentation Alignment
-- All docs updated to reflect modular architecture
-- MAP.md table formatting fixed
-- Outdated file/line references corrected
+## 3. High-Level Summary
+See the **Final Audit Checklist** below for detailed status of all Phase D items.
 
 ---
 
@@ -77,11 +67,11 @@ The codebase has transitioned from monolith to modular design:
 
 | Check | Status |
 | :--- | :--- |
-| `python -m compileall src` | ✓ PASS |
-| `verify.ps1 -Mode quick` | ✓ PASS |
-| Selftest (conservative) | ✓ PASS |
-| Selftest (optimistic) | ✓ PASS |
-| Artifact validation | ✓ PASS |
+| `python -m compileall src` | âœ“ PASS |
+| `verify.ps1 -Mode quick` | âœ“ PASS |
+| Selftest (conservative) | âœ“ PASS |
+| Selftest (optimistic) | âœ“ PASS |
+| Artifact validation | âœ“ PASS |
 
 ---
 
@@ -123,9 +113,8 @@ All Phase D objectives complete. The codebase is ready for the next phase of dev
 
 ## Code Cleanup
 
-- [x] **exec_engine.py**: Trailing duplicated code removed. File ends cleanly after `run_live_paper_trading` return (line 481).
+- [x] **exec_engine.py**: Trailing duplicated code removed. File ends cleanly after `run_live_paper_trading` function.
 - [x] **run.py**: Reduced to thin CLI wrapper (~101 lines). No embedded business logic.
-- [x] **Sync pack deleted**: `scripts/make_~~sync_pack~~.ps1` removed. `~~assistant_sync_pack~~.md` marked for deletion.
 
 ---
 
@@ -159,8 +148,6 @@ All Phase D objectives complete. The codebase is ready for the next phase of dev
 
 ## Developer Tooling
 
-- [x] `scripts/make_~~sync_pack~~.ps1` -> DELETED
-- [x] `~~assistant_sync_pack~~.md` -> MARKED FOR DELETION
 - [x] `verify.ps1 -Mode quick` -> PASSING
 - [x] `test_dual_mode.py` -> PASSING (logic verified)
 
@@ -173,7 +160,6 @@ All Phase D objectives complete. The codebase is ready for the next phase of dev
 | `docs/MAP.md` | Fixed table formatting, updated file/line references | [x] |
 | `docs/AI_HANDOFF.md` | Removed sync pack references, updated architecture | [x] |
 | `docs/NEXT.md` | Marked Phase D complete, removed sync pack goal | [x] |
-| `docs/RELEASE_READINESS.md` | Full Phase D audit results | [x] |
 | `docs/DEV_AGENTS.md` | Modular awareness section accurate | [x] |
 | `docs/AGENTS.md` | Modular pipeline documented | [x] |
 | `docs/AUDIT_REPORT.md` | Updated architecture drift analysis | [x] |
@@ -212,3 +198,4 @@ All Phase D objectives have been completed:
 4. Developer tooling streamlined
 5. Documentation aligned with code reality
 6. All verification checks passing
+

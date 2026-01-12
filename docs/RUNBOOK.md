@@ -1,4 +1,4 @@
-# RUNBOOK.md � Operations Manual
+﻿# RUNBOOK.md — Operations Manual
 
 > **Scope**: The authoritative guide for operating the BTC Laptop Agents MVP.
 > **Audience**: Humans and Agents.
@@ -233,3 +233,4 @@ The system produces machine-readable logs in `logs/system.jsonl`:
 
 ### C. Latency Tracking
 Every trade fill in `live` mode now includes `latency_sec` in its event data (logged to `system.jsonl`). This measures the time from signal generation to exchange fill confirmation.
+

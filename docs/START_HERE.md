@@ -1,4 +1,6 @@
-# START HERE
+﻿# START HERE
+
+> **Status**: ACTIVE
 
 > **Welcome to BTC Laptop Agents**
 > This directory acts as the index for all documentation.
@@ -19,3 +21,4 @@
 *   [Source Code](../src/laptop_agents/run.py)
 *   [Scripts](../scripts/)
 *   [Logs](../paper/live.out.txt) (Local only)
+

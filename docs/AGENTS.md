@@ -1,4 +1,6 @@
-# AGENTS.md � Collaboration Architecture
+﻿# AGENTS.md — Collaboration Architecture
+
+> **Status**: ACTIVE
 
 ## Wiring Status (v1.1 Modular Beta)
 
@@ -43,3 +45,4 @@ Eventually, the monolith will break into the independent agents described below,
 3) Setup/Signal: deterministic rules (EMA/ATR thresholds)
 4) Execution/Risk (paper): sim fills + position mgmt + stats
 5) Journal Coach: concise notes per loop/trade (optional)
+

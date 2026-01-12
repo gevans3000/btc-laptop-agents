@@ -1,4 +1,6 @@
-# DEV_AGENTS.md — Rules for AI Agents
+﻿# DEV_AGENTS.md â€” Rules for AI Agents
+
+> **Status**: ACTIVE
 
 > **AUDIENCE**: AI Coding Assistants (Gemini, Roo, Codex, etc.)
 > **PURPOSE**: Standards for safely modifying this repo.
@@ -60,3 +62,5 @@ To ensure "agent-readiness" for the next session:
 2.  Verify the changes (run tests or lint).
 3.  Stage specific files (`git add <file>`).
 4.  Commit immediately (`git commit -m "..."`).
+
+

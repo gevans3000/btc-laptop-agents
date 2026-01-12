@@ -1,4 +1,4 @@
-# ORCHESTRATION.md — Pipeline Blueprint
+﻿# ORCHESTRATION.md â€” Pipeline Blueprint
 
 > **STATUS**: ACTIVE
 > **PURPOSE**: Defines how the system will evolve from Monolith to Orchestrated Pipeline.
@@ -46,4 +46,5 @@ graph LR
 ## 3. Idempotency & Replay
 *   Every run has a unique `run_id`.
 *   All artifacts are saved.
-*   **Replay Rule**: `scripts/replay.ps1 <run_id>` must yield the exact same artifacts given the same `candles.json`.
+*   **Replay Rule**: Replaying a run with the same `candles.json` must yield the exact same artifacts. (Script: Planned for future implementation)
+

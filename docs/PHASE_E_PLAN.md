@@ -1,6 +1,6 @@
-# Phase E Implementation Plan: Hardening & Live-Readiness
+﻿# Phase E Implementation Plan: Hardening & Live-Readiness
 
-> **Status**: PARTIALLY COMPLETE  
+> **Status**: IN PROGRESS  
 > **Goal**: Prepare the system for safe live trading with comprehensive testing, resilience, and observability.
 
 ---
@@ -22,12 +22,12 @@ Phase E focuses on **hardening** the system for live trading:
 
 | ID | Workstream | Priority | Effort | Dependencies |
 | :--- | :--- | :--- | :--- | :--- |
-| E1 | Testing & Correctness | 🔴 Critical | L | None |
-| E2 | Core Model & Config Cleanup | 🔴 Critical | M | None |
-| E3 | Strategy Surface & Improvements | 🟡 High | M | E2 |
-| E4 | Resilience & Live Trading | 🔴 Critical | L | E1, E2 |
-| E5 | Data Sources & Streaming | 🟢 Medium | M | E2 |
-| E6 | Observability & Docs | 🟡 High | M | E1-E4 |
+| E1 | Testing & Correctness | ðŸ”´ Critical | L | None |
+| E2 | Core Model & Config Cleanup | ðŸ”´ Critical | M | None |
+| E3 | Strategy Surface & Improvements | ðŸŸ¡ High | M | E2 |
+| E4 | Resilience & Live Trading | ðŸ”´ Critical | L | E1, E2 |
+| E5 | Data Sources & Streaming | ðŸŸ¢ Medium | M | E2 |
+| E6 | Observability & Docs | ðŸŸ¡ High | M | E1-E4 |
 
 ---
 
@@ -56,7 +56,7 @@ Phase E focuses on **hardening** the system for live trading:
 #### E1.3 Unit Tests for Core Components
 - [ ] `tests/test_signal.py`
   - Insufficient candles edge case
-  - Low ATR volatility → `None`
+  - Low ATR volatility â†’ `None`
   - Clear bullish/bearish crossovers
 - [ ] `tests/test_paper_broker.py`
   - Trailing stop behavior (long/short)
@@ -105,8 +105,8 @@ Phase E focuses on **hardening** the system for live trading:
       volume: float = 0.0
   ```
 - [ ] Update all imports:
-  - `helpers.py` → import from `candles.py`
-  - `indicators.py` → import from `candles.py`
+  - `helpers.py` â†’ import from `candles.py`
+  - `indicators.py` â†’ import from `candles.py`
   - `signal.py`, `exec_engine.py`, `orchestrator.py`, `supervisor.py`, `loader.py`
 - [ ] Delete duplicate `Candle` definitions
 - [ ] Add `tests/test_candle_model.py`
@@ -253,7 +253,7 @@ Phase E focuses on **hardening** the system for live trading:
 - [x] Standardize event schema:
   - `RunStarted`, `MarketDataLoaded`, `OrderPlaced`, `OrderRejected`
   - `Fill`, `CircuitBreakerTripped`, `CheckpointSaved`
-- [x] Document event schema in `docs/EVENTS.md`
+- [ ] Document event schema in `docs/EVENTS.md`
 
 #### E6.3 Documentation Updates
 - [ ] **README.md**: Architecture overview, mode matrix, quickstart
@@ -320,3 +320,4 @@ Phase E focuses on **hardening** the system for live trading:
 2. Create GitHub issues for each E*.* task
 3. Start with E2.1 (Unify Candle) as it unblocks everything
 4. Run `verify.ps1` after each task completion
+

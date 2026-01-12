@@ -1,4 +1,4 @@
-# BTC Laptop Agents — System Specification
+﻿# BTC Laptop Agents â€” System Specification
 
 > **Status**: ACTIVE & AUTHORITATIVE
 > **Version**: 1.0.1 (Resilience & Safety)
@@ -75,7 +75,7 @@ The system enforces these invariants (implemented in `src/laptop_agents/run.py`,
 3.  **Risk Invariant**:
     *   Max Risk per Trade: 1.0% of Equity.
     *   Stop Loss: REQUIRED for every trade.
-    *   Risk/Reward: Minimum 1.5R.
+    *   Risk/Reward: Hard limit 1.0R minimum (code: `hard_limits.MIN_RR_RATIO`); Config default: 1.5R.
 
 ## 6. Control Surface (Scripts)
 
@@ -111,3 +111,13 @@ $env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --sou
 # 3. Run live session (REAL MONEY - requires confirmation)
 $env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode live --duration 10
 ```
+
+## 8. System Requirements
+
+| Requirement | Version | Notes |
+| :--- | :--- | :--- |
+| **Python** | 3.10+ | Required for match statements and type hints |
+| **PowerShell** | 5.0+ | Windows built-in is sufficient |
+| **OS** | Windows 10/11 | Primary development target |
+| **Dependencies** | See `requirements.txt` | Install via `pip install -r requirements.txt` |
+
