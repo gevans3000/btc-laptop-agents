@@ -39,34 +39,39 @@ def test_circuit_breaker_failures():
     assert cb.state == "CLOSED"
     assert cb.failures == 0
 
-def test_hard_limit_max_notional():
+def test_hard_limit_max_notional(monkeypatch):
     # Mock Provider
     provider = MagicMock()
     provider.symbol = "BTCUSDT"
     provider.fetch_instrument_info.return_value = {
         "tickSize": 0.1,
-        "lotSize": 0.001
+        "lotSize": 0.001,
+        "minQty": 0.001
     }
+    
+    # Monkeypatch to a tiny limit so the $10 order exceeds it
+    from laptop_agents.core import hard_limits
+    monkeypatch.setattr(hard_limits, "MAX_POSITION_SIZE_USD", 5.0)
     
     broker = BitunixBroker(provider)
     
     # Mock Candle
     candle = MagicMock()
-    candle.ts = 1600000000
+    candle.ts = "2024-01-01T00:00:00Z"
     candle.close = 50000.0
     
-    # Order that exceeds limit ($1000)
-    # 0.1 BTC at 50,000 = $5000
+    # Order (qty will be recalculated to ~$10 by broker)
     order = {
         "go": True,
         "side": "LONG",
         "qty": 0.1,
-        "entry": 50000.0
+        "entry": 50000.0,
+        "equity": 10000.0
     }
     
     events = broker.on_candle(candle, order)
     
-    # Verify error is reported and no order submitted
+    # Verify error is reported (Fixed $10 > $5 limit)
     assert any("REJECTED: Order notional" in err for err in events["errors"])
     provider.place_order.assert_not_called()
 
