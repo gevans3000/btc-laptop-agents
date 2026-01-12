@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 from ..core import hard_limits
+from ..trading.helpers import calculate_fees, apply_slippage
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,9 +29,11 @@ class PaperBroker:
     - conservative intrabar resolution (stop-first if both touched)
     """
 
-    def __init__(self, symbol: str = "BTCUSDT") -> None:
+    def __init__(self, symbol: str = "BTCUSDT", fees_bps: float = 0.0, slip_bps: float = 0.0) -> None:
         self.pos: Optional[Position] = None
         self.is_inverse = symbol == "BTCUSD"
+        self.fees_bps = fees_bps
+        self.slip_bps = slip_bps
 
     def on_candle(self, candle: Any, order: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         events: Dict[str, Any] = {"fills": [], "exits": []}
@@ -67,8 +70,12 @@ class PaperBroker:
                 return None
             fill_px = entry
 
+        # Apply slippage and fees to entry
+        fill_px_slipped = apply_slippage(fill_px, is_entry=True, is_long=(side == "LONG"), slip_bps=self.slip_bps)
+        notional = qty * fill_px_slipped
+        entry_fees = calculate_fees(notional, self.fees_bps)
+
         # HARD LIMIT ENFORCEMENT
-        notional = qty * fill_px
         if notional > hard_limits.MAX_POSITION_SIZE_USD:
             logger.warning(f"PAPER REJECTED: Notional ${notional:.2f} > hard limit ${hard_limits.MAX_POSITION_SIZE_USD}")
             return None
@@ -84,8 +91,8 @@ class PaperBroker:
         # So we convert it here for the Position record.
         pos_qty = notional if self.is_inverse else qty
         
-        self.pos = Position(side=side, entry=fill_px, qty=pos_qty, sl=sl, tp=tp, opened_at=candle.ts)
-        return {"type": "fill", "side": side, "price": fill_px, "qty": pos_qty, "sl": sl, "tp": tp, "at": candle.ts}
+        self.pos = Position(side=side, entry=fill_px_slipped, qty=pos_qty, sl=sl, tp=tp, opened_at=candle.ts)
+        return {"type": "fill", "side": side, "price": fill_px_slipped, "qty": pos_qty, "sl": sl, "tp": tp, "at": candle.ts, "fees": entry_fees}
 
     def _check_exit(self, candle: Any) -> Optional[Dict[str, Any]]:
         assert self.pos is not None
@@ -141,25 +148,34 @@ class PaperBroker:
     def _exit(self, ts: str, px: float, reason: str) -> Dict[str, Any]:
         assert self.pos is not None
         p = self.pos
+        # Apply slippage and fees to exit
+        px_slipped = apply_slippage(px, is_entry=False, is_long=(p.side == "LONG"), slip_bps=self.slip_bps)
         
         if self.is_inverse:
             # Inverse PnL (BTC) = Notional * (1/Entry - 1/Exit) for Long
             if p.side == "LONG":
-                pnl = p.qty * (1.0/p.entry - 1.0/px)
+                pnl_coins = p.qty * (1.0/p.entry - 1.0/px_slipped)
             else:
-                pnl = p.qty * (1.0/px - 1.0/p.entry)
+                pnl_coins = p.qty * (1.0/px_slipped - 1.0/p.entry)
+            
+            # Convert coin PnL to USD (approximate using exit price)
+            pnl = pnl_coins * px_slipped
                 
             # Inverse Risk (BTC) = Notional * |1/Entry - 1/SL|
             if p.side == "LONG":
-                risk = p.qty * abs(1.0/p.entry - 1.0/p.sl)
+                risk_coins = p.qty * abs(1.0/p.entry - 1.0/p.sl)
             else:
-                risk = p.qty * abs(1.0/p.sl - 1.0/p.entry)
+                risk_coins = p.qty * abs(1.0/p.sl - 1.0/p.entry)
+            risk = risk_coins * px_slipped
         else:
-            pnl = (px - p.entry) * p.qty if p.side == "LONG" else (p.entry - px) * p.qty
+            pnl = (px_slipped - p.entry) * p.qty if p.side == "LONG" else (p.entry - px_slipped) * p.qty
             risk = abs(p.entry - p.sl) * p.qty
             
-        r_mult = (pnl / risk) if risk > 0 else 0.0
-        return {"type": "exit", "reason": reason, "price": px, "pnl": pnl, "r": r_mult, "bars_open": p.bars_open, "at": ts}
+        exit_fees = calculate_fees(abs(p.qty * px_slipped if not self.is_inverse else p.qty), self.fees_bps)
+        net_pnl = pnl - exit_fees
+        
+        r_mult = (net_pnl / risk) if risk > 0 else 0.0
+        return {"type": "exit", "reason": reason, "price": px_slipped, "pnl": net_pnl, "r": r_mult, "bars_open": p.bars_open, "at": ts, "fees": exit_fees}
 
     def get_unrealized_pnl(self, current_price: float) -> float:
         if self.pos is None:

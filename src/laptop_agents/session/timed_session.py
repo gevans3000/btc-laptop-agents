@@ -69,6 +69,8 @@ def run_timed_session(
     stop_bps: float = 30.0,
     tp_r: float = 1.5,
     execution_mode: str = "paper",
+    fees_bps: float = 2.0,
+    slip_bps: float = 0.5,
 ) -> SessionResult:
     """
     Run an autonomous trading session for a specified duration.
@@ -112,7 +114,7 @@ def run_timed_session(
         broker = BitunixBroker(provider)
         logger.info(f"Live session initialized with BitunixBroker for {symbol}")
     else:
-        broker = PaperBroker(symbol=symbol)
+        broker = PaperBroker(symbol=symbol, fees_bps=fees_bps, slip_bps=slip_bps)
         
     circuit_breaker = TradingCircuitBreaker(max_daily_drawdown_pct=5.0, max_consecutive_losses=5)
     circuit_breaker.set_starting_equity(starting_balance)
@@ -134,6 +136,14 @@ def run_timed_session(
     with GracefulShutdown() as shutdown:
         iteration = 0
         
+        # Alignment: Wait for the top of the next minute if we are doing 1m candles
+        if interval == "1m":
+            now = time.time()
+            sleep_sec = 60 - (now % 60)
+            if sleep_sec > 2: # Only sleep if we have more than 2 seconds to wait
+                logger.info(f"Aligning to next minute... Sleeping for {sleep_sec:.1f}s")
+                time.sleep(sleep_sec)
+
         while time.time() < end_time:
             # Check for shutdown request
             if shutdown.shutdown_requested:
@@ -168,11 +178,14 @@ def run_timed_session(
                 latest_candle = candles[-1]
                 
                 # Generate signal from historical candles (excluding latest)
-                signal_data = generate_signal(candles[:-1])
+                raw_signal = generate_signal(candles[:-1])
                 
                 # Build order if signal present
                 order = None
-                if signal_data:
+                if raw_signal:
+                    # Translate string signal to dict format for the runner
+                    signal_side = "LONG" if raw_signal == "BUY" else "SHORT"
+                    
                     # Calculate position size
                     risk_amount = current_equity * (risk_pct / 100.0)
                     stop_distance = float(latest_candle.close) * (stop_bps / 10000.0)
@@ -196,12 +209,12 @@ def run_timed_session(
                         
                         order = {
                             "go": True,
-                            "side": signal_data.get("side", "LONG"),
+                            "side": signal_side,
                             "entry_type": "market",
                             "entry": float(latest_candle.close),
                             "qty": qty,
-                            "sl": float(latest_candle.close) - stop_distance if signal_data.get("side") == "LONG" else float(latest_candle.close) + stop_distance,
-                            "tp": float(latest_candle.close) + (stop_distance * tp_r) if signal_data.get("side") == "LONG" else float(latest_candle.close) - (stop_distance * tp_r),
+                            "sl": float(latest_candle.close) - stop_distance if signal_side == "LONG" else float(latest_candle.close) + stop_distance,
+                            "tp": float(latest_candle.close) + (stop_distance * tp_r) if signal_side == "LONG" else float(latest_candle.close) - (stop_distance * tp_r),
                             "equity": current_equity,
                         }
                 
@@ -242,7 +255,7 @@ def run_timed_session(
                     "unrealized_pnl": unrealized,
                     "position": broker.pos.side if broker.pos else "FLAT",
                     "circuit_breaker": circuit_breaker.get_status(),
-                    "signal": signal_data.get("side") if signal_data else None,
+                    "signal": raw_signal,
                     "elapsed_sec": time.time() - start_time,
                     "remaining_sec": end_time - time.time(),
                 }, paper=True)
@@ -250,7 +263,7 @@ def run_timed_session(
                 elapsed = time.time() - start_time
                 remaining = end_time - time.time()
                 position_str = broker.pos.side if broker.pos else "FLAT"
-                signal_str = signal_data.get("side") if signal_data else "NONE"
+                signal_str = raw_signal if raw_signal else "NONE"
                 
                 logger.info(
                     f"[{iteration:03d}] {symbol} @ {float(latest_candle.close):,.2f} | "

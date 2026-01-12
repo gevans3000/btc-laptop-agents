@@ -9,7 +9,7 @@ from .market_intake import MarketIntakeAgent
 from .derivatives_flows import DerivativesFlowsAgent
 from .setup_signal import SetupSignalAgent
 from .execution_risk import ExecutionRiskSentinelAgent
-from .journal_coach import JournalCoachAgent
+from .cvd_divergence import CvdDivergenceAgent
 from .risk_gate import RiskGateAgent
 
 
@@ -26,6 +26,7 @@ class Supervisor:
         self.a1 = MarketIntakeAgent()
         self.a2 = DerivativesFlowsAgent(provider, cfg["derivatives_gates"], refresh_bars=refresh_bars)
         self.a3 = SetupSignalAgent(cfg["setups"])
+        self.cvd_agent = CvdDivergenceAgent(cfg.get("cvd", {}))
         self.a4 = ExecutionRiskSentinelAgent(cfg["risk"])
         self.risk_gate = RiskGateAgent(cfg.get("risk", {})) # Use risk cfg for max_risk checks
         self.a5 = JournalCoachAgent(journal_path)
@@ -37,6 +38,7 @@ class Supervisor:
         # A1..A4 produce an order (or pending trigger)
         state = self.a1.run(state)
         state = self.a2.run(state)
+        state = self.cvd_agent.run(state)
         state = self.a3.run(state)
         state = self.a4.run(state)
 

@@ -10,6 +10,20 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 
+def calculate_fees(notional: float, fees_bps: float) -> float:
+    """Helper function to calculate fees."""
+    return notional * (fees_bps / 10_000.0)
+
+
+def apply_slippage(price: float, is_entry: bool, is_long: bool, slip_bps: float) -> float:
+    """Helper function to apply slippage."""
+    slip_rate = slip_bps / 10_000.0
+    if is_long:
+        return price * (1.0 + slip_rate) if is_entry else price * (1.0 - slip_rate)
+    else:
+        return price * (1.0 - slip_rate) if is_entry else price * (1.0 + slip_rate)
+
+
 @dataclass
 class Candle:
     """OHLCV candle representation."""

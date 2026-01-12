@@ -70,6 +70,8 @@ def main() -> int:
                 stop_bps=args.stop_bps,
                 tp_r=args.tp_r,
                 execution_mode=args.execution_mode,
+                fees_bps=args.fees_bps,
+                slip_bps=args.slip_bps,
             )
             return 0 if result.errors == 0 else 1
         elif mode == "orchestrated":

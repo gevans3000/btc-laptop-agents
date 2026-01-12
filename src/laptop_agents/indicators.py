@@ -62,3 +62,51 @@ def equal_level(values: List[float], tol_pct: float = 0.0008) -> Optional[float]
         # average cluster
         return (sum(matches) + last) / (len(matches) + 1)
     return None
+
+
+def vwap(candles: List[Candle]) -> List[float]:
+    """Calculate Volume Weighted Average Price."""
+    if not candles:
+        return []
+    
+    vwap_values = []
+    cum_pv = 0.0
+    cum_vol = 0.0
+    
+    # Simple VWAP (resetting could be done by period or daily, 
+    # but for 1m scalping we often use the visible window or session)
+    for c in candles:
+        typical_price = (c.high + c.low + c.close) / 3.0
+        cum_pv += typical_price * c.volume
+        cum_vol += c.volume
+        if cum_vol == 0:
+            vwap_values.append(c.close)
+        else:
+            vwap_values.append(cum_pv / cum_vol)
+    return vwap_values
+
+
+def detect_sweep(candles: List[Candle], level: float, side: str, lookback: int = 5) -> bool:
+    """
+    Detect if price swept a level and returned.
+    side: 'LONG' (swept low), 'SHORT' (swept high)
+    """
+    if len(candles) < 2:
+        return False
+    
+    last = candles[-1]
+    prev = candles[-2]
+    
+    if side == "LONG":
+        # Swept low: previous low was below level (or current low is) 
+        # but current close is above level.
+        swept = any(c.low < level for c in candles[-lookback:])
+        reclaimed = last.close > level
+        # Also ensure we didn't just crash through
+        return swept and reclaimed and last.close > prev.close
+    else:
+        # Swept high: previous high was above level
+        # but current close is below level
+        swept = any(c.high > level for c in candles[-lookback:])
+        reclaimed = last.close < level
+        return swept and reclaimed and last.close < prev.close

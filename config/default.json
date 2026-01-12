@@ -24,5 +24,9 @@
     "equity": 10000,
     "risk_pct": 1.0,
     "rr_min": 1.5
+  },
+  "cvd": {
+    "lookback": 20,
+    "enabled": true
   }
 }
