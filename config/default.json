@@ -16,8 +16,12 @@
     },
     "sweep_invalidation": {
       "enabled": true,
-      "eq_tolerance_pct": 0.0005,
-      "tp_r_mult": 2.5
+      "eq_tolerance_pct": 0.0008,
+      "tp_r_mult": 2.0,
+      "vwap_target": true,
+      "ema_filter": true,
+      "ema_period": 200,
+      "stop_atr_mult": 1.0
     }
   },
   "risk": {
