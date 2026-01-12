@@ -31,7 +31,8 @@ def main() -> int:
     ap.add_argument("--slip-bps", type=float, default=0.5)
     ap.add_argument("--backtest", type=int, default=0)
     ap.add_argument("--backtest-mode", choices=["bar", "position"], default="position")
-    ap.add_argument("--mode", choices=["single", "backtest", "live", "validate", "selftest", "orchestrated"], default=None)
+    ap.add_argument("--mode", choices=["single", "backtest", "live", "validate", "selftest", "orchestrated", "live-session"], default=None)
+    ap.add_argument("--duration", type=int, default=10, help="Session duration in minutes (for live-session mode)")
     ap.add_argument("--once", action="store_true", default=False)
     ap.add_argument("--execution-mode", choices=["paper", "live"], default="paper")
     ap.add_argument("--risk-pct", type=float, default=1.0)
@@ -55,7 +56,23 @@ def main() -> int:
     mode = args.mode if args.mode else ("backtest" if args.backtest > 0 else "single")
 
     try:
-        if mode == "orchestrated":
+        if mode == "live-session":
+            from laptop_agents.session.timed_session import run_timed_session
+            result = run_timed_session(
+                duration_min=args.duration,
+                poll_interval_sec=60,
+                symbol=args.symbol,
+                interval=args.interval,
+                source=args.source,
+                limit=args.limit,
+                starting_balance=10000.0,
+                risk_pct=args.risk_pct,
+                stop_bps=args.stop_bps,
+                tp_r=args.tp_r,
+                execution_mode=args.execution_mode,
+            )
+            return 0 if result.errors == 0 else 1
+        elif mode == "orchestrated":
             success, msg = run_orchestrated_mode(
                 symbol=args.symbol,
                 interval=args.interval,

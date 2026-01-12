@@ -429,3 +429,26 @@ class BitunixFuturesProvider:
         """Check status of an order."""
         payload = self._get_signed("/api/v1/futures/trade/get_order", params={"orderId": order_id})
         return payload.get("data") or {}
+
+    def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Fetch current open orders (unfilled)."""
+        params = {}
+        if symbol:
+            params["symbol"] = symbol
+        payload = self._get_signed("/api/v1/futures/trade/get_pending_orders", params=params)
+        return payload.get("data", {}).get("orderList") or []
+
+    def cancel_order(self, order_id: str, symbol: Optional[str] = None) -> Dict[str, Any]:
+        """Cancel an open order."""
+        sym = symbol or self.symbol
+        body = {
+            "symbol": sym,
+            "orderId": order_id
+        }
+        return self._post_signed("/api/v1/futures/trade/cancel_order", body=body)
+
+    def cancel_all_orders(self, symbol: Optional[str] = None) -> Dict[str, Any]:
+        """Cancel all open orders for a symbol."""
+        sym = symbol or self.symbol
+        body = {"symbol": sym}
+        return self._post_signed("/api/v1/futures/trade/cancel_all_orders", body=body)

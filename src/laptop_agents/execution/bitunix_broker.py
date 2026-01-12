@@ -67,8 +67,21 @@ class BitunixBroker:
                          self._order_generated_at = time.time()
                     
                     info = self._get_info()
-                    qty = self._round_step(float(order["qty"]), info["lotSize"])
-                    px = self._round_step(float(order["entry"]), info["tickSize"]) if order.get("entry") else float(candle.close)
+                    
+                    # FORCE FIXED SIZING: Exactly $10 order value
+                    # qty = 10.0 / price
+                    raw_px = order.get("entry") or float(candle.close)
+                    px = self._round_step(float(raw_px), info["tickSize"])
+                    
+                    # Target $10 notional
+                    target_notional = 10.0
+                    raw_qty = target_notional / px
+                    qty = self._round_step(raw_qty, info["lotSize"])
+                    
+                    # Pre-flight safety check
+                    if qty < info["minQty"]:
+                        logger.warning(f"Quantity {qty} below minQty {info['minQty']}. Increasing to min.")
+                        qty = info["minQty"]
                     
                     # HARD LIMIT ENFORCEMENT
                     notional = qty * px
@@ -88,7 +101,15 @@ class BitunixBroker:
                     sl = self._round_step(float(order["sl"]), info["tickSize"]) if order.get("sl") else None
                     tp = self._round_step(float(order["tp"]), info["tickSize"]) if order.get("tp") else None
 
-                    logger.info(f"Submitting LIVE order: {order} (Rounded: qty={qty}, px={px}, sl={sl}, tp={tp})")
+                    # HUMAN CONFIRMATION GATE
+                    logger.info(f">>> PENDING LIVE ORDER: {order['side']} {qty} {self.symbol} @ {px} (Value: ${notional:.2f})")
+                    if os.environ.get("SKIP_LIVE_CONFIRM") != "TRUE":
+                        ans = input(f"CONFIRM SUBMISSION? [y/N]: ")
+                        if ans.lower() != 'y':
+                            logger.warning("Order cancelled by user.")
+                            return events
+                    
+                    logger.info(f"Submitting LIVE order: {order['side']} qty={qty}, px={px}, sl={sl}, tp={tp}")
                     resp = self.provider.place_order(
                         side=order["side"],
                         qty=qty,
@@ -98,7 +119,10 @@ class BitunixBroker:
                         tp_price=tp
                     )
                     events["order_submission"] = resp
-                    self._last_order_id = resp.get("data", {}).get("orderId")
+                    if isinstance(resp, dict) and "data" in resp:
+                         self._last_order_id = resp.get("data", {}).get("orderId")
+                    else:
+                         logger.error(f"Order submission returned unexpected response: {resp}")
             except SafetyException as e:
                 events["errors"].append(str(e))
             except Exception as e:
@@ -122,14 +146,34 @@ class BitunixBroker:
                         current_pos = p
                         break
             
-            # DRIFT DETECTION
+            # DRIFT DETECTION & AUTO-CORRECTION
             last_qty = float(self.last_pos.get("qty") or self.last_pos.get("positionAmount") or 0) if self.last_pos else 0.0
             curr_qty = float(current_pos.get("qty") or current_pos.get("positionAmount") or 0) if current_pos else 0.0
             
             if abs(last_qty - curr_qty) > 0.00000001:
-                # If we didn't expect a fill/exit but the qty changed, it's a drift
-                if not events["fills"] and not events["exits"] and self._initialized:
-                     logger.warning(f"STATE DRIFT DETECTED: Internal={last_qty}, Exchange={curr_qty}. Snapping to exchange.")
+                if self._initialized:
+                    logger.warning(f"STATE DRIFT DETECTED: Internal={last_qty}, Exchange={curr_qty}")
+                    
+                    # Case 1: Ghost Position (Local says FLAT, Exchange says POS)
+                    if last_qty == 0 and curr_qty != 0:
+                        logger.warning("GHOST POSITION DETECTED! Closing exchange position to synchronize.")
+                        side = "SHORT" if curr_qty > 0 else "LONG"
+                        try:
+                            self.provider.place_order(
+                                side=side,
+                                qty=abs(curr_qty),
+                                order_type="MARKET",
+                                trade_side="CLOSE"
+                            )
+                            logger.info("Ghost position closed.")
+                            current_pos = None # Reset so we don't trigger a 'fill' event below
+                        except Exception as e:
+                            logger.error(f"Failed to close ghost position: {e}")
+
+                    # Case 2: External Exit (Local says POS, Exchange says FLAT)
+                    elif last_qty != 0 and curr_qty == 0:
+                        logger.warning("EXTERNAL EXIT DETECTED! Local was in position, but exchange is flat. Snapping to flat.")
+                        # This will naturally trigger an 'exit' event in the synthesis logic below
             
             # 3) Synthesize Events
             if not self._initialized:
@@ -238,3 +282,46 @@ class BitunixBroker:
                 return (current_price - entry) * abs(qty)
             else:
                 return (entry - current_price) * abs(qty)
+
+    def shutdown(self):
+        """
+        Emergency Kill Switch: 
+        1. Cancel all open orders for this symbol.
+        2. Close any open positions for this symbol.
+        """
+        logger.warning(f"SHUTDOWN CALLED for {self.symbol}. Cleaning up...")
+        
+        # 1. Cancel all orders
+        try:
+            resp = self.provider.cancel_all_orders(self.symbol)
+            logger.info(f"Cancel all orders response: {resp}")
+        except Exception as e:
+            logger.error(f"Failed to cancel all orders during shutdown: {e}")
+            
+        # 2. Close position if exists
+        try:
+            positions = self.provider.get_pending_positions(self.symbol)
+            pos = None
+            for p in positions:
+                p_sym = p.get("symbol") or p.get("symbolName")
+                if p_sym == self.symbol:
+                    qty = float(p.get("qty") or p.get("positionAmount") or 0)
+                    if abs(qty) > 0:
+                        pos = p
+                        break
+            
+            if pos:
+                qty = float(pos.get("qty") or pos.get("positionAmount"))
+                side = "SHORT" if qty > 0 else "LONG"
+                logger.warning(f"Closing open position {qty} {self.symbol} during shutdown...")
+                self.provider.place_order(
+                    side=side,
+                    qty=abs(qty),
+                    order_type="MARKET",
+                    trade_side="CLOSE"
+                )
+                logger.info("Position closed successfully.")
+            else:
+                logger.info("No open position to close.")
+        except Exception as e:
+            logger.error(f"Failed to close position during shutdown: {e}")
