@@ -1,6 +1,6 @@
 ﻿# GATES.md — Safety & Validation
 
-> **STATUS**: ACTIVE
+> **Status**: ACTIVE
 > **PURPOSE**: Definitions of quality gates that prevent bad trades.
 
 ## 1. Candle Integrity Gate

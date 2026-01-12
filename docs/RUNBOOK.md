@@ -1,5 +1,7 @@
 ﻿# RUNBOOK.md — Operations Manual
 
+> **Status**: ACTIVE
+
 > **Scope**: The authoritative guide for operating the BTC Laptop Agents MVP.
 > **Audience**: Humans and Agents.
 

@@ -1,6 +1,6 @@
 ﻿# VERIFY.md — Verification Protocol
 
-> **STATUS**: ACTIVE
+> **Status**: ACTIVE
 > **PURPOSE**: Define what "Green" means.
 
 ## 1. The Verify Script
