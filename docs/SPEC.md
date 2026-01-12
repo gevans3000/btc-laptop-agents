@@ -7,7 +7,7 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
 
 ## 1. System Overview
 
-BTC Laptop Agents is a local-first, privacy-focused trading system designed to run on a standard laptop. It evolves from a monolithic script (`run.py`) to a multi-agent orchestrated pipeline. For day-to-day operations, see [RUNBOOK.md](RUNBOOK.md).
+BTC Laptop Agents is a local-first, privacy-focused trading system designed to run on a standard laptop. It has evolved from a monolithic script (`run.py`) to a modular, multi-agent orchestrated pipeline. For day-to-day operations, see [RUNBOOK.md](RUNBOOK.md).
 
 **Core Principles:**
 1.  **Safety First**: Hard-coded risk limits cannot be overridden by AI.

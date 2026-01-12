@@ -49,7 +49,7 @@ pytest tests/test_hard_limits.py
 
 ## 3. Level 2: Component Self-Tests
 
-These are fast, deterministic tests embedded in the monolith to verify the "Physics" of the trading engine.
+These are fast, deterministic tests embedded in the core engine to verify the "Physics" of the trading engine.
 
 ### Scope
 - **PnL Calculation**: Verifies Long/Short math, fee deduction, and slippage.

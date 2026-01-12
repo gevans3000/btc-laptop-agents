@@ -33,7 +33,7 @@ Before finishing your turn:
 - [ ] checked `logs/live.err.txt`?
 
 ## 6. Dangerous Zones
-Certain areas of the monolith are critical for stability. Do not modify these without explicit confirmation:
+Certain areas of the core engine are critical for stability. Do not modify these without explicit confirmation:
 *   **Core Loop Timing**: Logic in `run_live_paper_trading` handling sleep/intervals.
 *   **Risk Math**: Mathematical formulas in `calculate_position_size`.
 *   **Artifact Schemas**: Global constants defining `REQUIRED_TRADE_COLUMNS`.
