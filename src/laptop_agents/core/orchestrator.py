@@ -504,7 +504,7 @@ def run_legacy_orchestration(
             )
             return 0
         elif mode == "selftest":
-             logger.info("Self-test passed.")
+             logger.info("SELFTEST PASS. (Self-test successful).")
              return 0
         else:
             # single mode or unknown
