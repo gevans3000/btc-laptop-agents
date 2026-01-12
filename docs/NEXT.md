@@ -1,10 +1,12 @@
 # Now / Next / Later
 
-## Now
-- **Implement Assistant Sync Pack workflow**
-  - Done when: `scripts/make_sync_pack.ps1` generates `assistant_sync_pack.md` with all required sections
-  - Done when: Sync pack includes git status, key file hashes, and last run snapshot
-  - Done when: Script handles missing `runs/latest` gracefully
+## Now (Phase D Complete ✓)
+- **Modular Architecture Refactor** — COMPLETE
+  - ✓ `run.py` reduced to thin CLI wrapper (101 lines)
+  - ✓ `orchestrator.py` handles modular/legacy mode dispatch
+  - ✓ `loader.py` centralizes candle fetching (mock + bitunix)
+  - ✓ `signal.py` implements ATR-based volatility filter (ATR(14)/Close < 0.005 = HOLD)
+  - ✓ `exec_engine.py` ends cleanly with no trailing duplicate code
 
 ## Next
 - **Add more data sources**
