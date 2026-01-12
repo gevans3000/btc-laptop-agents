@@ -21,9 +21,9 @@ ENV/
 *.log
 *.pid
 *.lock
-logs/
-data/
-src/data/
+/logs/
+/data/
+/src/data/
 temp_journal.jsonl
 *.txt
 !LICENSE

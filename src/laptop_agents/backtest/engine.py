@@ -408,6 +408,8 @@ def run_backtest_position_mode(
     tp_r: float = 1.5,
     max_leverage: float = 1.0,
     intrabar_mode: str = "conservative",
+    fast_sma: int = 10,
+    slow_sma: int = 30,
 ) -> Dict[str, Any]:
     if LATEST_DIR is None:
         raise RuntimeError("Context LATEST_DIR not set.")
@@ -418,7 +420,7 @@ def run_backtest_position_mode(
     
     result = run_backtest_on_segment(
         candles=candles, starting_balance=starting_balance, fees_bps=fees_bps,
-        slip_bps=slip_bps, risk_pct=risk_pct, fast_sma=10, slow_sma=30,
+        slip_bps=slip_bps, risk_pct=risk_pct, fast_sma=fast_sma, slow_sma=slow_sma,
         stop_bps=stop_bps, tp_r=tp_r, max_leverage=max_leverage, intrabar_mode=intrabar_mode
     )
     

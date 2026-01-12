@@ -8,11 +8,12 @@ Our architecture has transitioned from a monolithic `run.py` to a modular system
 
 | Logic Area | Location | Primary Function(s) |
 | :--- | :--- | :--- |
-| **Orchestrator** | `src/laptop_agents/run.py` | CLI Entry point, configuration injection, and coordination. |
-| **Live Loop** | `src/laptop_agents/trading/exec_engine.py` | `run_live_paper_trading` (The main daemon loop). Wrapper in `run.py` (L559-562). |
-| **Backtest Engine** | `src/laptop_agents/backtest/engine.py` | `run_backtest_bar_mode`, `run_backtest_position_mode`, `run_validation`. Wrappers in `run.py` (L535-556). |
-| **Modular Agents** | `src/laptop_agents/agents/` | `Supervisor`, `AgentState`, and strategy setup signals. |
-| **Trading Math** | `src/laptop_agents/trading/helpers.py` | `calculate_position_size`, `simulate_trade_one_bar`, `sma` |
+| **CLI Entry** | `src/laptop_agents/run.py` | Command-line interface wrapper. |
+| **Orchestrator** | `src/laptop_agents/core/orchestrator.py` | Main coordination logic (`run_orchestrated_mode`). |
+| **Data Loader** | `src/laptop_agents/data/loader.py` | Candle fetching (`load_mock_candles`, `load_bitunix_candles`). |
+| **Live Loop** | `src/laptop_agents/trading/exec_engine.py` | `run_live_paper_trading` (The main daemon loop). |
+| **Backtest Engine** | `src/laptop_agents/backtest/engine.py` | `run_backtest_bar_mode`, `run_backtest_position_mode`, `run_validation`. |
+| **Modular Agents** | `src/laptop_agents/agents/` | `Supervisor`, `AgentState`, and strategy setup signals. || **Trading Math** | `src/laptop_agents/trading/helpers.py` | `calculate_position_size`, `simulate_trade_one_bar`, `sma` |
 | **HTML Renderer** | `src/laptop_agents/reporting/html_renderer.py` | Dashboard generation logic. Wrapper in `run.py` (L610-628). |
 | **Validation** | `src/laptop_agents/tools/validation.py` | `validate_events_jsonl`, `validate_trades_csv`, `validate_summary_html` |
 | **Resilience** | `src/laptop_agents/resilience/` | Circuit breakers, retries, and error handling. |
@@ -32,4 +33,4 @@ Our architecture has transitioned from a monolithic `run.py` to a modular system
 - **Schemas**: `REQUIRED_EVENT_KEYS`, `REQUIRED_TRADE_COLUMNS`
 
 ---
-*Note: This map is updated as refactoring phases complete. Phase C (Live Loop Extraction) is current.*
+*Note: This map is updated as refactoring phases complete. Phase D (Modularization & Stabilization) is current.*

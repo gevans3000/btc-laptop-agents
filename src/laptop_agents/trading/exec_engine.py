@@ -12,6 +12,11 @@ from typing import Any, Dict, List, Optional, Callable
 
 from laptop_agents.core.logger import logger
 from laptop_agents.core import hard_limits
+from laptop_agents.trading.helpers import (
+    Candle,
+    utc_ts,
+    calculate_position_size,
+)
 
 def calculate_fees(notional: float, fees_bps: float) -> float:
     """Helper function to calculate fees."""
@@ -136,15 +141,14 @@ def run_live_paper_trading(
         current_high = float(candle.high)
         current_low = float(candle.low)
         
-        # Compute SMAs
-        closes = [float(c.close) for c in candles if c.ts <= candle.ts]
-        fast_sma = sma(closes, 10)
-        slow_sma = sma(closes, 30)
+        from laptop_agents.trading.signal import generate_signal
+        candles_subset = [c for c in candles if c.ts <= candle.ts]
+        signal = generate_signal(candles_subset)
         
-        if fast_sma is None or slow_sma is None:
+        if signal is None:
+            # Update state with no position change
+            state["last_ts"] = candle.ts
             continue
-        
-        signal = "BUY" if fast_sma > slow_sma else "SELL"
         
         # Position management
         position = state.get("position")
@@ -476,52 +480,3 @@ def run_live_paper_trading(
     
     return trades, state["equity"], state
 
-    # Update last_ts to the last processed candle
-    state["last_ts"] = candles[-1].ts
-    
-    # Calculate unrealized PnL if position is open
-    if state.get("position") is not None:
-        position = state["position"]
-        last_close = float(candles[-1].close)
-        if position["side"] == "LONG":
-            unrealized_pnl = (last_close - position["entry_price"]) * position["quantity"]
-        else:
-            unrealized_pnl = (position["entry_price"] - last_close) * position["quantity"]
-        state["unrealized_pnl"] = unrealized_pnl
-    else:
-        state["unrealized_pnl"] = 0.0
-    
-    # Calculate net PnL
-    state["net_pnl"] = state.get("realized_pnl", 0.0) + state.get("unrealized_pnl", 0.0)
-    
-    # Save state
-    temp_state = state_path.with_suffix(".tmp")
-    try:
-        with temp_state.open("w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2)
-        temp_state.replace(state_path)
-    except Exception as e:
-        if temp_state.exists():
-            temp_state.unlink()
-        raise RuntimeError(f"Failed to write state.json: {e}")
-    
-    # Append trades to paper/trades.csv
-    trades_csv_path = paper_dir / "trades.csv"
-    if trades:
-        fieldnames = ["trade_id", "side", "signal", "entry", "exit", "price", "quantity", "pnl", "fees",
-                      "entry_ts", "exit_ts", "timestamp", "exit_reason", "stop_price", "tp_price"]
-        temp_trades = trades_csv_path.with_suffix(".tmp")
-        try:
-            with temp_trades.open("a" if trades_csv_path.exists() else "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                if not trades_csv_path.exists():
-                    writer.writeheader()
-                for trade in trades:
-                    writer.writerow({k: v for k, v in trade.items() if k in fieldnames})
-            temp_trades.replace(trades_csv_path)
-        except Exception as e:
-            if temp_trades.exists():
-                temp_trades.unlink()
-            raise RuntimeError(f"Failed to append to trades.csv: {e}")
-    
-    return trades, state["equity"], state
