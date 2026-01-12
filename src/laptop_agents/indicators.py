@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 import math
 
 
@@ -73,8 +73,6 @@ def vwap(candles: List[Candle]) -> List[float]:
     cum_pv = 0.0
     cum_vol = 0.0
     
-    # Simple VWAP (resetting could be done by period or daily, 
-    # but for 1m scalping we often use the visible window or session)
     for c in candles:
         typical_price = (c.high + c.low + c.close) / 3.0
         cum_pv += typical_price * c.volume
@@ -84,6 +82,21 @@ def vwap(candles: List[Candle]) -> List[float]:
         else:
             vwap_values.append(cum_pv / cum_vol)
     return vwap_values
+
+
+def cvd_indicator(candles: List[Candle]) -> List[float]:
+    """Calculate synthetic Cumulative Volume Delta."""
+    cvd = []
+    current_cvd = 0.0
+    for c in candles:
+        range_len = (c.high - c.low)
+        if range_len == 0:
+            delta = 0.0
+        else:
+            delta = ((c.close - c.low) - (c.high - c.close)) / range_len * c.volume
+        current_cvd += delta
+        cvd.append(current_cvd)
+    return cvd
 
 
 def detect_sweep(candles: List[Candle], level: float, side: str, lookback: int = 5) -> bool:
@@ -98,15 +111,10 @@ def detect_sweep(candles: List[Candle], level: float, side: str, lookback: int =
     prev = candles[-2]
     
     if side == "LONG":
-        # Swept low: previous low was below level (or current low is) 
-        # but current close is above level.
         swept = any(c.low < level for c in candles[-lookback:])
         reclaimed = last.close > level
-        # Also ensure we didn't just crash through
         return swept and reclaimed and last.close > prev.close
     else:
-        # Swept high: previous high was above level
-        # but current close is below level
         swept = any(c.high > level for c in candles[-lookback:])
         reclaimed = last.close < level
         return swept and reclaimed and last.close < prev.close
