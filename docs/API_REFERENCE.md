@@ -41,7 +41,7 @@ Safety mechanism for drawdown limits.
 
 | Arg | Default | Description |
 |-----|---------|-------------|
-| `--mode` | backtest | orchestrated, backtest, live |
+| `--mode` | single | orchestrated, backtest, live, single |
 | `--source` | mock | mock, bitunix |
 | `--symbol` | BTCUSDT | BTCUSD, BTCUSDT, ETHUSD |
 | `--interval` | 1m | 1m, 5m, 15m, 1h |

@@ -7,7 +7,6 @@ This project provides a minimal, local-only framework for running trading agents
 - Single-bar trade simulation with SMA(10/30) signals
 - Outputs: `runs/latest/{summary.html, events.jsonl, trades.csv, state.json}`
 - PowerShell scripts for local execution
-- Compact sync pack generation for assistant context
 
 ## Exact Commands to Run
 
@@ -37,8 +36,7 @@ All run artifacts are stored in `runs/latest/`:
 1. **Bare-bones first**: Prioritize minimal working solutions
 2. **Avoid refactors**: Only modify what's necessary for the current task
 3. **Windows PowerShell**: All scripts must work in Windows PowerShell
-4. **Token efficiency**: Keep sync packs compact (<256k tokens)
-5. **No external dependencies**: Use only Git and PowerShell for sync pack generation
+4. **No external dependencies**: Use only Git and PowerShell
 
 ## Known Pitfalls
 - **Conda vs venv**: Always use `.venv\Scripts\python.exe`, not Conda Python

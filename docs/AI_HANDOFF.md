@@ -26,7 +26,7 @@
 - Added `cancel_order`, `cancel_all_orders` to BitunixFuturesProvider.
 - Added `shutdown()` method for graceful cleanup (cancels orders + closes positions).
 - Added `execution_mode` parameter to `timed_session.py`.
-- Removed legacy `exec_engine.py` in favor of modular Brokers.
+- Refactored `exec_engine.py` to modular `trading/exec_engine.py` (Live Loop).
 
 ## Verification
 Always run `.\scripts\verify.ps1` or `python scripts/test_live_system.py` before finalizing changes.

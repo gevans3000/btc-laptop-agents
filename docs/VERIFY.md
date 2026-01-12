@@ -1,6 +1,6 @@
 # VERIFY.md — Verification Protocol
 
-> **STATUS**: BLUEPRINT (Target for v1.1)
+> **STATUS**: ACTIVE
 > **PURPOSE**: Define what "Green" means.
 
 ## 1. The Verify Script

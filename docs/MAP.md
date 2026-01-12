@@ -18,6 +18,7 @@ Our architecture has transitioned from a monolithic `run.py` to a modular system
 | **Backtest Engine** | `src/laptop_agents/backtest/engine.py` | Historical simulation. |
 | **Modular Agents** | `src/laptop_agents/agents/` | Strategy signals and state management. |
 | **Resilience** | `src/laptop_agents/resilience/` | Circuit breakers, retries, error handling. |
+| **Trading Engine** | `src/laptop_agents/trading/exec_engine.py` | Core trading loop logic. |
 | **Hard Limits** | `src/laptop_agents/core/hard_limits.py` | Immutable safety constraints. |
 
 ## 2. Script Control Surface

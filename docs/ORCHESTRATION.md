@@ -1,6 +1,6 @@
 # ORCHESTRATION.md — Pipeline Blueprint
 
-> **STATUS**: BLUEPRINT (Target for v1.1)
+> **STATUS**: ACTIVE
 > **PURPOSE**: Defines how the system will evolve from Monolith to Orchestrated Pipeline.
 
 ## 1. The Core Loop

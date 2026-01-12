@@ -1,6 +1,6 @@
 # GATES.md — Safety & Validation
 
-> **STATUS**: BLUEPRINT (Target for v1.1)
+> **STATUS**: ACTIVE
 > **PURPOSE**: Definitions of quality gates that prevent bad trades.
 
 ## 1. Candle Integrity Gate

@@ -33,53 +33,53 @@ Future work belongs in feature branches, not main. This contract ensures stabili
 
 ```powershell
 # 1. Verify system integrity
-.\[scripts](scripts/verify.ps1) -Mode quick
+.\scripts\verify.ps1 -Mode quick
 
 # 2. Run one trade cycle and view results
-.\[scripts](scripts/mvp_run_once.ps1)
+.\scripts\mvp_run_once.ps1
 
 # 3. Start background paper trading
-.\[scripts](scripts/mvp_start_live.ps1)
+.\scripts\mvp_start_live.ps1
 
 # 4. Check status anytime
-.\[scripts](scripts/mvp_status.ps1)
+.\scripts\mvp_status.ps1
 
 # 5. Stop when done
-.\[scripts](scripts/mvp_stop_live.ps1)
+.\scripts\mvp_stop_live.ps1
 ```
 
 ## Daily Use
 
 ### Run Once
 ```powershell
-.\[scripts](scripts/mvp_run_once.ps1)
+.\scripts\mvp_run_once.ps1
 ```
 
 ### Start Background Loop
 ```powershell
-.\[scripts](scripts/mvp_start_live.ps1)
+.\scripts\mvp_start_live.ps1
 ```
 
 ### Check Status
 ```powershell
-.\[scripts](scripts/mvp_status.ps1)
+.\scripts\mvp_status.ps1
 ```
 
 ### Stop Background Process
 ```powershell
-.\[scripts](scripts/mvp_stop_live.ps1)
+.\scripts\mvp_stop_live.ps1
 ```
 
 ### Open Latest Report
 ```powershell
-.\[scripts](scripts/mvp_open.ps1)
+.\scripts\mvp_open.ps1
 ```
 
 ## How to Confirm EVERYTHING is OFF
 
 ```powershell
 # Method 1: Use status script
-.\[scripts](scripts/mvp_status.ps1)
+.\scripts\mvp_status.ps1
 # Should show: OFF
 
 # Method 2: Manual PowerShell check
@@ -111,26 +111,26 @@ All generated files live in these directories (gitignored):
 
 Run a trade cycle first:
 ```powershell
-.\[scripts](scripts/mvp_run_once.ps1)
+.\scripts\mvp_run_once.ps1
 ```
 
 ### Process appears stuck
 
 1. Check status:
 ```powershell
-.\[scripts](scripts/mvp_status.ps1)
+.\scripts\mvp_status.ps1
 ```
 
 2. If STALE, clean up:
 ```powershell
-.\[scripts](scripts/mvp_stop_live.ps1)
+.\scripts\mvp_stop_live.ps1
 ```
 
 ### Status shows STALE
 
 This means the PID file exists but the process isn't running. Safe to clean up:
 ```powershell
-.\[scripts](scripts/mvp_stop_live.ps1)
+.\scripts\mvp_stop_live.ps1
 ```
 
 ### verify.ps1 fails
@@ -145,7 +145,7 @@ Check the specific error message. Common fixes:
 
 Ensure you have run a trade cycle or started the background process. If the issue persists, check the logs in `paper/live.out.txt` and `paper/live.err.txt`.
 
-## Architecture (1 minute)
+## Architecture: Modular Pipeline
 
 The system follows a simple pipeline:
 
@@ -175,7 +175,7 @@ Tag v1.0.0 after:
 
 - Windows 10/11
 - PowerShell 5+
-- Python 3.12+ (venv recommended)
+- Python 3.10+ (venv recommended)
 - No cloud services
 - No API keys required
 
