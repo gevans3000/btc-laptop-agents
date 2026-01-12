@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from ..indicators import atr
+from ..indicators import atr, vwap, detect_sweep, ema
 from .state import State
 
 
@@ -50,41 +50,48 @@ class SetupSignalAgent:
                 "conditions_not_to_trade": ["trend_not_clear", "funding_gate_violation"],
             }
 
-        # Setup B: Sweep + VWAP Reclaim (Enhanced)
+        # Setup B: Sweep + VWAP Reclaim (Phase 2 Enhanced)
         if self.cfg["sweep_invalidation"]["enabled"] and chosen["name"] == "NONE":
             tol = price * float(self.cfg["sweep_invalidation"]["eq_tolerance_pct"])
             cvd_div = state.cvd_divergence.get("divergence", "NONE")
             
-            # Logic: If we have an EQ level, we want to see it swept + reclaimed
-            # Mandatory confirmation with CVD divergence
+            # Indicators for Enhancement
+            v_vals = vwap(candles)
+            cur_vwap = v_vals[-1] if v_vals else price
+            cur_ema = ema([c.close for c in candles], int(self.cfg["sweep_invalidation"].get("ema_period", 200)))
+
             if eq_high:
-                if cvd_div == "BEARISH":
+                # SHORT: Only if below EMA
+                ema_ok = (price < cur_ema) if cur_ema and self.cfg["sweep_invalidation"].get("ema_filter") else True
+                if ema_ok and cvd_div == "BEARISH":
                     chosen = {
                         "name": "sweep_vwap_reclaim_high",
                         "side": "SHORT",
                         "entry_type": "market_on_trigger",
                         "trigger": {"type": "sweep_and_close_back_below", "level": float(eq_high), "tol": tol},
-                        "sl": float(eq_high) + (a * 1.0),
-                        "tp": float(eq_high) - (a * float(self.cfg["sweep_invalidation"]["tp_r_mult"])),
+                        "sl": float(eq_high) + (a * float(self.cfg["sweep_invalidation"].get("stop_atr_mult", 1.0))),
+                        "tp": cur_vwap if self.cfg["sweep_invalidation"].get("vwap_target") else float(eq_high) - (a * float(self.cfg["sweep_invalidation"]["tp_r_mult"])),
                         "cvd_conf": True,
                         "conditions_not_to_trade": ["no_sweep_trigger", "funding_gate_violation"],
                     }
-                else:
-                    chosen = {"name": "NONE", "side": "FLAT", "reason": "cvd_not_confirmed"}
+                elif not ema_ok:
+                    chosen = {"name": "NONE", "side": "FLAT", "reason": "ema_filter_blocked"}
             elif eq_low:
-                if cvd_div == "BULLISH":
+                # LONG: Only if above EMA
+                ema_ok = (price > cur_ema) if cur_ema and self.cfg["sweep_invalidation"].get("ema_filter") else True
+                if ema_ok and cvd_div == "BULLISH":
                     chosen = {
                         "name": "sweep_vwap_reclaim_low",
                         "side": "LONG",
                         "entry_type": "market_on_trigger",
                         "trigger": {"type": "sweep_and_close_back_above", "level": float(eq_low), "tol": tol},
-                        "sl": float(eq_low) - (a * 1.0),
-                        "tp": float(eq_low) + (a * float(self.cfg["sweep_invalidation"]["tp_r_mult"])),
+                        "sl": float(eq_low) - (a * float(self.cfg["sweep_invalidation"].get("stop_atr_mult", 1.0))),
+                        "tp": cur_vwap if self.cfg["sweep_invalidation"].get("vwap_target") else float(eq_low) + (a * float(self.cfg["sweep_invalidation"]["tp_r_mult"])),
                         "cvd_conf": True,
                         "conditions_not_to_trade": ["no_sweep_trigger", "funding_gate_violation"],
                     }
-                else:
-                    chosen = {"name": "NONE", "side": "FLAT", "reason": "cvd_not_confirmed"}
+                elif not ema_ok:
+                    chosen = {"name": "NONE", "side": "FLAT", "reason": "ema_filter_blocked"}
 
         state.setup = chosen
         return state
