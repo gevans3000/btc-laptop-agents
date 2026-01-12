@@ -176,18 +176,34 @@ def run_timed_session(
                     # Calculate position size
                     risk_amount = current_equity * (risk_pct / 100.0)
                     stop_distance = float(latest_candle.close) * (stop_bps / 10000.0)
-                    qty = risk_amount / stop_distance if stop_distance > 0 else 0
                     
-                    order = {
-                        "go": True,
-                        "side": signal_data.get("side", "LONG"),
-                        "entry_type": "market",
-                        "entry": float(latest_candle.close),
-                        "qty": qty,
-                        "sl": float(latest_candle.close) - stop_distance if signal_data.get("side") == "LONG" else float(latest_candle.close) + stop_distance,
-                        "tp": float(latest_candle.close) + (stop_distance * tp_r) if signal_data.get("side") == "LONG" else float(latest_candle.close) - (stop_distance * tp_r),
-                        "equity": current_equity,
-                    }
+                    # Guard against division by zero or invalid stop distance
+                    if stop_distance <= 0:
+                        logger.warning(
+                            f"Invalid stop_distance={stop_distance:.6f} (stop_bps={stop_bps}, "
+                            f"close={latest_candle.close}), skipping order"
+                        )
+                        append_event({
+                            "event": "OrderSkipped",
+                            "reason": "invalid_stop_distance",
+                            "stop_distance": stop_distance,
+                            "stop_bps": stop_bps,
+                            "candle_close": float(latest_candle.close),
+                            "iteration": iteration,
+                        }, paper=True)
+                    else:
+                        qty = risk_amount / stop_distance
+                        
+                        order = {
+                            "go": True,
+                            "side": signal_data.get("side", "LONG"),
+                            "entry_type": "market",
+                            "entry": float(latest_candle.close),
+                            "qty": qty,
+                            "sl": float(latest_candle.close) - stop_distance if signal_data.get("side") == "LONG" else float(latest_candle.close) + stop_distance,
+                            "tp": float(latest_candle.close) + (stop_distance * tp_r) if signal_data.get("side") == "LONG" else float(latest_candle.close) - (stop_distance * tp_r),
+                            "equity": current_equity,
+                        }
                 
                 # Execute via broker
                 events = broker.on_candle(latest_candle, order)
