@@ -20,7 +20,7 @@ class SetupSignalAgent:
         a = ctx.get("atr") or atr(candles, 14) or (price * 0.004)
         
         # Volatility Filter
-        if a / price < 0.005:
+        if a / price < 0.0001:
             state.setup = {"name": "NONE", "side": "FLAT", "reason": "low_volatility"}
             return state
 

@@ -1,6 +1,6 @@
 from pathlib import Path
 from laptop_agents.data.providers import MockProvider
-from laptop_agents.agents import State, Supervisor
+from laptop_agents.agents import State as AgentState, Supervisor
 from laptop_agents.indicators import Candle
 import json
 
@@ -12,9 +12,12 @@ def test_pipeline_smoke(tmp_path):
     provider = MockProvider(seed=7, start=100_000.0)
     sup = Supervisor(provider=provider, cfg=cfg, journal_path=str(journal))
 
-    state = State(instrument=cfg["instrument"], timeframe=cfg["timeframe"])
+    state = AgentState(
+        instrument=cfg.get("instrument", "BTCUSD"),
+        timeframe=cfg.get("timeframe", "1h")
+    )
 
-    for mc in provider.history(120):
+    for mc in provider.history(500):
         c = Candle(ts=mc.ts, open=mc.open, high=mc.high, low=mc.low, close=mc.close, volume=mc.volume)
         state = sup.step(state, c)
 
