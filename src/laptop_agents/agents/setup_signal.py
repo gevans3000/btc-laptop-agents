@@ -50,48 +50,77 @@ class SetupSignalAgent:
                 "conditions_not_to_trade": ["trend_not_clear", "funding_gate_violation"],
             }
 
-        # Setup B: Sweep + VWAP Reclaim (Phase 2 Enhanced)
+        # Setup B: Sweep + Reclaim with VWAP target and EMA filter
         if self.cfg["sweep_invalidation"]["enabled"] and chosen["name"] == "NONE":
-            tol = price * float(self.cfg["sweep_invalidation"]["eq_tolerance_pct"])
-            cvd_div = state.cvd_divergence.get("divergence", "NONE")
+            sweep = detect_sweep(candles, lookback=self.cfg["sweep_invalidation"].get("lookback_bars", 10))
             
-            # Indicators for Enhancement
-            v_vals = vwap(candles)
-            cur_vwap = v_vals[-1] if v_vals else price
-            cur_ema = ema([c.close for c in candles], int(self.cfg["sweep_invalidation"].get("ema_period", 200)))
-
-            if eq_high:
-                # SHORT: Only if below EMA
-                ema_ok = (price < cur_ema) if cur_ema and self.cfg["sweep_invalidation"].get("ema_filter") else True
-                if ema_ok and cvd_div == "BEARISH":
-                    chosen = {
-                        "name": "sweep_vwap_reclaim_high",
-                        "side": "SHORT",
-                        "entry_type": "market_on_trigger",
-                        "trigger": {"type": "sweep_and_close_back_below", "level": float(eq_high), "tol": tol},
-                        "sl": float(eq_high) + (a * float(self.cfg["sweep_invalidation"].get("stop_atr_mult", 1.0))),
-                        "tp": cur_vwap if self.cfg["sweep_invalidation"].get("vwap_target") else float(eq_high) - (a * float(self.cfg["sweep_invalidation"]["tp_r_mult"])),
-                        "cvd_conf": True,
-                        "conditions_not_to_trade": ["no_sweep_trigger", "funding_gate_violation"],
-                    }
-                elif not ema_ok:
-                    chosen = {"name": "NONE", "side": "FLAT", "reason": "ema_filter_blocked"}
-            elif eq_low:
-                # LONG: Only if above EMA
-                ema_ok = (price > cur_ema) if cur_ema and self.cfg["sweep_invalidation"].get("ema_filter") else True
-                if ema_ok and cvd_div == "BULLISH":
-                    chosen = {
-                        "name": "sweep_vwap_reclaim_low",
-                        "side": "LONG",
-                        "entry_type": "market_on_trigger",
-                        "trigger": {"type": "sweep_and_close_back_above", "level": float(eq_low), "tol": tol},
-                        "sl": float(eq_low) - (a * float(self.cfg["sweep_invalidation"].get("stop_atr_mult", 1.0))),
-                        "tp": cur_vwap if self.cfg["sweep_invalidation"].get("vwap_target") else float(eq_low) + (a * float(self.cfg["sweep_invalidation"]["tp_r_mult"])),
-                        "cvd_conf": True,
-                        "conditions_not_to_trade": ["no_sweep_trigger", "funding_gate_violation"],
-                    }
-                elif not ema_ok:
-                    chosen = {"name": "NONE", "side": "FLAT", "reason": "ema_filter_blocked"}
+            if sweep["reclaimed"]:
+                level = sweep["level"]
+                session_vwap = vwap(candles[-60:])[-1] if len(candles) >= 1 else price
+                
+                # EMA Trend Filter
+                e9_vals = [c.close for c in candles]
+                ema9 = ema(e9_vals, 9)
+                ema20 = ema(e9_vals, 20)
+                trend_up = ema9 and ema20 and ema9 > ema20
+                trend_down = ema9 and ema20 and ema9 < ema20
+                
+                # CVD and Volume
+                cvd_div = getattr(state, "cvd_divergence", {}).get("divergence", "NONE")
+                req_cvd = self.cfg["sweep_invalidation"].get("require_cvd_confirm", False)
+                avg_vol = sum(c.volume for c in candles[-20:]) / 20 if len(candles) >= 20 else 0
+                curr_vol = candles[-1].volume if candles else 0
+                vol_ok = curr_vol >= avg_vol * self.cfg["sweep_invalidation"].get("min_vol_ratio", 0.5)
+                
+                if sweep["swept"] == "LOW":
+                    if trend_down:
+                        chosen["reason"] = "ema_filter_blocked"
+                    elif not vol_ok:
+                        chosen["reason"] = "volume_filter_blocked"
+                    else:
+                        cvd_ok = (not req_cvd) or (cvd_div == "BULLISH")
+                        if cvd_ok:
+                            sl = level - (a * self.cfg["sweep_invalidation"].get("stop_atr_mult", 0.5))
+                            tp = session_vwap
+                            chosen = {
+                                "name": "sweep_reclaim_long",
+                                "side": "LONG",
+                                "entry_type": "market",
+                                "entry": price,
+                                "sl": sl,
+                                "tp": tp,
+                                "swept_level": level,
+                                "vwap": session_vwap,
+                                "cvd_confirmation": cvd_div == "BULLISH",
+                                "conditions_not_to_trade": ["trend_against", "funding_gate_violation"],
+                            }
+                        else:
+                            chosen["reason"] = "cvd_confirmation_failed"
+                
+                elif sweep["swept"] == "HIGH":
+                    if trend_up:
+                        chosen["reason"] = "ema_filter_blocked"
+                    elif not vol_ok:
+                        chosen["reason"] = "volume_filter_blocked"
+                    else:
+                        cvd_ok = (not req_cvd) or (cvd_div == "BEARISH")
+                        if cvd_ok:
+                            sl = level + (a * self.cfg["sweep_invalidation"].get("stop_atr_mult", 0.5))
+                            tp = session_vwap
+                            chosen = {
+                                "name": "sweep_reclaim_short",
+                                "side": "SHORT",
+                                "entry_type": "market",
+                                "entry": price,
+                                "sl": sl,
+                                "tp": tp,
+                                "swept_level": level,
+                                "vwap": session_vwap,
+                                "cvd_confirmation": cvd_div == "BEARISH",
+                                "conditions_not_to_trade": ["trend_against", "funding_gate_violation"],
+                            }
+                        else:
+                            chosen["reason"] = "cvd_confirmation_failed"
 
         state.setup = chosen
         return state

@@ -21,7 +21,10 @@
       "vwap_target": true,
       "ema_filter": true,
       "ema_period": 200,
-      "stop_atr_mult": 1.0
+      "stop_atr_mult": 0.5,
+      "min_vol_ratio": 0.5,
+      "lookback_bars": 10,
+      "require_cvd_confirm": false
     }
   },
   "risk": {

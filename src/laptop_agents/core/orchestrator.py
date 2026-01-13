@@ -258,13 +258,8 @@ def run_orchestrated_mode(
             is_inverse = getattr(supervisor.broker, "is_inverse", False)
             for ex in state.broker_events.get("exits", []):
                 pnl = float(ex.get("pnl", 0.0))
-                if is_inverse:
-                    pnl_usd = pnl * float(candle.close)
-                    current_equity += pnl_usd
-                    trade_pnl = pnl_usd
-                else:
-                    current_equity += pnl
-                    trade_pnl = pnl
+                current_equity += pnl
+                trade_pnl = pnl
             
             circuit_breaker.update_equity(current_equity, trade_pnl)
             

@@ -99,22 +99,24 @@ def cvd_indicator(candles: List[Candle]) -> List[float]:
     return cvd
 
 
-def detect_sweep(candles: List[Candle], level: float, side: str, lookback: int = 5) -> bool:
+def detect_sweep(candles: List[Candle], lookback: int = 10) -> Dict[str, Any]:
     """
-    Detect if price swept a level and returned.
-    side: 'LONG' (swept low), 'SHORT' (swept high)
+    Detect if the LAST candle swept a recent swing and reclaimed.
+    Returns: {"swept": "HIGH"|"LOW"|None, "level": float|None, "reclaimed": bool}
     """
-    if len(candles) < 2:
-        return False
-    
-    last = candles[-1]
-    prev = candles[-2]
-    
-    if side == "LONG":
-        swept = any(c.low < level for c in candles[-lookback:])
-        reclaimed = last.close > level
-        return swept and reclaimed and last.close > prev.close
-    else:
-        swept = any(c.high > level for c in candles[-lookback:])
-        reclaimed = last.close < level
-        return swept and reclaimed and last.close < prev.close
+    if len(candles) < lookback + 1:
+        return {"swept": None, "level": None, "reclaimed": False}
+
+    window = candles[-(lookback + 1):-1]
+    curr = candles[-1]
+
+    swing_high = max(c.high for c in window)
+    swing_low = min(c.low for c in window)
+
+    if curr.high > swing_high and curr.close < swing_high:
+        return {"swept": "HIGH", "level": swing_high, "reclaimed": True}
+
+    if curr.low < swing_low and curr.close > swing_low:
+        return {"swept": "LOW", "level": swing_low, "reclaimed": True}
+
+    return {"swept": None, "level": None, "reclaimed": False}
