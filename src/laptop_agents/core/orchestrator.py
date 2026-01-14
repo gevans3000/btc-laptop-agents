@@ -25,7 +25,7 @@ from laptop_agents.trading.helpers import (
 from laptop_agents.data.loader import load_mock_candles, load_bitunix_candles
 from laptop_agents.agents.supervisor import Supervisor
 from laptop_agents.agents.state import State as AgentState
-from laptop_agents.tools.validation import (
+from laptop_agents.core.validation import (
     validate_events_jsonl as _validate_events_jsonl,
     validate_trades_csv,
     validate_summary_html,

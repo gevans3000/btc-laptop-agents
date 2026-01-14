@@ -46,7 +46,33 @@ def main() -> int:
     ap.add_argument("--grid", type=str, default="sma=10,30;stop=20,30,40;tp=1.0,1.5,2.0")
     ap.add_argument("--validate-max-candidates", type=int, default=200)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--show", action="store_true", help="Auto-open summary.html in browser after run")
+    ap.add_argument("--strategy", type=str, default="default", help="Strategy name from config/strategies/")
     args = ap.parse_args()
+
+    # Load strategy configuration
+    import json
+    strategy_path = REPO_ROOT / "config" / "strategies" / f"{args.strategy}.json"
+    fallback_path = REPO_ROOT / "config" / "default.json"
+    
+    if strategy_path.exists():
+        with open(strategy_path) as f:
+            strategy_config = json.load(f)
+        logger.info(f"Loaded strategy: {args.strategy}")
+    elif fallback_path.exists():
+        with open(fallback_path) as f:
+            strategy_config = json.load(f)
+        logger.warning(f"Strategy '{args.strategy}' not found, using default.json")
+    else:
+        strategy_config = {}
+        logger.warning("No strategy config found, using CLI defaults")
+
+    # Override CLI defaults from strategy config
+    risk_cfg = strategy_config.get("risk", {})
+    if "risk_pct" in risk_cfg and args.risk_pct == 1.0:
+        args.risk_pct = risk_cfg["risk_pct"]
+    if "rr_min" in risk_cfg and args.tp_r == 1.5:
+        args.tp_r = risk_cfg["rr_min"]
 
     # Ensure directories exist
     RUNS_DIR.mkdir(exist_ok=True)
@@ -56,6 +82,7 @@ def main() -> int:
     mode = args.mode if args.mode else ("backtest" if args.backtest > 0 else "single")
 
     try:
+        ret = 1
         if mode == "live-session":
             from laptop_agents.session.timed_session import run_timed_session
             result = run_timed_session(
@@ -72,8 +99,9 @@ def main() -> int:
                 execution_mode=args.execution_mode,
                 fees_bps=args.fees_bps,
                 slip_bps=args.slip_bps,
+                strategy_config=strategy_config,
             )
-            return 0 if result.errors == 0 else 1
+            ret = 0 if result.errors == 0 else 1
         elif mode == "orchestrated":
             success, msg = run_orchestrated_mode(
                 symbol=args.symbol,
@@ -89,9 +117,9 @@ def main() -> int:
                 dry_run=args.dry_run
             )
             print(msg)
-            return 0 if success else 1
+            ret = 0 if success else 1
         else:
-            return run_legacy_orchestration(
+            ret = run_legacy_orchestration(
                 mode=mode,
                 symbol=args.symbol,
                 interval=args.interval,
@@ -112,6 +140,14 @@ def main() -> int:
                 validate_max_candidates=args.validate_max_candidates
             )
 
+        # Auto-open summary if requested
+        if args.show:
+            import webbrowser
+            summary_path = LATEST_DIR / "summary.html"
+            if summary_path.exists():
+                webbrowser.open(f"file:///{summary_path.resolve()}")
+
+        return ret
     except Exception as e:
         logger.exception(f"CLI wrapper failed: {e}")
         return 1

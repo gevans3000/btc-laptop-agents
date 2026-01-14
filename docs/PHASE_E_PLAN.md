@@ -22,12 +22,12 @@ Phase E focuses on **hardening** the system for live trading:
 
 | ID | Workstream | Priority | Effort | Dependencies |
 | :--- | :--- | :--- | :--- | :--- |
-| E1 | Testing & Correctness | ðŸ”´ Critical | L | None |
-| E2 | Core Model & Config Cleanup | ðŸ”´ Critical | M | None |
-| E3 | Strategy Surface & Improvements | ðŸŸ¡ High | M | E2 |
-| E4 | Resilience & Live Trading | ðŸ”´ Critical | L | E1, E2 |
-| E5 | Data Sources & Streaming | ðŸŸ¢ Medium | M | E2 |
-| E6 | Observability & Docs | ðŸŸ¡ High | M | E1-E4 |
+| E1 | Testing & Correctness | 🔴 Critical | L | None |
+| E2 | Core Model & Config Cleanup | 🔴 Critical | M | None |
+| E3 | Strategy Surface & Improvements | 🟡 High | M | E2 |
+| E4 | Resilience & Live Trading | 🔴 Critical | L | E1, E2 |
+| E5 | Data Sources & Streaming | 🟢 Medium | M | E2 |
+| E6 | Observability & Docs | 🟡 High | M | E1-E4 |
 
 ---
 
@@ -56,7 +56,7 @@ Phase E focuses on **hardening** the system for live trading:
 #### E1.3 Unit Tests for Core Components
 - [ ] `tests/test_signal.py`
   - Insufficient candles edge case
-  - Low ATR volatility â†’ `None`
+  - Low ATR volatility → `None`
   - Clear bullish/bearish crossovers
 - [ ] `tests/test_paper_broker.py`
   - Trailing stop behavior (long/short)
@@ -105,8 +105,8 @@ Phase E focuses on **hardening** the system for live trading:
       volume: float = 0.0
   ```
 - [ ] Update all imports:
-  - `helpers.py` â†’ import from `candles.py`
-  - `indicators.py` â†’ import from `candles.py`
+  - `helpers.py` → import from `candles.py`
+  - `indicators.py` → import from `candles.py`
   - `signal.py`, `exec_engine.py`, `orchestrator.py`, `supervisor.py`, `loader.py`
 - [ ] Delete duplicate `Candle` definitions
 - [ ] Add `tests/test_candle_model.py`
@@ -274,17 +274,17 @@ Phase E focuses on **hardening** the system for live trading:
 
 ### Week 2: Testing & Safety
 4. **E1.1-E1.2**: Orchestrator integration tests
-5. **E4.1**: Clarify live modes
+5. **E4.1**: Clarify live modes (Completed)
 6. **E4.3**: Circuit breaker integration
 
 ### Week 3: Live Readiness
 7. **E4.2**: Retry logic
-8. **E4.4**: BitunixBroker hardening
+8. **E4.4**: BitunixBroker hardening (Completed)
 9. **E3.1**: Strategy protocol
 
 ### Week 4: Polish
 10. **E5.1-E5.2**: Streaming foundation
-11. **E6.1-E6.3**: Monitoring & docs
+11. **E6.1-E6.3**: Monitoring & docs (E6.2 Completed)
 
 ---
 
@@ -320,4 +320,3 @@ Phase E focuses on **hardening** the system for live trading:
 2. Create GitHub issues for each E*.* task
 3. Start with E2.1 (Unify Candle) as it unblocks everything
 4. Run `verify.ps1` after each task completion
-

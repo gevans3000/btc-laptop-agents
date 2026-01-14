@@ -71,6 +71,7 @@ def run_timed_session(
     execution_mode: str = "paper",
     fees_bps: float = 2.0,
     slip_bps: float = 0.5,
+    strategy_config: Optional[Dict[str, Any]] = None,
 ) -> SessionResult:
     """
     Run an autonomous trading session for a specified duration.
@@ -137,7 +138,7 @@ def run_timed_session(
         iteration = 0
         
         # Alignment: Wait for the top of the next minute if we are doing 1m candles
-        if interval == "1m":
+        if interval == "1m" and duration_min >= 2:
             now = time.time()
             sleep_sec = 60 - (now % 60)
             if sleep_sec > 2: # Only sleep if we have more than 2 seconds to wait
@@ -177,8 +178,25 @@ def run_timed_session(
                 
                 latest_candle = candles[-1]
                 
-                # Generate signal from historical candles (excluding latest)
-                raw_signal = generate_signal(candles[:-1])
+                # Generate signal using strategy config if provided
+                if strategy_config:
+                    from laptop_agents.agents.supervisor import Supervisor
+                    from laptop_agents.agents.state import State as AgentState
+                    
+                    # Fix: Supervisor requires a valid string path for JournalCoachAgent
+                    journal_path = str(PAPER_DIR / "live_session_journal.jsonl")
+                    supervisor = Supervisor(provider=None, cfg=strategy_config, journal_path=journal_path, broker=broker)
+                    state = AgentState(instrument=symbol, timeframe=interval, candles=candles[:-1])
+                    state = supervisor.step(state, candles[-1], skip_broker=True)
+                    
+                    # Extract signal from agent state
+                    if state.setup.get("side") in ["LONG", "SHORT"]:
+                        raw_signal = "BUY" if state.setup["side"] == "LONG" else "SELL"
+                    else:
+                        raw_signal = None
+                else:
+                    # Fallback to legacy signal generation
+                    raw_signal = generate_signal(candles[:-1])
                 
                 # Build order if signal present
                 order = None

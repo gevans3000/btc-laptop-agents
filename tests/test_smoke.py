@@ -12,7 +12,7 @@ def test_timed_session_mock():
     
     # Run a very short session with mock data
     result = run_timed_session(
-        duration_min=0.1,  # ~6 seconds
+        duration_min=0.2,  # ~12 seconds
         poll_interval_sec=2,
         source="mock",
         symbol="BTCUSD",

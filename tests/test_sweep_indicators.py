@@ -1,8 +1,8 @@
 import pytest
-from src.laptop_agents.indicators import Candle, vwap, detect_sweep, cvd_indicator, ema
-from src.laptop_agents.agents.cvd_divergence import CvdDivergenceAgent
-from src.laptop_agents.agents.state import State
-from src.laptop_agents.agents.setup_signal import SetupSignalAgent
+from laptop_agents.indicators import Candle, vwap, detect_sweep, cvd_indicator, ema
+from laptop_agents.agents.cvd_divergence import CvdDivergenceAgent
+from laptop_agents.agents.state import State
+from laptop_agents.agents.setup_signal import SetupSignalAgent
 
 def test_vwap_basic():
     candles = [

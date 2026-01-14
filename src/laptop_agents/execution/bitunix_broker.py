@@ -11,6 +11,7 @@ from ..data.providers.bitunix_futures import BitunixFuturesProvider
 from ..resilience.errors import SafetyException
 from ..core import hard_limits
 import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,19 @@ class BitunixBroker:
         self._entry_side: Optional[str] = None
         self._entry_qty: Optional[float] = None
         self._last_order_id: Optional[str] = None
+
+    @property
+    def pos(self) -> Optional[Any]:
+        if not self.last_pos:
+            return None
+        
+        # Simple object with .side to satisfy timed_session.py
+        class SimplePos:
+            def __init__(self, d):
+                qty = float(d.get("qty") or d.get("positionAmount") or 0)
+                self.side = d.get("side") or ("LONG" if qty > 0 else "SHORT")
+        
+        return SimplePos(self.last_pos)
 
     def _get_info(self) -> Dict[str, Any]:
         if self._instrument_info is None:
@@ -68,15 +82,12 @@ class BitunixBroker:
                     
                     info = self._get_info()
                     
-                    # FORCE FIXED SIZING: Exactly $10 order value
-                    # qty = 10.0 / price
                     raw_px = order.get("entry") or float(candle.close)
                     px = self._round_step(float(raw_px), info["tickSize"])
                     
-                    # Target $10 notional
-                    target_notional = 10.0
-                    raw_qty = target_notional / px
-                    qty = self._round_step(raw_qty, info["lotSize"])
+                    # DYNAMIC SIZING: Derived from order object
+                    qty = float(order.get("qty") or 0.0)
+                    qty = self._round_step(qty, info["lotSize"])
                     
                     # Pre-flight safety check
                     if qty < info["minQty"]:
@@ -103,7 +114,19 @@ class BitunixBroker:
 
                     # HUMAN CONFIRMATION GATE
                     logger.info(f">>> PENDING LIVE ORDER: {order['side']} {qty} {self.symbol} @ {px} (Value: ${notional:.2f})")
-                    if os.environ.get("SKIP_LIVE_CONFIRM") != "TRUE":
+
+                    # Check for confirmation bypass file
+                    confirmation_file = Path(__file__).resolve().parent.parent.parent.parent / "config" / "live_trading_enabled.txt"
+                    if confirmation_file.exists():
+                        with open(confirmation_file, "r") as f:
+                            if "TRUE" in f.read().upper():
+                                logger.info("Live trading enabled via config file. Auto-submitting order.")
+                            else:
+                                ans = input(f"CONFIRM SUBMISSION? [y/N]: ")
+                                if ans.lower() != 'y':
+                                    logger.warning("Order cancelled by user.")
+                                    return events
+                    else:
                         ans = input(f"CONFIRM SUBMISSION? [y/N]: ")
                         if ans.lower() != 'y':
                             logger.warning("Order cancelled by user.")
