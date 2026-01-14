@@ -21,6 +21,7 @@ from ...resilience import (
     CircuitBreaker,
     log_event,
     log_provider_error,
+    SimpleRateLimiter,
 )
 
 # Bitunix Futures REST primary domain is documented as https://fapi.bitunix.com
@@ -102,6 +103,8 @@ class BitunixFuturesProvider:
         # Resilience components
         self.retry_policy = RetryPolicy(max_attempts=3, base_delay=0.1)
         self.circuit_breaker = CircuitBreaker(max_failures=3, reset_timeout=60)
+        # Bitunix limit is 10 req/s; we use 8 for safety
+        self.rate_limiter = SimpleRateLimiter(requests_per_second=8.0)
 
     def _assert_allowed(self) -> None:
         if self.symbol not in self.allowed_symbols:
@@ -228,6 +231,9 @@ class BitunixFuturesProvider:
         """Wrapper function for exchange calls with resilience patterns."""
         def execute_with_resilience():
             try:
+                # Apply rate limit
+                self.rate_limiter.wait()
+                
                 # Apply retry policy
                 @with_retry(self.retry_policy, operation)
                 def wrapped_fn():

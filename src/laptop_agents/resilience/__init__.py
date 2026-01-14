@@ -10,6 +10,7 @@ from .errors import (
 from .retry import RetryPolicy, with_retry
 from .circuit import CircuitBreaker, CircuitBreakerOpenError
 from .log import log_event, log_provider_error
+from .rate_limiter import SimpleRateLimiter
 
 __all__ = [
     "ProviderError",
@@ -24,4 +25,5 @@ __all__ = [
     "guarded_call",
     "log_event",
     "log_provider_error",
+    "SimpleRateLimiter",
 ]
