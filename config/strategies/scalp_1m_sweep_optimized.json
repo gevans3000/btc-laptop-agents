@@ -1,0 +1,45 @@
+{
+  "meta": {
+    "name": "Scalp 1m Sweep Optimized",
+    "author": "Antigravity (Phase 1 Optimization)",
+    "timeframe": "1m",
+    "notes": "Optimized version of scalp_1m_sweep. Parameters tuned for robustness on mock data."
+  },
+  "engine": {
+    "pending_trigger_max_bars": 12,
+    "derivatives_refresh_bars": 4
+  },
+  "derivatives_gates": {
+    "no_trade_funding_8h": 0.04,
+    "half_size_funding_8h": 0.025
+  },
+  "setups": {
+    "pullback_ribbon": {
+      "enabled": true,
+      "entry_band_pct": 0.0002,
+      "stop_atr_mult": 0.4,
+      "tp_r_mult": 1.5
+    },
+    "sweep_invalidation": {
+      "enabled": true,
+      "eq_tolerance_pct": 0.0006,
+      "tp_r_mult": 1.5,
+      "vwap_target": true,
+      "ema_filter": true,
+      "ema_period": 100,
+      "stop_atr_mult": 0.16,
+      "min_vol_ratio": 0.6,
+      "lookback_bars": 15,
+      "require_cvd_confirm": true
+    }
+  },
+  "risk": {
+    "equity": 10000,
+    "risk_pct": 0.5,
+    "rr_min": 2.0
+  },
+  "cvd": {
+    "lookback": 30,
+    "enabled": true
+  }
+}
