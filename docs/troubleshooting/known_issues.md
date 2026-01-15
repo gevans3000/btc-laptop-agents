@@ -1,49 +1,13 @@
 # Automated Troubleshooting Guide
 
 > **Note**: This document is auto-generated from the Agent's Learning Debugger knowledge base.
-> **Last Updated**: 2026-01-15 15:39:42
+> **Last Updated**: 2026-01-15 16:26:21
 
 ## Table of Contents
 
-1. [82ac3c206f5fafeb](#issue-82ac3c206f5fafeb)
-2. [0409f11bf319cc25](#issue-0409f11bf319cc25)
-3. [92872f70627c32a4](#issue-92872f70627c32a4)
-4. [29a1ad283cc792b4](#issue-29a1ad283cc792b4)
-5. [b854ff3e2f292317](#issue-b854ff3e2f292317)
-
----
-
-## Issue: 82ac3c206f5fafeb <a id='issue-82ac3c206f5fafeb'></a>
-
-**Last Seen**: 2026-01-15T15:10:20.831916 | **Occurrences**: 3102
-
-### Error Signature
-```text
-AGENT_ERROR: Strategy agent failed, skipping signal: 'sweep_invalidation'
-```
-
-### Root Cause
-Valid config keys were missing for sweep_invalidation in the mock setup.
-
-### Solution
-> Fixed missing config keys in stress test setup.
-
----
-
-## Issue: 0409f11bf319cc25 <a id='issue-0409f11bf319cc25'></a>
-
-**Last Seen**: 2026-01-15T15:10:17.342626 | **Occurrences**: 87
-
-### Error Signature
-```text
-Error in on_candle_closed: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\lovel\\trading\\btc-laptop-agents\\paper\\unified_state.tmp' -> 'C:\\Users\\lovel\\trading\\btc-laptop-agents\\paper\\unified_state.json'
-```
-
-### Root Cause
-High frequency file writes on Windows caused locking contention
-
-### Solution
-> Used dry_run=True to skip file persistence in stress tests
+1. [92872f70627c32a4](#issue-92872f70627c32a4)
+2. [29a1ad283cc792b4](#issue-29a1ad283cc792b4)
+3. [b854ff3e2f292317](#issue-b854ff3e2f292317)
 
 ---
 
