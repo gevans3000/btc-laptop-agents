@@ -96,6 +96,7 @@ class AsyncRunner:
         
         self.state_manager = StateManager(PAPER_DIR)
         self.last_heartbeat_time: float = time.time()
+        self.metrics: List[Dict[str, Any]] = []
 
     async def run(self, duration_min: int):
         """Main entry point to run the async loop."""
@@ -159,6 +160,15 @@ class AsyncRunner:
                 logger.error("Broker shutdown timed out after 5s")
             
             logger.info("AsyncRunner shutdown complete.")
+            
+            # Export Metrics
+            try:
+                metrics_path = LATEST_DIR / "metrics.json"
+                with open(metrics_path, "w") as f:
+                    json.dump(self.metrics, f, indent=2)
+                logger.info(f"Metrics exported to {metrics_path}")
+            except Exception as me:
+                logger.error(f"Failed to export metrics: {me}")
 
     async def market_data_task(self):
         """Consumes WebSocket data and triggers strategy on candle closure."""
@@ -379,6 +389,16 @@ class AsyncRunner:
                     "unrealized": unrealized,
                     "elapsed": elapsed
                 }, paper=True)
+                
+                # Collect metric data point
+                self.metrics.append({
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "elapsed": elapsed,
+                    "equity": total_equity,
+                    "price": price,
+                    "unrealized": unrealized,
+                    "errors": self.errors
+                })
                 
                 self.last_heartbeat_time = time.time()
                 await asyncio.sleep(1.0)

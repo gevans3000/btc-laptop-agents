@@ -52,6 +52,7 @@ def main() -> int:
     ap.add_argument("--sync", dest="async_mode", action="store_false", help="Use legacy synchronous polling engine")
     ap.add_argument("--stale-timeout", type=int, default=60, help="Seconds before stale data triggers shutdown")
     ap.add_argument("--execution-latency-ms", type=int, default=200, help="Simulated network latency for order execution")
+    ap.add_argument("--dashboard", action="store_true", help="Launch real-time web dashboard")
     ap.add_argument("--preflight", action="store_true", help="Run system readiness checks")
     ap.add_argument("--replay", type=str, default=None, help="Path to events.jsonl for deterministic replay")
     args = ap.parse_args()
@@ -98,6 +99,13 @@ def main() -> int:
         from laptop_agents.core.preflight import run_preflight_checks
         success = run_preflight_checks(args)
         return 0 if success else 1
+
+    if args.dashboard:
+        from laptop_agents.dashboard.app import run_dashboard
+        import threading
+        dash_thread = threading.Thread(target=run_dashboard, daemon=True)
+        dash_thread.start()
+        logger.info("Dashboard launched at http://127.0.0.1:5000")
 
     try:
         ret = 1
