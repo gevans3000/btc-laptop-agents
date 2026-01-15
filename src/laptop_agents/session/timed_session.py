@@ -146,6 +146,17 @@ def run_timed_session(
                 time.sleep(sleep_sec)
 
         while time.time() < end_time:
+            # Check for kill switch
+            kill_file = Path("kill.txt")
+            if kill_file.exists():
+                logger.warning("KILL SWITCH ACTIVATED: kill.txt detected")
+                try:
+                    kill_file.unlink()
+                except Exception:
+                    pass
+                result.stopped_reason = "kill_switch"
+                break
+
             # Check for shutdown request
             if shutdown.shutdown_requested:
                 result.stopped_reason = "shutdown_requested"

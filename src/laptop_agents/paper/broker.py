@@ -7,6 +7,8 @@ from ..trading.helpers import calculate_fees, apply_slippage
 import logging
 import time
 import json
+import random
+import asyncio
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -34,8 +36,13 @@ class PaperBroker:
     - conservative intrabar resolution (stop-first if both touched)
     """
 
-    def __init__(self, symbol: str = "BTCUSDT", fees_bps: float = 0.0, slip_bps: float = 0.0, starting_equity: float = 10000.0, state_path: Optional[str] = None) -> None:
+    def __init__(self, symbol: str = "BTCUSDT", fees_bps: float = 0.0, slip_bps: float = 0.0, 
+                 starting_equity: float = 10000.0, state_path: Optional[str] = None,
+                 random_seed: Optional[int] = None) -> None:
         self.symbol = symbol
+        self.rng = random.Random(random_seed)
+        self.last_trade_time: float = 0.0
+        self.min_trade_interval_sec: float = 60.0  # 1 minute minimum between trades
         self.pos: Optional[Position] = None
         self.is_inverse = symbol == "BTCUSD"
         self.fees_bps = fees_bps
@@ -91,6 +98,12 @@ class PaperBroker:
                 return None
             self.processed_order_ids.add(client_order_id)
 
+        # Trade frequency throttle
+        now = time.time()
+        if now - self.last_trade_time < self.min_trade_interval_sec:
+            logger.info(f"THROTTLED: Only {now - self.last_trade_time:.1f}s since last trade (min: {self.min_trade_interval_sec}s)")
+            return None
+
         # Rate limiting (orders per minute)
         now = time.time()
         self.order_timestamps = [t for t in self.order_timestamps if now - t < 60]
@@ -130,7 +143,14 @@ class PaperBroker:
             logger.info(f"PARTIAL FILL: Capped {qty:.4f} to {actual_qty:.4f} (10% of candle volume)")
 
         # Apply slippage and fees to entry
-        fill_px_slipped = apply_slippage(fill_px, is_entry=True, is_long=(side == "LONG"), slip_bps=self.slip_bps)
+        base_slip = self.slip_bps
+        random_slip_factor = self.rng.uniform(0.5, 1.5)  # 50% to 150% of base slippage
+        effective_slip = base_slip * random_slip_factor
+        fill_px_slipped = apply_slippage(fill_px, is_entry=True, is_long=(side == "LONG"), slip_bps=effective_slip)
+        
+        # Add simulated latency log
+        simulated_latency_ms = self.rng.randint(50, 500)
+        logger.debug(f"Simulated execution latency: {simulated_latency_ms}ms")
         notional = actual_qty * fill_px_slipped
         entry_fees = calculate_fees(notional, self.fees_bps)
 
@@ -159,6 +179,7 @@ class PaperBroker:
         if self.state_path:
             self._save_state()
 
+        self.last_trade_time = time.time()
         return fill_event
 
     def _check_tick_exit(self, tick: Any) -> Optional[Dict[str, Any]]:
@@ -221,7 +242,9 @@ class PaperBroker:
                 # conservative: assume stop first
                 return self._exit(candle.ts, p.sl, "SL_conservative")
             if sl_hit:
-                return self._exit(candle.ts, p.sl, "SL")
+                # Use gap-open price if candle gaps past SL
+                exit_price = min(p.sl, float(candle.open)) if float(candle.open) < p.sl else p.sl
+                return self._exit(candle.ts, exit_price, "SL")
             if tp_hit:
                 return self._exit(candle.ts, p.tp, "TP")
         else:  # SHORT
@@ -230,7 +253,9 @@ class PaperBroker:
             if sl_hit and tp_hit:
                 return self._exit(candle.ts, p.sl, "SL_conservative")
             if sl_hit:
-                return self._exit(candle.ts, p.sl, "SL")
+                # Use gap-open price if candle gaps past SL
+                exit_price = max(p.sl, float(candle.open)) if float(candle.open) > p.sl else p.sl
+                return self._exit(candle.ts, exit_price, "SL")
             if tp_hit:
                 return self._exit(candle.ts, p.tp, "TP")
 
@@ -240,7 +265,9 @@ class PaperBroker:
         assert self.pos is not None
         p = self.pos
         # Apply slippage and fees to exit
-        px_slipped = apply_slippage(px, is_entry=False, is_long=(p.side == "LONG"), slip_bps=self.slip_bps)
+        random_slip_factor = self.rng.uniform(0.5, 1.5)
+        effective_slip = self.slip_bps * random_slip_factor
+        px_slipped = apply_slippage(px, is_entry=False, is_long=(p.side == "LONG"), slip_bps=effective_slip)
         
         if self.is_inverse:
             # Inverse PnL (BTC) = Notional * (1/Entry - 1/Exit) for Long

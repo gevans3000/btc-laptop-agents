@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import shutil
+import time
 import uuid
 import os
 from datetime import datetime, timezone, timedelta
@@ -276,6 +277,7 @@ def run_orchestrated_mode(
                 with heartbeat_path.open("w") as f:
                     json.dump({
                         "ts": datetime.now(timezone.utc).isoformat(),
+                        "unix_ts": time.time(),
                         "candle_idx": i,
                         "equity": total_equity,
                         "symbol": symbol,

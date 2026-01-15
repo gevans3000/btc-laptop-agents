@@ -48,3 +48,13 @@ def setup_logger(name: str = "btc_agents", log_dir: str = "logs"):
 
 # Singleton-ish instance
 logger = setup_logger()
+
+def write_alert(message: str, alert_path: str = "logs/alert.txt"):
+    """Write a critical alert to a file for external monitoring."""
+    import os
+    from datetime import datetime
+    
+    os.makedirs(os.path.dirname(alert_path), exist_ok=True)
+    with open(alert_path, "a", encoding="utf-8") as f:
+        ts = datetime.now().isoformat()
+        f.write(f"[{ts}] {message}\n")

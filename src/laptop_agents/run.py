@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import sys
@@ -23,7 +23,7 @@ from laptop_agents.core.orchestrator import (
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Laptop Agents CLI")
-    ap.add_argument("--source", choices=["mock", "bitunix"], default="mock")
+    ap.add_argument("--source", choices=["mock", "bitunix"], default="bitunix")
     ap.add_argument("--symbol", default="BTCUSD")
     ap.add_argument("--interval", default="1m")
     ap.add_argument("--limit", type=int, default=200)
@@ -50,6 +50,9 @@ def main() -> int:
     ap.add_argument("--strategy", type=str, default="default", help="Strategy name from config/strategies/")
     ap.add_argument("--async", dest="async_mode", action="store_true", default=False, help="Use high-performance asyncio engine")
     args = ap.parse_args()
+
+    # Normalize symbol to uppercase
+    args.symbol = args.symbol.upper().replace("/", "").replace("-", "")
 
     # Load strategy configuration
     import json
@@ -173,6 +176,8 @@ def main() -> int:
         return ret
     except Exception as e:
         logger.exception(f"CLI wrapper failed: {e}")
+        from laptop_agents.core.logger import write_alert
+        write_alert(f"CRITICAL: CLI wrapper failed - {e}")
         return 1
 
 if __name__ == "__main__":

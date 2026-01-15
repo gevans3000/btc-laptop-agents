@@ -16,22 +16,33 @@ def validate_config(args: Any, strategy_config: Dict[str, Any]) -> None:
             raise ValueError(f"Missing required environment variables for live mode: {', '.join(missing)}")
 
     # 2. Risk Parameter Validation
-    risk_pct = args.risk_pct
-    stop_bps = args.stop_bps
-    max_leverage = args.max_leverage
+    risk_pct = getattr(args, 'risk_pct', None)
+    stop_bps = getattr(args, 'stop_bps', None)
+    tp_r = getattr(args, 'tp_r', None)
+    duration = getattr(args, 'duration', None)
+    max_leverage = getattr(args, 'max_leverage', hard_limits.MAX_LEVERAGE)
 
-    if not (0.1 <= risk_pct <= 5.0):
-        raise ValueError(f"risk_pct must be between 0.1 and 5.0, got {risk_pct}")
+    if risk_pct is not None:
+        if not (0.1 <= risk_pct <= 5.0):
+            raise ValueError(f"risk_pct must be between 0.1 and 5.0, got {risk_pct}")
     
-    if stop_bps <= 5:
-        raise ValueError(f"stop_bps must be greater than 5, got {stop_bps}")
+    if stop_bps is not None:
+        if stop_bps <= 5:
+            raise ValueError(f"stop_bps must be greater than 5, got {stop_bps}")
     
+    if tp_r is not None:
+        if tp_r <= 0:
+            raise ValueError(f"tp_r must be positive, got {tp_r}")
+            
+    if duration is not None:
+        if duration <= 0:
+            raise ValueError(f"duration must be positive, got {duration}")
+
     if max_leverage > hard_limits.MAX_LEVERAGE:
         raise ValueError(f"max_leverage {max_leverage} exceeds hard limit {hard_limits.MAX_LEVERAGE}")
 
     # 3. Strategy Config Validation (basic structure)
     if strategy_config:
-        # Example check if 'risk' section exists
         if "risk" in strategy_config:
             s_risk = strategy_config["risk"]
             if "risk_pct" in s_risk:

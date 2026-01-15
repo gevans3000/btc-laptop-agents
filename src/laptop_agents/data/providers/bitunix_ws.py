@@ -5,7 +5,7 @@ import json
 import time
 from typing import AsyncGenerator, List, Optional, Union
 import websockets
-from tenacity import retry, wait_exponential, stop_never, retry_if_exception_type
+from tenacity import retry, wait_exponential, stop_after_attempt, stop_never, retry_if_exception_type
 
 from laptop_agents.core.logger import logger
 from laptop_agents.trading.helpers import Candle, Tick
@@ -118,7 +118,7 @@ class BitunixWSProvider:
 
     @retry(
         wait=wait_exponential(multiplier=1, min=2, max=60),
-        stop=stop_never,
+        stop=stop_after_attempt(10),  # Max 10 reconnect attempts
         retry=retry_if_exception_type((websockets.ConnectionClosed, ConnectionError, asyncio.TimeoutError)),
         before_sleep=lambda retry_state: logger.warning(
             f"Bitunix WS connection lost. Attempting reconnect in {retry_state.next_action.sleep:.1f}s..."

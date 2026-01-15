@@ -14,6 +14,8 @@ from laptop_agents.data.providers.bitunix_ws import BitunixWSProvider
 from laptop_agents.paper.broker import PaperBroker
 from laptop_agents.trading.helpers import Candle, Tick, normalize_candle_order
 from laptop_agents.data.loader import load_bitunix_candles
+from laptop_agents.resilience.trading_circuit_breaker import TradingCircuitBreaker
+from laptop_agents.core.orchestrator import render_html, write_trades_csv, LATEST_DIR
 
 @dataclass
 class AsyncSessionResult:
@@ -73,9 +75,17 @@ class AsyncRunner:
         # Control
         self.shutdown_event = asyncio.Event()
         self.start_time = time.time()
+        self.kill_file = Path("kill.txt")
+        self.last_data_time: float = time.time()
+        self.stale_data_timeout_sec: float = 90.0  # No data for 90s = stale
+        
+        self.circuit_breaker = TradingCircuitBreaker(max_daily_drawdown_pct=5.0, max_consecutive_losses=5)
+        self.circuit_breaker.set_starting_equity(starting_balance)
+        self.duration_min: int = 0  # Will be set in run()
 
     async def run(self, duration_min: int):
         """Main entry point to run the async loop."""
+        self.duration_min = duration_min
         end_time = self.start_time + (duration_min * 60)
         self.status = "running"
         
@@ -94,6 +104,8 @@ class AsyncRunner:
             asyncio.create_task(self.watchdog_task()),
             asyncio.create_task(self.heartbeat_task()),
             asyncio.create_task(self.timer_task(end_time)),
+            asyncio.create_task(self.kill_switch_task()),
+            asyncio.create_task(self.stale_data_task()),
         ]
         
         try:
@@ -119,6 +131,7 @@ class AsyncRunner:
                     
                 if isinstance(item, Tick):
                     self.latest_tick = item
+                    self.last_data_time = time.time()
                     # Immediate watchdog check on EVERY tick is handled by watchdog_task
                     # but we could also trigger it here for even lower latency
                     
@@ -143,6 +156,35 @@ class AsyncRunner:
         except Exception as e:
             logger.error(f"Error in market_data_task: {e}")
             self.errors += 1
+
+    async def kill_switch_task(self):
+        """Monitors for kill.txt file to trigger emergency shutdown."""
+        try:
+            while not self.shutdown_event.is_set():
+                if self.kill_file.exists():
+                    logger.warning("KILL SWITCH ACTIVATED: kill.txt detected")
+                    self.shutdown_event.set()
+                    try:
+                        self.kill_file.unlink()  # Remove file after processing
+                    except Exception:
+                        pass
+                    break
+                await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            pass
+
+    async def stale_data_task(self):
+        """Detects stale market data and triggers shutdown."""
+        try:
+            while not self.shutdown_event.is_set():
+                age = time.time() - self.last_data_time
+                if age > self.stale_data_timeout_sec:
+                    logger.error(f"STALE DATA: No market data for {age:.0f}s. Shutting down.")
+                    self.shutdown_event.set()
+                    break
+                await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            pass
 
     async def watchdog_task(self):
         """Checks open positions against latest tick every 100ms."""
@@ -218,12 +260,27 @@ class AsyncRunner:
                 logger.info(f"STRATEGY EXIT: {exit_event['reason']} @ {exit_event['price']}")
                 append_event({"event": "StrategyExit", **exit_event}, paper=True)
 
+            # Update circuit breaker
+            trade_pnl = None
+            for exit_event in events.get("exits", []):
+                trade_pnl = exit_event.get("pnl", 0)
+                
+            self.circuit_breaker.update_equity(self.broker.current_equity, trade_pnl)
+
+            if self.circuit_breaker.is_tripped():
+                logger.warning(f"CIRCUIT BREAKER TRIPPED: {self.circuit_breaker.get_status()}")
+                self.shutdown_event.set()
+
         except Exception as e:
             logger.error(f"Error in on_candle_closed: {e}")
             self.errors += 1
 
     async def heartbeat_task(self):
         """Logs system status every second."""
+        import time as time_module
+        heartbeat_path = Path("logs/heartbeat.json")
+        heartbeat_path.parent.mkdir(exist_ok=True)
+        
         try:
             while not self.shutdown_event.is_set():
                 elapsed = time.time() - self.start_time
@@ -233,10 +290,23 @@ class AsyncRunner:
                 unrealized = self.broker.get_unrealized_pnl(price)
                 total_equity = self.broker.current_equity + unrealized
                 
+                # Write heartbeat file for watchdog
+                with heartbeat_path.open("w") as f:
+                    json.dump({
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "unix_ts": time_module.time(),
+                        "elapsed": elapsed,
+                        "equity": total_equity,
+                        "symbol": self.symbol,
+                    }, f)
+                
+                remaining = max(0, (self.start_time + (self.duration_min * 60)) - time.time())
+                remaining_str = f"{int(remaining // 60)}:{int(remaining % 60):02d}"
+
                 logger.info(
                     f"[ASYNC] {self.symbol} | Price: {price:,.2f} | Pos: {pos_str:5} | "
                     f"Equity: ${total_equity:,.2f} | "
-                    f"Elapsed: {elapsed:.0f}s"
+                    f"Elapsed: {elapsed:.0f}s | Remaining: {remaining_str}"
                 )
                 
                 append_event({
@@ -310,6 +380,31 @@ async def run_async_session(
         logger.error(f"Fatal error in async session: {e}")
         runner.errors += 1
     
+    # Generate HTML report
+    try:
+        LATEST_DIR.mkdir(parents=True, exist_ok=True)
+        summary = {
+            "run_id": f"async_{int(runner.start_time)}",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "bitunix",
+            "symbol": symbol,
+            "interval": interval,
+            "candle_count": len(runner.candles),
+            "last_ts": runner.candles[-1].ts if runner.candles else "",
+            "last_close": float(runner.candles[-1].close) if runner.candles else 0.0,
+            "fees_bps": fees_bps,
+            "slip_bps": slip_bps,
+            "starting_balance": starting_balance,
+            "ending_balance": runner.broker.current_equity,
+            "net_pnl": runner.broker.current_equity - starting_balance,
+            "trades": runner.trades,
+            "mode": "async",
+        }
+        render_html(summary, [], "", candles=runner.candles)
+        logger.info(f"HTML report generated at {LATEST_DIR / 'summary.html'}")
+    except Exception as e:
+        logger.error(f"Failed to generate HTML report: {e}")
+
     return AsyncSessionResult(
         iterations=runner.iterations,
         trades=runner.trades,
