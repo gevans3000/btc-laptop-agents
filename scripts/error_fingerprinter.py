@@ -12,7 +12,9 @@ import hashlib
 from pathlib import Path
 from datetime import datetime
 
-MEMORY_FILE = Path(".agent/memory/known_errors.jsonl")
+# Determine project root to ensure absolute paths work
+PROJECT_ROOT = Path(__file__).parent.parent
+MEMORY_FILE = PROJECT_ROOT / ".agent/memory/known_errors.jsonl"
 
 def fingerprint(error_text: str) -> str:
     """Generate a stable hash for an error signature."""
@@ -21,6 +23,9 @@ def fingerprint(error_text: str) -> str:
     normalized = re.sub(r'line \d+', 'line N', error_text)
     normalized = re.sub(r'\d{4}-\d{2}-\d{2}', 'DATE', normalized)
     normalized = re.sub(r'\d{2}:\d{2}:\d{2}', 'TIME', normalized)
+    # Remove UUIDs and hex addresses
+    normalized = re.sub(r'0x[0-9a-fA-F]+', '0xHEX', normalized)
+    normalized = re.sub(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', 'UUID', normalized)
     return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
 def load_memory() -> list:
@@ -28,42 +33,67 @@ def load_memory() -> list:
     if not MEMORY_FILE.exists():
         return []
     entries = []
-    for line in MEMORY_FILE.read_text(encoding='utf-8').strip().split('\n'):
-        if line and not line.startswith('{"_meta"'):
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
+    try:
+        content = MEMORY_FILE.read_text(encoding='utf-8').strip()
+        if not content:
+            return []
+        for line in content.split('\n'):
+            if line and not line.startswith('{"_meta"'):
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    except Exception as e:
+        print(f"Error loading memory: {e}")
     return entries
 
-def save_entry(entry: dict):
-    """Append a new entry to the memory file."""
-    with open(MEMORY_FILE, 'a', encoding='utf-8') as f:
-        f.write(json.dumps(entry) + '\n')
+def save_all(entries: list):
+    """Save all entries back to the memory file."""
+    header = {"_meta": "Known Errors Database", "version": "1.0", "updated": datetime.now().isoformat()}
+    with open(MEMORY_FILE, 'w', encoding='utf-8') as f:
+        f.write(json.dumps(header) + '\n')
+        for entry in entries:
+            f.write(json.dumps(entry) + '\n')
 
 def capture(error_text: str, solution: str, root_cause: str = ""):
-    """Capture a new error and its solution."""
+    """Capture a new error or update an existing one."""
+    if not error_text:
+        return
+        
     fp = fingerprint(error_text)
-    entry = {
-        "fingerprint": fp,
-        "error_snippet": error_text[:500],
-        "solution": solution,
-        "root_cause": root_cause,
-        "timestamp": datetime.now().isoformat(),
-        "occurrences": 1
-    }
-    
-    # Check if this fingerprint already exists
     memory = load_memory()
-    for existing in memory:
-        if existing.get("fingerprint") == fp:
-            print(f"ERROR already known (fingerprint: {fp})")
-            print(f"Previous solution: {existing.get('solution')}")
-            return
     
-    save_entry(entry)
-    print(f"✓ Captured new error (fingerprint: {fp})")
-    print(f"  Solution recorded: {solution[:100]}...")
+    updated = False
+    for entry in memory:
+        if entry.get("fingerprint") == fp:
+            # Update occurrence count
+            entry["occurrences"] = entry.get("occurrences", 0) + 1
+            entry["last_seen"] = datetime.now().isoformat()
+            
+            # If the current solution is placeholder and a real one is provided, update it
+            if entry.get("solution") in ["NEEDS_DIAGNOSIS", "Pending Diagnosis", ""] and solution not in ["NEEDS_DIAGNOSIS", "Pending Diagnosis"]:
+                entry["solution"] = solution
+                entry["root_cause"] = root_cause
+                print(f"✓ Updated existing error with new solution (fingerprint: {fp})")
+            else:
+                print(f"ERROR already known (fingerprint: {fp}), incrementing count.")
+            updated = True
+            break
+            
+    if not updated:
+        entry = {
+            "fingerprint": fp,
+            "error_snippet": error_text[:500],
+            "solution": solution,
+            "root_cause": root_cause,
+            "timestamp": datetime.now().isoformat(),
+            "last_seen": datetime.now().isoformat(),
+            "occurrences": 1
+        }
+        memory.append(entry)
+        print(f"✓ Captured new error (fingerprint: {fp})")
+        
+    save_all(memory)
 
 def lookup(error_text: str) -> dict | None:
     """Lookup an error in memory."""
@@ -74,6 +104,8 @@ def lookup(error_text: str) -> dict | None:
         if entry.get("fingerprint") == fp:
             print(f"✓ MATCH FOUND (fingerprint: {fp})")
             print(f"  First seen: {entry.get('timestamp')}")
+            print(f"  Last seen: {entry.get('last_seen', 'N/A')}")
+            print(f"  Occurrences: {entry.get('occurrences', 1)}")
             print(f"  Solution: {entry.get('solution')}")
             print(f"  Root cause: {entry.get('root_cause', 'N/A')}")
             return entry
@@ -86,9 +118,11 @@ def list_all():
     memory = load_memory()
     print(f"=== Known Errors Database ({len(memory)} entries) ===\n")
     for i, entry in enumerate(memory, 1):
-        print(f"{i}. [{entry.get('fingerprint')}] {entry.get('timestamp', 'N/A')}")
+        status = "✓" if entry.get("solution") not in ["NEEDS_DIAGNOSIS", "Pending Diagnosis", ""] else "⚠"
+        print(f"{i}. {status} [{entry.get('fingerprint')}] {entry.get('last_seen', entry.get('timestamp', 'N/A'))}")
         print(f"   Error: {entry.get('error_snippet', '')[:80]}...")
         print(f"   Fix: {entry.get('solution', '')[:80]}...")
+        print(f"   Occurrences: {entry.get('occurrences', 1)}")
         print()
 
 if __name__ == "__main__":

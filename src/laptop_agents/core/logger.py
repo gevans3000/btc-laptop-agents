@@ -42,6 +42,39 @@ class JsonFormatter(logging.Formatter):
              
         return scrub_secrets(json.dumps(log_entry, separators=(",", ":")))
 
+class AutonomousMemoryHandler(logging.Handler):
+    """Automatically captures errors into the Learning Debugger memory."""
+    def emit(self, record):
+        if record.levelno >= logging.ERROR:
+            try:
+                # Import here to avoid circular imports and ensure it's available
+                import sys
+                import os
+                
+                # Find project root (3 levels up from this file)
+                current_file_path = os.path.abspath(__file__)
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file_path))))
+                scripts_path = os.path.join(project_root, "scripts")
+                
+                if scripts_path not in sys.path:
+                    sys.path.append(scripts_path)
+                
+                try:
+                    import error_fingerprinter
+                    error_msg = record.getMessage()
+                    if record.exc_info:
+                        import traceback
+                        error_msg += "\n" + "".join(traceback.format_exception(*record.exc_info))
+                    
+                    # Silently capture the error
+                    error_fingerprinter.capture(error_msg, "NEEDS_DIAGNOSIS", "Auto-captured from logger")
+                except ImportError:
+                    # If we can't find the scripts, skip silently
+                    pass
+            except Exception:
+                # Never allow a logging error to crash the application
+                pass
+
 def setup_logger(name: str = "btc_agents", log_dir: str = "logs"):
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -64,6 +97,11 @@ def setup_logger(name: str = "btc_agents", log_dir: str = "logs"):
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     ch.setFormatter(formatter)
     logger.addHandler(ch)
+
+    # Autonomous Memory Handler
+    mh = AutonomousMemoryHandler()
+    mh.setLevel(logging.ERROR)
+    logger.addHandler(mh)
     
     return logger
 
