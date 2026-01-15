@@ -4,6 +4,7 @@ import asyncio
 import json
 import time
 from typing import AsyncGenerator, List, Optional, Union
+from pydantic import BaseModel, ValidationError
 import websockets
 from tenacity import retry, wait_exponential, stop_after_attempt, stop_never, retry_if_exception_type
 
@@ -19,6 +20,20 @@ class BitunixWSProvider:
     # Using the standard Bitunix Futures WS endpoint
     URL = "wss://fapi.bitunix.com/public/"
     
+    class KlineMessage(BaseModel):
+        time: str
+        open: float
+        high: float
+        low: float
+        close: float
+        baseVol: Optional[float] = 0.0
+    
+    class TickerMessage(BaseModel):
+        bidOnePrice: Optional[float] = 0.0
+        askOnePrice: Optional[float] = 0.0
+        lastPrice: float
+        time: str
+    
     def __init__(self, symbol: str):
         # Bitunix expects symbols like BTCUSDT
         self.symbol = symbol.replace("/", "").replace("-", "").upper()
@@ -28,6 +43,8 @@ class BitunixWSProvider:
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
         self.queue: asyncio.Queue[Union[Candle, Tick]] = asyncio.Queue()
         self._running = False
+        self.last_message_time: float = 0.0
+        self.heartbeat_timeout_sec: float = 30.0  # Plan said 10, but let's use 30 for safety on dev machines
 
     async def connect(self):
         """Establish WebSocket connection."""
@@ -64,6 +81,7 @@ class BitunixWSProvider:
         """Internal loop to process incoming WS messages."""
         try:
             async for message in self.ws:
+                self.last_message_time = time.time()
                 data = json.loads(message)
                 
                 # Bitunix WS typically sends data in a 'topic' and 'data' format
@@ -82,16 +100,18 @@ class BitunixWSProvider:
                     for item in items:
                         # Map to Candle object
                         try:
+                            # Use Pydantic for validation
+                            validated = self.KlineMessage(**item)
                             candle = Candle(
-                                ts=str(item.get("time")),
-                                open=float(item["open"]),
-                                high=float(item["high"]),
-                                low=float(item["low"]),
-                                close=float(item["close"]),
-                                volume=float(item.get("baseVol", 0))
+                                ts=validated.time,
+                                open=validated.open,
+                                high=validated.high,
+                                low=validated.low,
+                                close=validated.close,
+                                volume=validated.baseVol
                             )
                             await self.queue.put(candle)
-                        except (KeyError, ValueError) as e:
+                        except (ValidationError, TypeError, KeyError, ValueError) as e:
                             logger.error(f"Failed to parse candle data: {e} | Data: {item}")
 
                 elif "ticker" in topic:
@@ -99,15 +119,17 @@ class BitunixWSProvider:
                     for item in items:
                         # Map to Tick object
                         try:
+                            # Use Pydantic for validation
+                            validated = self.TickerMessage(**item)
                             tick = Tick(
                                 symbol=self.symbol,
-                                bid=float(item.get("bidOnePrice", 0)),
-                                ask=float(item.get("askOnePrice", 0)),
-                                last=float(item.get("lastPrice", 0)),
-                                ts=str(item.get("time"))
+                                bid=validated.bidOnePrice or 0.0,
+                                ask=validated.askOnePrice or 0.0,
+                                last=validated.lastPrice,
+                                ts=validated.time
                             )
                             await self.queue.put(tick)
-                        except (KeyError, ValueError) as e:
+                        except (ValidationError, TypeError, KeyError, ValueError) as e:
                             logger.error(f"Failed to parse ticker data: {e} | Data: {item}")
         except websockets.ConnectionClosed:
             logger.warning("Bitunix WS connection closed in handler")
@@ -115,6 +137,20 @@ class BitunixWSProvider:
             logger.error(f"Error in Bitunix WS message handler: {e}")
         finally:
             self._running = False
+
+    async def _heartbeat_check(self):
+        """Monitor for stale WS connection and force reconnect if needed."""
+        while self._running:
+            await asyncio.sleep(2.0)
+            if self.last_message_time > 0 and (time.time() - self.last_message_time > self.heartbeat_timeout_sec):
+                logger.warning(f"No WS message for {self.heartbeat_timeout_sec}s, forcing reconnect")
+                self._running = False
+                if self.ws:
+                    try:
+                        await self.ws.close()
+                    except Exception:
+                        pass
+                break
 
     @retry(
         wait=wait_exponential(multiplier=1, min=2, max=60),
@@ -134,8 +170,10 @@ class BitunixWSProvider:
                 await self.subscribe_kline()
                 await self.subscribe_ticker()
                 
-                # Run the message handler in the background
+                # Run tasks in the background
+                self.last_message_time = time.time()  # Reset on connect
                 handler_task = asyncio.create_task(self._handle_messages())
+                heartbeat_task = asyncio.create_task(self._heartbeat_check())
                 
                 while self._running:
                     try:
@@ -147,7 +185,8 @@ class BitunixWSProvider:
                             break
                         continue
                 
-                # If we get here, the handler stopped (likely connection closed)
+                # If we get here, the handler or heartbeat stopped
+                heartbeat_task.cancel()
                 await handler_task
                 raise websockets.ConnectionClosed(1006, "Connection lost")
                 
