@@ -2,13 +2,13 @@
 
 > **Status**: ACTIVE
 
-## Now (Phase D Complete âœ“)
-- **Modular Architecture Refactor** â€” COMPLETE
-  - âœ“ `run.py` reduced to thin CLI wrapper (101 lines)
-  - âœ“ `orchestrator.py` handles modular/legacy mode dispatch
-  - âœ“ `loader.py` centralizes candle fetching (mock + bitunix)
-  - âœ“ `signal.py` implements ATR-based volatility filter (ATR(14)/Close < 0.005 = HOLD)
-  - âœ“ `exec_engine.py` ends cleanly with no trailing duplicate code
+## Now (Phase D Complete ✓)
+- **Modular Architecture Refactor** — COMPLETE
+  - ✓ `run.py` reduced to thin CLI wrapper (101 lines)
+  - ✓ `orchestrator.py` handles modular/legacy mode dispatch
+  - ✓ `loader.py` centralizes candle fetching (mock + bitunix)
+  - ✓ `signal.py` implements ATR-based volatility filter (ATR(14)/Close < 0.005 = HOLD)
+  - ✓ `exec_engine.py` ends cleanly with no trailing duplicate code
 
 ## Next
 - **Add more data sources**
@@ -35,4 +35,3 @@
 - Automated report generation and email alerts
 - Docker container for portable execution
 - CI/CD pipeline for automated testing
-

@@ -2,7 +2,7 @@
 
 > **Status**: SUPERSEDED
 
-> **Phase**: D (Modularization & Stabilization) â€” COMPLETE
+> **Phase**: D (Modularization & Stabilization) — COMPLETE
 > **Last Updated**: 2026-01-12
 
 ---
@@ -24,6 +24,10 @@ The codebase has transitioned from monolith to modular design:
 | Data Loader | `src/laptop_agents/data/loader.py` | Mock + Bitunix candle fetching |
 | Exec Engine | `src/laptop_agents/trading/exec_engine.py` | Live paper trading loop |
 | Signal | `src/laptop_agents/trading/signal.py` | ATR filter + SMA crossover |
+| Backtest | `src/laptop_agents/backtest/engine.py` | Bar + Position mode backtests |
+| Agents | `src/laptop_agents/agents/` | Supervisor, AgentState, SetupSignal |
+| Resilience | `src/laptop_agents/resilience/` | Circuit breakers, retries, error handling |
+| Validation | `src/laptop_agents/tools/validation.py` | Schema validation |
 
 ### Modes & Defaults
 - **Default Mode**: `single` (code default) / `live` (script default).
@@ -35,10 +39,10 @@ The codebase has transitioned from monolith to modular design:
   - `mvp_run_once.ps1`: Single loop execution.
 
 ### Artifacts & Schemas
-- **Events**: `events.jsonl` (JSONL) â€” Must contain `timestamp` and `event`.
-- **Trades**: `trades.csv` â€” Columns: `trade_id, side, signal, entry, exit, quantity, pnl, fees, timestamp, exit_reason`.
-- **Reports**: `summary.html` â€” Standalone dashboard.
-- **State**: `paper/state.json` â€” Live position/balance tracking.
+- **Events**: `events.jsonl` (JSONL) — Must contain `timestamp` and `event`.
+- **Trades**: `trades.csv` — Columns: `trade_id, side, signal, entry, exit, quantity, pnl, fees, timestamp, exit_reason`.
+- **Reports**: `summary.html` — Standalone dashboard.
+- **State**: `paper/state.json` — Live position/balance tracking.
 
 ---
 
@@ -46,15 +50,15 @@ The codebase has transitioned from monolith to modular design:
 
 | File Path | Role | Status | Notes |
 | :--- | :--- | :--- | :--- |
-| `README.md` | Front Door | âœ“ ACTIVE | Accurate for MVP usage |
-| `docs/SPEC.md` | The "Law" | âœ“ ACTIVE | Authoritative source of truth |
-| `docs/AGENTS.md` | Arch Guide | âœ“ UPDATED | Modular pipeline documented |
-| `docs/RUNBOOK.md` | Ops Manual | âœ“ ACTIVE | Covers orchestrated + legacy modes |
-| `docs/MAP.md` | Navigation | âœ“ UPDATED | Accurate file/line references |
-| `docs/AI_HANDOFF.md` | Agent Context | âœ“ UPDATED | Sync pack references removed |
-| `docs/DEV_AGENTS.md` | Dev Rules | âœ“ ACTIVE | Modular awareness documented |
-| `docs/NEXT.md` | Roadmap | âœ“ UPDATED | Phase D marked complete |
-| `docs/VERIFY.md` | QA Spec | âœ“ ACTIVE | Matches verify.ps1 behavior |
+| `README.md` | Front Door | ✓ ACTIVE | Accurate for MVP usage |
+| `docs/SPEC.md` | The "Law" | ✓ ACTIVE | Authoritative source of truth |
+| `docs/AGENTS.md` | Arch Guide | ✓ UPDATED | Modular pipeline documented |
+| `docs/RUNBOOK.md` | Ops Manual | ✓ ACTIVE | Covers orchestrated + legacy modes |
+| `docs/MAP.md` | Navigation | ✓ UPDATED | Accurate file/line references |
+| `docs/AI_HANDOFF.md` | Agent Context | ✓ UPDATED | Sync pack references removed |
+| `docs/DEV_AGENTS.md` | Dev Rules | ✓ ACTIVE | Modular awareness documented |
+| `docs/NEXT.md` | Roadmap | ✓ UPDATED | Phase D marked complete |
+| `docs/VERIFY.md` | QA Spec | ✓ ACTIVE | Matches verify.ps1 behavior |
 
 ---
 
@@ -67,11 +71,11 @@ See the **Final Audit Checklist** below for detailed status of all Phase D items
 
 | Check | Status |
 | :--- | :--- |
-| `python -m compileall src` | âœ“ PASS |
-| `verify.ps1 -Mode quick` | âœ“ PASS |
-| Selftest (conservative) | âœ“ PASS |
-| Selftest (optimistic) | âœ“ PASS |
-| Artifact validation | âœ“ PASS |
+| `python -m compileall src` | ✓ PASS |
+| `verify.ps1 -Mode quick` | ✓ PASS |
+| Selftest (conservative) | ✓ PASS |
+| Selftest (optimistic) | ✓ PASS |
+| Artifact validation | ✓ PASS |
 
 ---
 
@@ -198,4 +202,3 @@ All Phase D objectives have been completed:
 4. Developer tooling streamlined
 5. Documentation aligned with code reality
 6. All verification checks passing
-
