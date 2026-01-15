@@ -22,6 +22,7 @@ class Supervisor:
 
         engine = cfg.get("engine", {})
         self.pending_trigger_max_bars = int(engine.get("pending_trigger_max_bars", 24))
+        self.min_history_bars = int(engine.get("min_history_bars", 100))
         refresh_bars = int(engine.get("derivatives_refresh_bars", 6))
 
         self.a1 = MarketIntakeAgent()
@@ -34,7 +35,9 @@ class Supervisor:
 
     def step(self, state: State, candle: Candle, skip_broker: bool = False) -> State:
         state.candles.append(candle)
-        state.candles = state.candles[-800:]
+        # Keep enough for the warmup plus some buffer, or at least 800
+        max_keep = max(800, self.min_history_bars + 100)
+        state.candles = state.candles[-max_keep:]
 
         # A1..A4 produce an order (or pending trigger)
         state = self.a1.run(state)

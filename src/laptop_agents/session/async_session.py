@@ -124,7 +124,11 @@ class AsyncRunner:
         # Pre-load some historical candles if possible to seed strategy
         try:
             logger.info("Seeding historical candles via REST...")
-            self.candles = load_bitunix_candles(self.symbol, self.interval, limit=100)
+            min_history = 100
+            if self.strategy_config:
+                min_history = self.strategy_config.get("engine", {}).get("min_history_bars", 100)
+            
+            self.candles = load_bitunix_candles(self.symbol, self.interval, limit=max(100, min_history))
             self.candles = normalize_candle_order(self.candles)
             logger.info(f"Seed complete: {len(self.candles)} candles")
             
