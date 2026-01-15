@@ -34,7 +34,7 @@ Our architecture has transitioned from a monolithic `run.py` to a modular system
 ## 3. Key Data Constants
 
 - **Event Loop Paths**: `RUNS_DIR`, `LATEST_DIR`, `PAPER_DIR` (in `src/laptop_agents/core/orchestrator.py`)
-- **Schemas**: `REQUIRED_EVENT_KEYS`, `REQUIRED_TRADE_COLUMNS` (in `src/laptop_agents/tools/validation.py`)
+- **Schemas**: `REQUIRED_EVENT_KEYS`, `REQUIRED_TRADE_COLUMNS` (in `src/laptop_agents/core/validation.py`)
 
 ## 4. Live Trading System
 
