@@ -24,9 +24,9 @@ Even within the `run.py` monolith, we observe these logical roles:
 4.  **Execution/Risk**: `calculate_position_size()` and `simulate_trade_one_bar()`.
 
 ## Future Vision (v1.1+)
-Eventually, the monolith will break into the independent agents described below, orchestrated by a queue-based harness. **This is not current reality.**
+The system has successfully transitioned to the independent agents described below, orchestrated by the unified pipeline. 
 
-*(Original content below preserved for v1.1 planning)*
+*(Original architecture preserved for reference)*
 
 ## Non-negotiables
 - Paper-only. Never place real orders.
