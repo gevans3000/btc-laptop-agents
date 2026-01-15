@@ -17,6 +17,7 @@ from laptop_agents.data.loader import load_bitunix_candles
 from laptop_agents.resilience.trading_circuit_breaker import TradingCircuitBreaker
 from laptop_agents.core.orchestrator import render_html, write_trades_csv, LATEST_DIR
 from laptop_agents.core import hard_limits
+from laptop_agents.core.state_manager import StateManager
 
 @dataclass
 class AsyncSessionResult:
@@ -84,12 +85,24 @@ class AsyncRunner:
         self.circuit_breaker = TradingCircuitBreaker(max_daily_drawdown_pct=5.0, max_consecutive_losses=5)
         self.circuit_breaker.set_starting_equity(starting_balance)
         self.duration_min: int = 0  # Will be set in run()
+        
+        self.state_manager = StateManager(PAPER_DIR)
 
     async def run(self, duration_min: int):
         """Main entry point to run the async loop."""
         self.duration_min = duration_min
         end_time = self.start_time + (duration_min * 60)
         self.status = "running"
+        
+        # Restore circuit breaker state
+        cb_state = self.state_manager.get_circuit_breaker_state()
+        if cb_state:
+            logger.info("Restoring circuit breaker state...")
+            self.circuit_breaker.consecutive_losses = cb_state.get("consecutive_losses", 0)
+            self.circuit_breaker.peak_equity = cb_state.get("peak_equity", self.starting_equity)
+            if cb_state.get("tripped"):
+                 logger.warning("Circuit breaker was previously TRIPPED. It remains TRIPPED.")
+                 # Note: TradingCircuitBreaker doesn't have a direct 'trip()' method but is_tripped() checks state
         
         # Pre-load some historical candles if possible to seed strategy
         try:
@@ -285,6 +298,10 @@ class AsyncRunner:
             if self.circuit_breaker.is_tripped():
                 logger.warning(f"CIRCUIT BREAKER TRIPPED: {self.circuit_breaker.get_status()}")
                 self.shutdown_event.set()
+
+            # Save state
+            self.state_manager.set_circuit_breaker_state(self.circuit_breaker.get_status())
+            self.state_manager.save()
 
         except Exception as e:
             logger.error(f"Error in on_candle_closed: {e}")
