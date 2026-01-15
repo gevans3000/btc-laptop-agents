@@ -90,8 +90,12 @@ class BitunixWSProvider:
                 
                 if not topic or payload is None:
                     # Could be a pong or subscription confirmation
-                    if data.get("event") == "error":
+                    if data.get("op") == "ping":
+                        logger.info(f"Received WS JSON Pong: {data}")
+                    elif data.get("event") == "error":
                         logger.error(f"Bitunix WS error: {data}")
+                    else:
+                        logger.debug(f"Received WS message (no topic): {data}")
                     continue
 
                 if "kline" in topic:
@@ -111,6 +115,8 @@ class BitunixWSProvider:
                                 volume=validated.baseVol
                             )
                             await self.queue.put(candle)
+                            if self.last_message_time % 60 < 2: # Reduce spam
+                                logger.info(f"WS Candle Update: {candle.ts} | {candle.close}")
                         except (ValidationError, TypeError, KeyError, ValueError) as e:
                             logger.error(f"Failed to parse candle data: {e} | Data: {item}")
 
@@ -137,6 +143,21 @@ class BitunixWSProvider:
             logger.error(f"Error in Bitunix WS message handler: {e}")
         finally:
             self._running = False
+
+    async def _ping_loop(self):
+        """Send required JSON pings to keep connection alive."""
+        while self._running:
+            try:
+                if self.ws:
+                    ping_msg = {
+                        "op": "ping",
+                        "ping": int(time.time())
+                    }
+                    await self.ws.send(json.dumps(ping_msg))
+                    logger.info("Sent WS JSON Ping")
+            except Exception as e:
+                logger.warning(f"Failed to send WS ping: {e}")
+            await asyncio.sleep(5.0)
 
     async def _heartbeat_check(self):
         """Monitor for stale WS connection and force reconnect if needed."""
@@ -168,12 +189,14 @@ class BitunixWSProvider:
             try:
                 await self.connect()
                 await self.subscribe_kline()
+                await asyncio.sleep(1.0)
                 await self.subscribe_ticker()
                 
                 # Run tasks in the background
                 self.last_message_time = time.time()  # Reset on connect
                 handler_task = asyncio.create_task(self._handle_messages())
                 heartbeat_task = asyncio.create_task(self._heartbeat_check())
+                ping_task = asyncio.create_task(self._ping_loop())
                 
                 while self._running:
                     try:
@@ -187,6 +210,7 @@ class BitunixWSProvider:
                 
                 # If we get here, the handler or heartbeat stopped
                 heartbeat_task.cancel()
+                ping_task.cancel()
                 await handler_task
                 raise websockets.ConnectionClosed(1006, "Connection lost")
                 

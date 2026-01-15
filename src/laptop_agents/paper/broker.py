@@ -372,6 +372,7 @@ class PaperBroker:
             "current_equity": self.current_equity,
             "processed_order_ids": list(self.processed_order_ids),
             "order_history": self.order_history,
+            "working_orders": self.working_orders,
             "pos": None
         }
         if self.pos:
@@ -404,6 +405,7 @@ class PaperBroker:
             self.current_equity = state.get("current_equity", self.current_equity)
             self.processed_order_ids = set(state.get("processed_order_ids", []))
             self.order_history = state.get("order_history", [])
+            self.working_orders = state.get("working_orders", [])
             pos_data = state.get("pos")
             if pos_data:
                 self.pos = Position(**pos_data)
