@@ -109,11 +109,31 @@ def setup_logger(name: str = "btc_agents", log_dir: str = "logs"):
 logger = setup_logger()
 
 def write_alert(message: str, alert_path: str = "logs/alert.txt"):
-    """Write a critical alert to a file for external monitoring."""
+    """Write a critical alert to a file and optional Webhook."""
     import os
+    import requests
     from datetime import datetime
     
-    os.makedirs(os.path.dirname(alert_path), exist_ok=True)
-    with open(alert_path, "a", encoding="utf-8") as f:
-        ts = datetime.now().isoformat()
-        f.write(f"[{ts}] {message}\n")
+    # 1. Write to file
+    try:
+        os.makedirs(os.path.dirname(alert_path), exist_ok=True)
+        with open(alert_path, "a", encoding="utf-8") as f:
+            ts = datetime.now().isoformat()
+            f.write(f"[{ts}] {message}\n")
+    except Exception as e:
+        print(f"Failed to write alert file: {e}")
+
+    # 2. Webhook
+    webhook_url = os.environ.get("WEBHOOK_URL")
+    if webhook_url:
+        try:
+            payload = {"content": f"🚨 **CRITICAL ALERT** 🚨\n{message}"}
+            # Simple retry
+            for _ in range(3):
+                r = requests.post(webhook_url, json=payload, timeout=5)
+                if r.status_code < 500:
+                    break
+                time.sleep(1)
+        except Exception as e:
+             # Don't crash on alert failure
+            print(f"Failed to send webhook: {e}")
