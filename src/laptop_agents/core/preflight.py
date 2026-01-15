@@ -36,7 +36,11 @@ def run_preflight_checks(args) -> bool:
     # 4. Network connectivity (Bitunix)
     try:
         import urllib.request
-        urllib.request.urlopen("https://fapi.bitunix.com/api/v1/ticker?symbol=BTCUSDT", timeout=5)
+        req = urllib.request.Request(
+            "https://fapi.bitunix.com/api/v1/futures/market/tickers?symbols=BTCUSD",
+            headers={"User-Agent": "btc-laptop-agents/0.1"}
+        )
+        urllib.request.urlopen(req, timeout=5)
         checks.append(("Bitunix connectivity", True))
     except Exception:
         checks.append(("Bitunix connectivity", False))

@@ -29,20 +29,31 @@ def load_mock_candles(n: int = 200) -> List[Candle]:
     return candles
 
 
+import os
+
 def _get_bitunix_provider_class():
-    """Helper to find the Bitunix provider class in the providers module."""
+    """Helper to find the Bitunix provider class in the providers module and its keys."""
     import laptop_agents.data.providers.bitunix_futures as m
+    api_key = os.getenv("BITUNIX_API_KEY")
+    secret_key = os.getenv("BITUNIX_SECRET") or os.getenv("BITUNIX_SECRET_KEY")
+    
+    provider_cls = None
     for name in dir(m):
         obj = getattr(m, name)
         if isinstance(obj, type) and hasattr(obj, "klines"):
-            return obj
-    raise RuntimeError("No Bitunix provider class with .klines() found in laptop_agents.data.providers.bitunix_futures")
+            provider_cls = obj
+            break
+            
+    if not provider_cls:
+        raise RuntimeError("No Bitunix provider class with .klines() found in laptop_agents.data.providers.bitunix_futures")
+    
+    return provider_cls, api_key, secret_key
 
 
 def load_bitunix_candles(symbol: str, interval: str, limit: int) -> List[Candle]:
     """Fetch candles from Bitunix API (supports paged fetching for limits > 200)."""
-    Provider = _get_bitunix_provider_class()
-    client = Provider(symbol=symbol)
+    Provider, api_key, secret_key = _get_bitunix_provider_class()
+    client = Provider(symbol=symbol, api_key=api_key, secret_key=secret_key)
     # Use paged fetch to support limits > 200
     rows = client.klines_paged(interval=interval, total=int(limit))
 
@@ -75,8 +86,8 @@ def get_candles_for_mode(
         if mode == "validate":
             total_needed = validate_splits * (validate_train + validate_test)
             try:
-                Provider = _get_bitunix_provider_class()
-                client = Provider(symbol=symbol)
+                Provider, api_key, secret_key = _get_bitunix_provider_class()
+                client = Provider(symbol=symbol, api_key=api_key, secret_key=secret_key)
                 candles = client.klines_paged(interval=interval, total=total_needed)
             except Exception:
                 # Fallback to standard paged fetch

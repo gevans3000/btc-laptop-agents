@@ -111,7 +111,9 @@ class BitunixFuturesProvider:
             raise ValueError(f"Symbol '{self.symbol}' not allowed. Allowed: {sorted(self.allowed_symbols)}")
 
     def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
-        """Make HTTP GET request with resilience patterns."""
+        """Make HTTP GET request with resilience patterns. Switches to signed if keys exist."""
+        if self.api_key and self.secret_key:
+            return self._get_signed(path, params)
         return self._call_exchange("bitunix", "GET", lambda: self._raw_get(path, params))
     
     def _raw_get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
