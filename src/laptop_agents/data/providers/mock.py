@@ -38,7 +38,7 @@ class MockProvider:
         lo = min(o, c) * (1.0 - self.rng.uniform(0.0002, 0.0007))
         v = 1.0
 
-        return Candle(ts=self.now.isoformat(), open=o, high=hi, low=lo, close=c, volume=v)
+        return Candle(ts=str(int(self.now.timestamp())), open=o, high=hi, low=lo, close=c, volume=v)
 
     def history(self, n: int = 200) -> List[Candle]:
         return [self.next_candle() for _ in range(n)]
