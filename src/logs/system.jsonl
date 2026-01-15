@@ -1,0 +1,3 @@
+{"timestamp":"2026-01-15T12:47:12.585115","level":"ERROR","component":"btc_agents","message":"Test Autocopy Error"}
+{"timestamp":"2026-01-15T12:47:38.753745","level":"ERROR","component":"btc_agents","message":"Test Autocopy Error"}
+{"timestamp":"2026-01-15T12:52:12.975900","level":"ERROR","component":"btc_agents","message":"Simulation: DB Connection Failed"}

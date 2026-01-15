@@ -161,19 +161,18 @@ class PaperBroker:
 
         if entry_type == "market":
             if tick and tick.bid and tick.ask:
+                # BUY fills at ASK, SELL fills at BID
                 fill_px = float(tick.ask) if side == "LONG" else float(tick.bid)
-                # If we use real tick, we don't need random slippage as much, 
-                # but we'll apply a minimal 0.1bps for executor jitter
-                actual_slip_bps = 0.1
+                actual_slip_bps = 0.0 # Spread essentially IS the slippage
             else:
                 fill_px = float(candle.close)
                 actual_slip_bps = self.slip_bps
         else:
             # limit fill if touched
-            # limit fill if touched
             if not (candle.low <= entry <= candle.high):
                 return None
             fill_px = entry
+            actual_slip_bps = 0.0
 
         # Liquidity Capping
         candle_vol = getattr(candle, "volume", 0)
@@ -185,10 +184,10 @@ class PaperBroker:
 
         # Apply slippage and fees to entry
         if tick and tick.bid and tick.ask and entry_type == "market":
-            # Already used bid/ask, just add tiny jitter
-            effective_slip = 0.1
+            # Already used bid/ask, just add tiny randomized jitter (0-0.2 bps) for network arrival variance
+            effective_slip = self.rng.uniform(0.0, 0.2)
         else:
-            base_slip = self.slip_bps
+            base_slip = actual_slip_bps
             random_slip_factor = self.rng.uniform(0.5, 1.5)  # 50% to 150% of base slippage
             effective_slip = base_slip * random_slip_factor
             
@@ -419,9 +418,24 @@ class PaperBroker:
         path = Path(self.state_path)
         if not path.exists():
             return
+        
+        is_corrupt = False
         try:
             with open(path) as f:
-                state = json.load(f)
+                try:
+                    state = json.load(f)
+                except json.JSONDecodeError:
+                    is_corrupt = True
+            
+            if is_corrupt:
+                corrupt_path = path.with_suffix(".json.corrupt")
+                # Safety: if corrupt file already exists, delete it or rename differently
+                if corrupt_path.exists():
+                    corrupt_path.unlink()
+                path.rename(corrupt_path)
+                logger.critical(f"BROKER STATE CORRUPT: Renamed to {corrupt_path}. Starting with fresh state.")
+                return
+
             self.starting_equity = state.get("starting_equity", self.starting_equity)
             self.current_equity = state.get("current_equity", self.current_equity)
             self.processed_order_ids = set(state.get("processed_order_ids", []))

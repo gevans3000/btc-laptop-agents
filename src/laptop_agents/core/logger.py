@@ -13,6 +13,8 @@ SENSITIVE_PATTERNS = [
 
 def scrub_secrets(text: str) -> str:
     """Replace sensitive values with ***."""
+    if not isinstance(text, str):
+        text = str(text)
     # Also scrub any values from .env
     env_secrets = [v for k, v in os.environ.items() 
                    if any(x in k.upper() for x in ['KEY', 'SECRET', 'TOKEN', 'PASSWORD'])
@@ -23,7 +25,23 @@ def scrub_secrets(text: str) -> str:
     # Process patterns
     text = re.sub(SENSITIVE_PATTERNS[0], r'\1\2***', text)
     text = re.sub(SENSITIVE_PATTERNS[1], r'\1***', text)
+    # Specific catch for Bitunix-like keys (alphanumeric 32+)
+    text = re.sub(r'\b[a-zA-Z0-9]{32,}\b', '***', text)
     return text
+
+
+class SensitiveDataFilter(logging.Filter):
+    """Filter that scrubs sensitive data from log records."""
+    def filter(self, record):
+        if record.msg and isinstance(record.msg, str):
+            record.msg = scrub_secrets(record.msg)
+        if record.args:
+            if isinstance(record.args, dict):
+                record.args = {k: (scrub_secrets(v) if isinstance(v, str) else v) for k, v in record.args.items()}
+            elif isinstance(record.args, tuple):
+                record.args = tuple(scrub_secrets(arg) if isinstance(arg, str) else arg for arg in record.args)
+        return True
+
 
 
 class JsonFormatter(logging.Formatter):
@@ -86,21 +104,27 @@ def setup_logger(name: str = "btc_agents", log_dir: str = "logs"):
     if logger.handlers:
         return logger
 
+    # Create filter
+    sensitive_filter = SensitiveDataFilter()
+
     # JSON File Handler
     json_path = os.path.join(log_dir, "system.jsonl")
     fh = logging.FileHandler(json_path)
     fh.setFormatter(JsonFormatter())
+    fh.addFilter(sensitive_filter)
     logger.addHandler(fh)
     
     # Console Handler (Human readable)
     ch = logging.StreamHandler()
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     ch.setFormatter(formatter)
+    ch.addFilter(sensitive_filter)
     logger.addHandler(ch)
 
     # Autonomous Memory Handler
     mh = AutonomousMemoryHandler()
     mh.setLevel(logging.ERROR)
+    mh.addFilter(sensitive_filter)
     logger.addHandler(mh)
     
     return logger

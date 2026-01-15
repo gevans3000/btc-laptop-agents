@@ -41,10 +41,11 @@ class BitunixWSProvider:
             self.symbol += "USDT"
             
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
-        self.queue: asyncio.Queue[Union[Candle, Tick]] = asyncio.Queue()
+        self.queue: asyncio.Queue[Union[Candle, Tick]] = asyncio.Queue(maxsize=1000)
         self._running = False
         self.last_message_time: float = 0.0
         self.heartbeat_timeout_sec: float = 30.0  # Plan said 10, but let's use 30 for safety on dev machines
+        self.subscriptions: set[str] = set()
 
     async def connect(self):
         """Establish WebSocket connection."""
@@ -63,6 +64,7 @@ class BitunixWSProvider:
             "args": [f"kline.{interval}.{self.symbol}"]
         }
         await self.ws.send(json.dumps(msg))
+        self.subscriptions.add(f"kline.{interval}.{self.symbol}")
         logger.info(f"Subscribed to kline.{interval}.{self.symbol}")
 
     async def subscribe_ticker(self):
@@ -75,7 +77,21 @@ class BitunixWSProvider:
             "args": [f"ticker.{self.symbol}"]
         }
         await self.ws.send(json.dumps(msg))
+        self.subscriptions.add(f"ticker.{self.symbol}")
         logger.info(f"Subscribed to ticker.{self.symbol}")
+
+    async def _resubscribe(self):
+        """Re-send all active subscriptions."""
+        if not self.ws or not self.subscriptions:
+            return
+        
+        for sub in self.subscriptions:
+            msg = {
+                "op": "subscribe",
+                "args": [sub]
+            }
+            await self.ws.send(json.dumps(msg))
+            logger.info(f"Resubscribed to {sub}")
 
     async def _handle_messages(self):
         """Internal loop to process incoming WS messages."""
@@ -114,7 +130,10 @@ class BitunixWSProvider:
                                 close=validated.close,
                                 volume=validated.baseVol
                             )
-                            await self.queue.put(candle)
+                            try:
+                                self.queue.put_nowait(candle)
+                            except asyncio.QueueFull:
+                                pass
                             if self.last_message_time % 60 < 2: # Reduce spam
                                 logger.info(f"WS Candle Update: {candle.ts} | {candle.close}")
                         except (ValidationError, TypeError, KeyError, ValueError) as e:
@@ -134,7 +153,10 @@ class BitunixWSProvider:
                                 last=validated.lastPrice,
                                 ts=validated.time
                             )
-                            await self.queue.put(tick)
+                            try:
+                                self.queue.put_nowait(tick)
+                            except asyncio.QueueFull:
+                                pass
                         except (ValidationError, TypeError, KeyError, ValueError) as e:
                             logger.error(f"Failed to parse ticker data: {e} | Data: {item}")
         except websockets.ConnectionClosed:
@@ -188,9 +210,12 @@ class BitunixWSProvider:
         while True:
             try:
                 await self.connect()
-                await self.subscribe_kline()
-                await asyncio.sleep(1.0)
-                await self.subscribe_ticker()
+                if not self.subscriptions:
+                    await self.subscribe_kline()
+                    await asyncio.sleep(1.0)
+                    await self.subscribe_ticker()
+                else:
+                    await self._resubscribe()
                 
                 # Run tasks in the background
                 self.last_message_time = time.time()  # Reset on connect

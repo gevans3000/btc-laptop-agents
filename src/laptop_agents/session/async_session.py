@@ -170,6 +170,25 @@ class AsyncRunner:
                 logger.info(f"Metrics exported to {metrics_path}")
             except Exception as me:
                 logger.error(f"Failed to export metrics: {me}")
+            
+            # Generate final_report.json
+            try:
+                report_path = LATEST_DIR / "final_report.json"
+                exit_code = 0 if self.errors == 0 else 1
+                report = {
+                    "status": "success" if exit_code == 0 else "error",
+                    "exit_code": exit_code,
+                    "pnl_absolute": round(self.broker.current_equity - self.starting_equity, 2),
+                    "error_count": self.errors,
+                    "duration_seconds": round(time.time() - self.start_time, 1),
+                    "symbol": self.symbol,
+                    "trades": self.trades
+                }
+                with open(report_path, "w") as f:
+                    json.dump(report, f, indent=2)
+                logger.info(f"Final report written to {report_path}")
+            except Exception as re:
+                logger.error(f"Failed to write final report: {re}")
 
     async def market_data_task(self):
         """Consumes WebSocket data and triggers strategy on candle closure."""
@@ -266,6 +285,10 @@ class AsyncRunner:
         if hasattr(candle, 'volume') and float(candle.volume) == 0:
             logger.warning(f"LOW_VOLUME_WARNING: Candle {candle.ts} has zero volume")
         
+        if self.circuit_breaker.is_tripped():
+            logger.warning("SIGNAL BLOCKED: Circuit breaker is tripped.")
+            return
+
         try:
             # Generate signal
             order = None
@@ -310,11 +333,15 @@ class AsyncRunner:
                     }
 
             # Execute via broker
-            if order and order.get("go") and self.execution_latency_ms > 0:
-                logger.info(f"Simulating latency: {self.execution_latency_ms}ms")
-                await asyncio.sleep(self.execution_latency_ms / 1000.0)
+            current_tick = self.latest_tick
+            if order and order.get("go"):
+                if self.execution_latency_ms > 0:
+                    logger.info(f"Simulating latency: {self.execution_latency_ms}ms")
+                    await asyncio.sleep(self.execution_latency_ms / 1000.0)
+                    # After sleep, we MUST use the newest tick for fill price to avoid look-ahead bias
+                    current_tick = self.latest_tick
 
-            events = self.broker.on_candle(candle, order, tick=self.latest_tick)
+            events = self.broker.on_candle(candle, order, tick=current_tick)
             
             for fill in events.get("fills", []):
                 self.trades += 1
