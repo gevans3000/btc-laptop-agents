@@ -2,13 +2,13 @@
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 def log_event(event_type: str, data: Dict[str, Any], context: str = "exchange_call") -> None:
     """Log structured events."""
     log_entry = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "type": event_type,
         "context": context,
         **data

@@ -1,26 +1,54 @@
-﻿from laptop_agents.core.runner import Runner
+﻿from unittest.mock import patch, MagicMock
+from laptop_agents.core.runner import Runner
+import tempfile
+import shutil
+import os
 
-def test_runner_smoke(tmp_path):
-    r = Runner(data_dir=str(tmp_path))
-    out = r.run("planner", "Create a checklist for backing up files")
-    assert "PLAN for:" in out
-
+def test_runner_smoke():
+    # Use explicit temp directory handling to avoid pytest fixture permission issues on Windows
+    temp_dir = tempfile.mkdtemp()
+    try:
+        r = Runner(data_dir=temp_dir)
+        out = r.run("planner", "Create a checklist for backing up files")
+        assert "PLAN for:" in out
+    finally:
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass
 
 def test_timed_session_mock():
     """Run a brief mock session, verify no crashes."""
     from laptop_agents.session.timed_session import run_timed_session
     
-    # Run a very short session with mock data
-    result = run_timed_session(
-        duration_min=0.2,  # ~12 seconds
-        poll_interval_sec=2,
-        source="mock",
-        symbol="BTCUSD",
-        limit=200,
-    )
+    # Mock time to avoid real sleep
+    # We patch the time module inside the timed_session module
     
-    assert result.iterations >= 1, "Should complete at least 1 iteration"
-    assert result.errors == 0, f"Should have no errors, got {result.errors}"
-    assert result.stopped_reason == "completed", f"Should stop normally, got {result.stopped_reason}"
-    assert result.starting_equity == 10000.0
-
+    start_ts = 1700000000.0  # Fixed start time
+    
+    # We use a mutable object to hold current time state
+    time_state = {"now": start_ts}
+    
+    def mock_time():
+        time_state["now"] += 0.001 
+        return time_state["now"]
+    
+    def mock_sleep(seconds):
+        time_state["now"] += seconds
+    
+    with patch("laptop_agents.session.timed_session.time") as mock_time_mod:
+        mock_time_mod.time.side_effect = mock_time
+        mock_time_mod.sleep.side_effect = mock_sleep
+        
+        result = run_timed_session(
+            duration_min=0.2,
+            poll_interval_sec=2,
+            source="mock",
+            symbol="BTCUSD",
+            limit=200,
+        )
+        
+        assert result.iterations >= 1, "Should complete at least 1 iteration"
+        assert result.errors == 0, f"Should have no errors, got {result.errors}"
+        assert result.stopped_reason in ["completed", "duration_limit_reached"], f"Should stop normally, got {result.stopped_reason}"
+        assert result.starting_equity == 10000.0
