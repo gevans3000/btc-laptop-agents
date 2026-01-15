@@ -20,5 +20,5 @@
 ## Quick Links
 *   [Source Code](../src/laptop_agents/run.py)
 *   [Scripts](../scripts/)
-*   [Logs](../paper/live.out.txt) (Local only)
+*   [Logs](../logs/system.jsonl) (Local only)
 

@@ -13,9 +13,11 @@ Our architecture has transitioned from a monolithic `run.py` to a modular system
 | **CLI Entry** | `src/laptop_agents/run.py` | Command-line interface wrapper. |
 | **Orchestrator** | `src/laptop_agents/core/orchestrator.py` | Main coordination logic (`run_orchestrated_mode`). |
 | **Data Loader** | `src/laptop_agents/data/loader.py` | Candle fetching. |
-| **Timed Session** | `src/laptop_agents/session/timed_session.py` | Autonomous polling loop for live sessions. |
+| **Timed Session** | `src/laptop_agents/session/timed_session.py` | Autonomous polling loop (Sync). |
+| **Async Session** | `src/laptop_agents/session/async_session.py` | High-performance `asyncio` engine. |
 | **Live Broker** | `src/laptop_agents/execution/bitunix_broker.py` | Real-money execution with Bitunix. |
-| **Bitunix Provider** | `src/laptop_agents/data/providers/bitunix_futures.py` | API client for Bitunix Futures. |
+| **Bitunix Provider** | `src/laptop_agents/data/providers/bitunix_futures.py` | REST API client for Bitunix. |
+| **Bitunix WS** | `src/laptop_agents/data/providers/bitunix_ws.py` | WebSocket market data provider. |
 | **Paper Broker** | `src/laptop_agents/paper/broker.py` | Simulated execution for backtesting. |
 | **Backtest Engine** | `src/laptop_agents/backtest/engine.py` | Historical simulation. |
 | **Modular Agents** | `src/laptop_agents/agents/` | Strategy signals and state management. |
