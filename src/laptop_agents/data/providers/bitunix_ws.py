@@ -12,6 +12,10 @@ from tenacity import retry, wait_exponential, stop_after_attempt, stop_never, re
 from laptop_agents.core.logger import logger
 from laptop_agents.trading.helpers import Candle, Tick
 
+class FatalError(Exception):
+    """Exception raised for fatal exchange errors that should not be retried."""
+    pass
+
 class BitunixWSProvider:
     """
     Async WebSocket provider for Bitunix Futures market data.
@@ -110,7 +114,10 @@ class BitunixWSProvider:
                     if data.get("op") == "ping":
                         logger.info(f"Received WS JSON Pong: {data}")
                     elif data.get("event") == "error":
+                        msg = data.get("msg", "").lower()
                         logger.error(f"Bitunix WS error: {data}")
+                        if any(x in msg for x in ["invalid token", "ip ban", "maintenance", "authentication failed"]):
+                            raise FatalError(f"Fatal Bitunix Error: {data}")
                     else:
                         logger.debug(f"Received WS message (no topic): {data}")
                     continue
@@ -162,6 +169,8 @@ class BitunixWSProvider:
                             logger.error(f"Failed to parse ticker data: {e} | Data: {item}")
         except websockets.ConnectionClosed:
             logger.warning("Bitunix WS connection closed in handler")
+        except FatalError:
+            raise
         except Exception as e:
             logger.error(f"Error in Bitunix WS message handler: {e}")
         finally:
@@ -240,6 +249,9 @@ class BitunixWSProvider:
                 await handler_task
                 raise websockets.ConnectionClosed(1006, "Connection lost")
                 
+            except FatalError:
+                # Bubble up fatal errors, don't let tenacity catch them
+                raise
             except (websockets.ConnectionClosed, ConnectionError) as e:
                 logger.error(f"WS Connection Error: {e}")
                 raise # Trigger tenacity retry
