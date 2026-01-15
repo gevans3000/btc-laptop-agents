@@ -49,6 +49,8 @@ def main() -> int:
     ap.add_argument("--show", action="store_true", help="Auto-open summary.html in browser after run")
     ap.add_argument("--strategy", type=str, default="default", help="Strategy name from config/strategies/")
     ap.add_argument("--async", dest="async_mode", action="store_true", default=False, help="Use high-performance asyncio engine")
+    ap.add_argument("--stale-timeout", type=int, default=30, help="Seconds before stale data triggers shutdown")
+    ap.add_argument("--preflight", action="store_true", help="Run system readiness checks")
     args = ap.parse_args()
 
     # Normalize symbol to uppercase
@@ -89,6 +91,11 @@ def main() -> int:
     # Determine mode
     mode = args.mode if args.mode else ("backtest" if args.backtest > 0 else "single")
 
+    if args.preflight:
+        from laptop_agents.core.preflight import run_preflight_checks
+        success = run_preflight_checks(args)
+        return 0 if success else 1
+
     try:
         ret = 1
         if mode == "live-session":
@@ -107,6 +114,7 @@ def main() -> int:
                     fees_bps=args.fees_bps,
                     slip_bps=args.slip_bps,
                     strategy_config=strategy_config,
+                    stale_timeout=args.stale_timeout,
                 ))
                 ret = 0 if result.errors == 0 else 1
             else:

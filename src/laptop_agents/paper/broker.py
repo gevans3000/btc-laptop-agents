@@ -95,6 +95,8 @@ class PaperBroker:
         if client_order_id:
             if client_order_id in self.processed_order_ids:
                 logger.warning(f"Duplicate order {client_order_id} ignored")
+                from laptop_agents.core.orchestrator import append_event
+                append_event({"event": "OrderRejected", "reason": "duplicate_order_id", "order_id": client_order_id}, paper=True)
                 return None
             self.processed_order_ids.add(client_order_id)
 
@@ -102,6 +104,8 @@ class PaperBroker:
         now = time.time()
         if now - self.last_trade_time < self.min_trade_interval_sec:
             logger.info(f"THROTTLED: Only {now - self.last_trade_time:.1f}s since last trade (min: {self.min_trade_interval_sec}s)")
+            from laptop_agents.core.orchestrator import append_event
+            append_event({"event": "OrderRejected", "reason": "throttled", "seconds_since_last": now - self.last_trade_time}, paper=True)
             return None
 
         # Rate limiting (orders per minute)
@@ -109,6 +113,8 @@ class PaperBroker:
         self.order_timestamps = [t for t in self.order_timestamps if now - t < 60]
         if len(self.order_timestamps) >= hard_limits.MAX_ORDERS_PER_MINUTE:
             logger.warning(f"REJECTED: Rate limit {hard_limits.MAX_ORDERS_PER_MINUTE} orders/min exceeded")
+            from laptop_agents.core.orchestrator import append_event
+            append_event({"event": "OrderRejected", "reason": "rate_limit_exceeded"}, paper=True)
             return None
         self.order_timestamps.append(now)
 
@@ -117,6 +123,27 @@ class PaperBroker:
         drawdown_pct = (self.starting_equity - equity) / self.starting_equity * 100.0
         if drawdown_pct > hard_limits.MAX_DAILY_LOSS_PCT:
             logger.warning(f"REJECTED: Daily loss {drawdown_pct:.2f}% > {hard_limits.MAX_DAILY_LOSS_PCT}%")
+            from laptop_agents.core.orchestrator import append_event
+            append_event({"event": "OrderRejected", "reason": "daily_loss_exceeded", "drawdown_pct": drawdown_pct}, paper=True)
+            return None
+
+        # HARD LIMIT ENFORCEMENT
+        # Move these checks earlier to log rejection
+        entry_px_est = float(candle.close)
+        qty_est = float(order["qty"])
+        notional_est = qty_est * entry_px_est
+        
+        if notional_est > hard_limits.MAX_POSITION_SIZE_USD:
+            logger.warning(f"PAPER REJECTED: Notional ${notional_est:.2f} > hard limit ${hard_limits.MAX_POSITION_SIZE_USD}")
+            from laptop_agents.core.orchestrator import append_event
+            append_event({"event": "OrderRejected", "reason": "notional_exceeded", "notional": notional_est}, paper=True)
+            return None
+        
+        leverage_est = notional_est / equity
+        if leverage_est > hard_limits.MAX_LEVERAGE:
+            logger.warning(f"PAPER REJECTED: Leverage {leverage_est:.1f}x > hard limit {hard_limits.MAX_LEVERAGE}x")
+            from laptop_agents.core.orchestrator import append_event
+            append_event({"event": "OrderRejected", "reason": "leverage_exceeded", "leverage": leverage_est}, paper=True)
             return None
 
         entry_type = order["entry_type"]  # "limit" or "market"
@@ -153,18 +180,6 @@ class PaperBroker:
         logger.debug(f"Simulated execution latency: {simulated_latency_ms}ms")
         notional = actual_qty * fill_px_slipped
         entry_fees = calculate_fees(notional, self.fees_bps)
-
-        # HARD LIMIT ENFORCEMENT
-        if notional > hard_limits.MAX_POSITION_SIZE_USD:
-            logger.warning(f"PAPER REJECTED: Notional ${notional:.2f} > hard limit ${hard_limits.MAX_POSITION_SIZE_USD}")
-            return None
-        
-        # Check leverage - approximate using equity from order if provided
-        equity = float(order.get("equity") or 10000.0)
-        leverage = notional / equity
-        if leverage > hard_limits.MAX_LEVERAGE:
-             logger.warning(f"PAPER REJECTED: Leverage {leverage:.1f}x > hard limit {hard_limits.MAX_LEVERAGE}x")
-             return None
 
         # For Inverse, we store 'qty' as Notional USD, but the input 'qty' is in Coins.
         # So we convert it here for the Position record.
@@ -210,6 +225,17 @@ class PaperBroker:
         assert self.pos is not None
         p = self.pos
 
+        if self.pos is not None:
+            if self.pos.bars_open > 50:
+                logger.warning(f"STALE POSITION: Open for {self.pos.bars_open} bars")
+                from laptop_agents.core.orchestrator import append_event
+                append_event({
+                    "event": "StalePosition",
+                    "bars_open": self.pos.bars_open,
+                    "side": self.pos.side,
+                    "entry": self.pos.entry
+                }, paper=True)
+
         # ATR Trailing Stop Logic (simplified: 1.5 ATR from highest close)
         atr_mult = 1.5  # Could be configurable
         if not p.trail_active:
@@ -217,9 +243,25 @@ class PaperBroker:
             if p.side == "LONG" and float(candle.close) > p.entry + abs(p.entry - p.sl) * 0.5:
                 p.trail_active = True
                 p.trail_stop = float(candle.close) - abs(p.entry - p.sl) * atr_mult
+                from laptop_agents.core.orchestrator import append_event
+                append_event({
+                    "event": "TrailActivated",
+                    "side": p.side,
+                    "entry": p.entry,
+                    "trail_stop": p.trail_stop,
+                    "current_price": float(candle.close)
+                }, paper=True)
             elif p.side == "SHORT" and float(candle.close) < p.entry - abs(p.entry - p.sl) * 0.5:
                 p.trail_active = True
                 p.trail_stop = float(candle.close) + abs(p.entry - p.sl) * atr_mult
+                from laptop_agents.core.orchestrator import append_event
+                append_event({
+                    "event": "TrailActivated",
+                    "side": p.side,
+                    "entry": p.entry,
+                    "trail_stop": p.trail_stop,
+                    "current_price": float(candle.close)
+                }, paper=True)
         else:
             # Update trail stop
             if p.side == "LONG":

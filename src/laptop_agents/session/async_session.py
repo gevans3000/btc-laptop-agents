@@ -16,6 +16,7 @@ from laptop_agents.trading.helpers import Candle, Tick, normalize_candle_order
 from laptop_agents.data.loader import load_bitunix_candles
 from laptop_agents.resilience.trading_circuit_breaker import TradingCircuitBreaker
 from laptop_agents.core.orchestrator import render_html, write_trades_csv, LATEST_DIR
+from laptop_agents.core import hard_limits
 
 @dataclass
 class AsyncSessionResult:
@@ -42,6 +43,7 @@ class AsyncRunner:
         tp_r: float = 1.5,
         fees_bps: float = 2.0,
         slip_bps: float = 0.5,
+        stale_timeout: int = 30,
     ):
         self.symbol = symbol
         self.interval = interval
@@ -77,7 +79,7 @@ class AsyncRunner:
         self.start_time = time.time()
         self.kill_file = Path("kill.txt")
         self.last_data_time: float = time.time()
-        self.stale_data_timeout_sec: float = 90.0  # No data for 90s = stale
+        self.stale_data_timeout_sec: float = float(stale_timeout)
         
         self.circuit_breaker = TradingCircuitBreaker(max_daily_drawdown_pct=5.0, max_consecutive_losses=5)
         self.circuit_breaker.set_starting_equity(starting_balance)
@@ -95,6 +97,11 @@ class AsyncRunner:
             self.candles = load_bitunix_candles(self.symbol, self.interval, limit=100)
             self.candles = normalize_candle_order(self.candles)
             logger.info(f"Seed complete: {len(self.candles)} candles")
+            
+            from laptop_agents.trading.helpers import detect_candle_gaps
+            gaps = detect_candle_gaps(self.candles, self.interval)
+            for gap in gaps:
+                logger.warning(f"GAP_DETECTED: {gap['missing_count']} missing between {gap['prev_ts']} and {gap['curr_ts']}")
         except Exception as e:
             logger.warning(f"Failed to seed candles: {e}")
 
@@ -119,7 +126,12 @@ class AsyncRunner:
             # Final cleanup
             if self.broker.pos and self.latest_tick:
                 self.broker.close_all(self.latest_tick.last)
-            self.broker.shutdown()
+            
+            try:
+                await asyncio.wait_for(asyncio.to_thread(self.broker.shutdown), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.error("Broker shutdown timed out after 5s")
+            
             logger.info("AsyncRunner shutdown complete.")
 
     async def market_data_task(self):
@@ -210,6 +222,9 @@ class AsyncRunner:
         self.iterations += 1
         logger.info(f"Candle closed: {candle.ts} at {candle.close}")
         
+        if hasattr(candle, 'volume') and float(candle.volume) == 0:
+            logger.warning(f"LOW_VOLUME_WARNING: Candle {candle.ts} has zero volume")
+        
         try:
             # Generate signal
             order = None
@@ -274,6 +289,9 @@ class AsyncRunner:
         except Exception as e:
             logger.error(f"Error in on_candle_closed: {e}")
             self.errors += 1
+            if self.errors >= hard_limits.MAX_ERRORS_PER_SESSION:
+                logger.error(f"ERROR BUDGET EXHAUSTED: {self.errors} errors. Shutting down.")
+                self.shutdown_event.set()
 
     async def heartbeat_task(self):
         """Logs system status every second."""
@@ -343,6 +361,7 @@ async def run_async_session(
     fees_bps: float = 2.0,
     slip_bps: float = 0.5,
     strategy_config: Optional[Dict[str, Any]] = None,
+    stale_timeout: int = 30,
 ) -> AsyncSessionResult:
     """Entry point for the async session."""
     
@@ -355,7 +374,8 @@ async def run_async_session(
         stop_bps=stop_bps,
         tp_r=tp_r,
         fees_bps=fees_bps,
-        slip_bps=slip_bps
+        slip_bps=slip_bps,
+        stale_timeout=stale_timeout
     )
     
     # Handle OS signals (skip on Windows if not supported)

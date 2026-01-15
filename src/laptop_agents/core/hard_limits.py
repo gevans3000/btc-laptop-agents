@@ -9,3 +9,4 @@ MAX_DAILY_LOSS_PCT = 5.0        # Max daily drawdown percentage
 MAX_ORDERS_PER_MINUTE = 10      # Rate limit for orders
 MIN_RR_RATIO = 1.0              # Reject trades with R:R below this
 MAX_LEVERAGE = 20.0              # Match user's manual settings
+MAX_ERRORS_PER_SESSION = 10     # Shutdown if session hit this many errors

@@ -51,9 +51,13 @@ def append_event(obj: Dict[str, Any], paper: bool = False) -> None:
         PAPER_DIR.mkdir(exist_ok=True)
         with (PAPER_DIR / "events.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
     else:
         with (LATEST_DIR / "events.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
 
 def validate_events_jsonl(events_path: Path) -> tuple[bool, str]:
     return _validate_events_jsonl(events_path, append_event_fn=append_event)
@@ -99,7 +103,7 @@ def get_agent_config(
 def write_trades_csv(trades: List[Dict[str, Any]]) -> None:
     p = LATEST_DIR / "trades.csv"
     fieldnames = ["trade_id", "side", "signal", "entry", "exit", "price", "quantity", "pnl", "fees",
-                  "entry_ts", "exit_ts", "timestamp"]
+                  "entry_ts", "exit_ts", "timestamp", "setup"]
     
     temp_p = p.with_suffix(".tmp")
     try:
@@ -311,7 +315,10 @@ def run_orchestrated_mode(
                              "quantity": float(f.get("qty", 0)),
                              "pnl": float(x.get("pnl", 0)),
                              "fees": float(f.get("fees", 0)) + float(x.get("fees", 0)),
-                             "timestamp": str(x.get("at", event.get("at", "")))
+                             "entry_ts": str(f.get("at", "")),
+                             "exit_ts": str(x.get("at", "")),
+                             "timestamp": str(x.get("at", event.get("at", ""))),
+                             "setup": f.get("setup", "unknown")
                          })
         
         write_trades_csv(trades)

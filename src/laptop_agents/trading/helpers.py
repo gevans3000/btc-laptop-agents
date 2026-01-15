@@ -190,3 +190,31 @@ def simulate_trade_one_bar(
         "fees": float(fees),
         "timestamp": utc_ts(),
     }
+
+
+def detect_candle_gaps(candles: List[Candle], interval: str = "1m") -> List[dict]:
+    """Detect gaps in candle sequence."""
+    if len(candles) < 2:
+        return []
+    
+    interval_seconds = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}.get(interval, 60)
+    gaps = []
+    
+    for i in range(1, len(candles)):
+        try:
+            prev_ts = int(candles[i-1].ts) if str(candles[i-1].ts).isdigit() else 0
+            curr_ts = int(candles[i].ts) if str(candles[i].ts).isdigit() else 0
+            if prev_ts > 0 and curr_ts > 0:
+                expected_gap = interval_seconds
+                actual_gap = curr_ts - prev_ts
+                if actual_gap > expected_gap * 1.5:  # Allow 50% tolerance
+                    missing = (actual_gap // interval_seconds) - 1
+                    gaps.append({
+                        "prev_ts": prev_ts,
+                        "curr_ts": curr_ts,
+                        "missing_count": int(missing)
+                    })
+        except (ValueError, TypeError):
+            continue
+    
+    return gaps
