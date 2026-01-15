@@ -42,7 +42,18 @@ Review key files for conflicting information:
 2.  **RUNBOOK.md** vs **TESTING.md** (Operational steps vs Validation)
 3.  **AI_HANDOFF.md** (Ensure it captures the latest state)
 
-## 5. Cleanup
+## 5. Commit & Debugging Readiness
+All documentation changes must follow the **[Commit Workflow](docs/GIT_WORKFLOW.md)**.
+- **Atomic Commits**: Keep documentation changes separate from code changes when possible.
+- **Descriptive Messages**: Use `docs(scope): message` for all documentation updates.
+- **Traceability**: Commits are required to allow for easy rollback and issue tracking.
+// turbo
+```powershell
+git status
+Write-Host "Verify all documentation changes are staged and atomic before committing." -ForegroundColor Yellow
+```
+
+## 6. Cleanup
 // turbo
 Remove temporary files.
 ```powershell

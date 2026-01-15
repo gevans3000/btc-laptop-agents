@@ -26,4 +26,4 @@ if ($latestLog) { Get-Content $latestLog.FullName -Tail 50 }
 ```powershell
 Remove-Item -Recurse -Force __pycache__ -ErrorAction SilentlyContinue
 ```
-产
+
