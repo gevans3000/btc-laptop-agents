@@ -45,6 +45,7 @@ class AsyncRunner:
         fees_bps: float = 2.0,
         slip_bps: float = 0.5,
         stale_timeout: int = 30,
+        provider: Optional[Any] = None,
     ):
         self.symbol = symbol
         self.interval = interval
@@ -65,7 +66,8 @@ class AsyncRunner:
         self.trades = 0
         
         # Components
-        self.provider = BitunixWSProvider(symbol)
+        from laptop_agents.data.providers.bitunix_ws import BitunixWSProvider
+        self.provider = provider or BitunixWSProvider(symbol)
         state_path = str(PAPER_DIR / "async_broker_state.json")
         self.broker = PaperBroker(
             symbol=symbol, 
@@ -379,6 +381,7 @@ async def run_async_session(
     slip_bps: float = 0.5,
     strategy_config: Optional[Dict[str, Any]] = None,
     stale_timeout: int = 30,
+    replay_path: Optional[str] = None,
 ) -> AsyncSessionResult:
     """Entry point for the async session."""
     
@@ -392,8 +395,14 @@ async def run_async_session(
         tp_r=tp_r,
         fees_bps=fees_bps,
         slip_bps=slip_bps,
-        stale_timeout=stale_timeout
+        stale_timeout=stale_timeout,
+        provider=None
     )
+    
+    if replay_path:
+        from laptop_agents.backtest.replay_runner import ReplayProvider
+        runner.provider = ReplayProvider(Path(replay_path))
+        logger.info(f"Using REPLAY PROVIDER from {replay_path}")
     
     # Handle OS signals (skip on Windows if not supported)
     try:

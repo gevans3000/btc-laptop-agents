@@ -51,6 +51,7 @@ def main() -> int:
     ap.add_argument("--async", dest="async_mode", action="store_true", default=False, help="Use high-performance asyncio engine")
     ap.add_argument("--stale-timeout", type=int, default=30, help="Seconds before stale data triggers shutdown")
     ap.add_argument("--preflight", action="store_true", help="Run system readiness checks")
+    ap.add_argument("--replay", type=str, default=None, help="Path to events.jsonl for deterministic replay")
     args = ap.parse_args()
 
     # Normalize symbol to uppercase
@@ -115,6 +116,7 @@ def main() -> int:
                     slip_bps=args.slip_bps,
                     strategy_config=strategy_config,
                     stale_timeout=args.stale_timeout,
+                    replay_path=args.replay,
                 ))
                 ret = 0 if result.errors == 0 else 1
             else:
