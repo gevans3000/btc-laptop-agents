@@ -21,6 +21,7 @@ from laptop_agents.core.hard_limits import MAX_ERRORS_PER_SESSION
 import threading
 import os
 from laptop_agents.core.state_manager import StateManager
+from laptop_agents.core.logger import write_alert
 
 @dataclass
 class AsyncSessionResult:
@@ -189,6 +190,9 @@ class AsyncRunner:
                 logger.info(f"Final report written to {report_path}")
             except Exception as re:
                 logger.error(f"Failed to write final report: {re}")
+
+            if self.errors > 0:
+                write_alert(f"Session failed with {self.errors} errors")
 
     async def market_data_task(self):
         """Consumes WebSocket data and triggers strategy on candle closure."""

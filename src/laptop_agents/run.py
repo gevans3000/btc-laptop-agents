@@ -23,6 +23,16 @@ from laptop_agents.core.orchestrator import (
     LATEST_DIR,
     RUNS_DIR,
 )
+from laptop_agents.core.logger import write_alert
+
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logger.critical("Unhandled exception", exc_info=(exc_type, exc_value, exc_traceback))
+    write_alert(f"CRITICAL: Unhandled exception: {exc_value}")
+
+sys.excepthook = handle_exception
 
 def main() -> int:
     # 1.1 Single-Instance Locking
