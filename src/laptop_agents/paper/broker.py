@@ -136,6 +136,9 @@ class PaperBroker:
         # HARD LIMIT ENFORCEMENT
         # Move these checks earlier to log rejection
         entry_px_est = float(candle.close)
+        if entry_px_est <= 0:
+            logger.error("REJECTED: Entry price estimate is zero or negative")
+            return None
         qty_est = float(order["qty"])
         notional_est = qty_est * entry_px_est
         
@@ -165,8 +168,11 @@ class PaperBroker:
                 fill_px = float(tick.ask) if side == "LONG" else float(tick.bid)
                 actual_slip_bps = 0.0 # Spread essentially IS the slippage
             else:
-                fill_px = float(candle.close)
-                actual_slip_bps = self.slip_bps
+                # 2.2 Synthesized Bid/Ask Spread (Tickless mode)
+                # Plan: Use 5 bps spread (0.0005)
+                spread_mult = 0.0005
+                fill_px = float(candle.close) * (1 + spread_mult) if side == "LONG" else float(candle.close) * (1 - spread_mult)
+                actual_slip_bps = 0.0 # We already applied the spread as fill price adjustment
         else:
             # limit fill if touched
             if not (candle.low <= entry <= candle.high):
@@ -536,6 +542,19 @@ class PaperBroker:
 
     def shutdown(self) -> None:
         """Cleanup on shutdown."""
+        # 4.3 Clean Up Working Orders
+        if self.working_orders:
+            from laptop_agents.core.orchestrator import append_event
+            for order in self.working_orders:
+                logger.info(f"WorkingOrderCancelled: {order.get('client_order_id', 'unknown')}")
+                append_event({
+                    "event": "WorkingOrderCancelled",
+                    "order_id": order.get("client_order_id"),
+                    "side": order.get("side"),
+                    "qty": order.get("qty")
+                }, paper=True)
+            self.working_orders = []
+            
         if self.state_path:
             self._save_state()
         logger.info("Broker shutdown complete.")

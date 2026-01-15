@@ -30,7 +30,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "ABORT: Verification failed." -ForegroundC
 ## 3. Run Unit Tests
 // turbo
 ```powershell
-$env:PYTHONPATH='src'; python -m pytest tests/ -q --tb=short
+$env:PYTHONPATH='src'; python -m pytest tests/ -q --tb=short -p no:cacheprovider
 if ($LASTEXITCODE -ne 0) { Write-Host "ABORT: Tests failed." -ForegroundColor Red; exit 1 }
 Write-Host "✓ All tests passed" -ForegroundColor Green
 ```

@@ -49,8 +49,9 @@ class AsyncRunner:
         tp_r: float = 1.5,
         fees_bps: float = 2.0,
         slip_bps: float = 0.5,
-        stale_timeout: int = 60,
+        stale_timeout: int = 30,
         execution_latency_ms: int = 200,
+        dry_run: bool = False,
         provider: Optional[Any] = None,
     ):
         self.symbol = symbol
@@ -88,8 +89,10 @@ class AsyncRunner:
         # Control
         self.shutdown_event = asyncio.Event()
         self.start_time = time.time()
-        self.kill_file = Path(__file__).resolve().parent.parent.parent.parent / "kill.txt"
+        from laptop_agents.run import REPO_ROOT
+        self.kill_file = REPO_ROOT / "kill.txt"
         self.last_data_time: float = time.time()
+        self.dry_run = dry_run
         self.stale_data_timeout_sec: float = float(stale_timeout)
         self.execution_latency_ms = execution_latency_ms
         
@@ -111,10 +114,9 @@ class AsyncRunner:
         cb_state = self.state_manager.get_circuit_breaker_state()
         if cb_state:
             logger.info("Restoring circuit breaker state...")
-            self.circuit_breaker.consecutive_losses = cb_state.get("consecutive_losses", 0)
-            self.circuit_breaker.peak_equity = cb_state.get("peak_equity", self.starting_equity)
-            if cb_state.get("tripped"):
-                 logger.warning("Circuit breaker was previously TRIPPED. It remains TRIPPED.")
+            self.circuit_breaker.restore_state(cb_state)
+            if self.circuit_breaker.is_tripped():
+                 logger.warning(f"Circuit breaker was previously TRIPPED ({self.circuit_breaker._trip_reason}). It remains TRIPPED.")
                  # Note: TradingCircuitBreaker doesn't have a direct 'trip()' method but is_tripped() checks state
         
         # Start Threaded Watchdog (independent of event loop)
@@ -177,6 +179,19 @@ class AsyncRunner:
                 logger.info(f"Metrics exported to {metrics_path}")
             except Exception as me:
                 logger.error(f"Failed to export metrics: {me}")
+            
+            # Export Metrics to CSV
+            try:
+                import csv
+                csv_path = LATEST_DIR / "metrics.csv"
+                if self.metrics:
+                    with open(csv_path, "w", newline="") as f:
+                        writer = csv.DictWriter(f, fieldnames=self.metrics[0].keys())
+                        writer.writeheader()
+                        writer.writerows(self.metrics)
+                    logger.info(f"Metrics exported to {csv_path}")
+            except Exception as ce:
+                logger.error(f"Failed to export CSV metrics: {ce}")
             
             # Generate final_report.json
             try:
@@ -346,6 +361,8 @@ Total Fees: ${total_fees:,.2f}
                     raw_signal = None  # Suppress trade on agent failure
             
             if raw_signal:
+                import random
+                latency = random.randint(50, 500)
                 signal_side = "LONG" if raw_signal == "BUY" else "SHORT"
                 risk_amount = self.broker.current_equity * (self.risk_pct / 100.0)
                 stop_distance = float(candle.close) * (self.stop_bps / 10000.0)
@@ -367,11 +384,12 @@ Total Fees: ${total_fees:,.2f}
             # Execute via broker
             current_tick = self.latest_tick
             if order and order.get("go"):
-                if self.execution_latency_ms > 0:
-                    logger.info(f"Simulating latency: {self.execution_latency_ms}ms")
-                    await asyncio.sleep(self.execution_latency_ms / 1000.0)
-                    # After sleep, we MUST use the newest tick for fill price to avoid look-ahead bias
-                    current_tick = self.latest_tick
+                import random
+                latency = random.randint(50, 500)
+                logger.info(f"Simulating latency: {latency}ms")
+                await asyncio.sleep(latency / 1000.0)
+                # After sleep, we MUST use the newest tick for fill price to avoid look-ahead bias
+                current_tick = self.latest_tick
 
             events = self.broker.on_candle(candle, order, tick=current_tick)
             
@@ -497,8 +515,8 @@ Total Fees: ${total_fees:,.2f}
                 # Funding windows: 00:00, 08:00, 16:00 UTC
                 if now.hour in [0, 8, 16] and now.minute == 0 and now.hour != last_funding_hour:
                     logger.info(f"Funding window detected at {now.hour:02d}:00 UTC")
-                    # Fixed mock rate of 0.01% (typical for BTC perpetuals)
-                    rate = 0.0001 
+                    rate = await self.provider.funding_rate()
+                    logger.info(f"FUNDING APPLIED: Rate {rate:.6f}")
                     self.broker.apply_funding(rate, now.isoformat())
                     last_funding_hour = now.hour
                 
@@ -533,6 +551,7 @@ async def run_async_session(
     strategy_config: Optional[Dict[str, Any]] = None,
     stale_timeout: int = 30,
     execution_latency_ms: int = 200,
+    dry_run: bool = False,
     replay_path: Optional[str] = None,
 ) -> AsyncSessionResult:
     """Entry point for the async session."""
@@ -549,6 +568,7 @@ async def run_async_session(
         slip_bps=slip_bps,
         stale_timeout=stale_timeout,
         execution_latency_ms=execution_latency_ms,
+        dry_run=dry_run,
         provider=None
     )
     

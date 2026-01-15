@@ -42,7 +42,29 @@ def reset_latest_dir() -> None:
         shutil.rmtree(LATEST_DIR)
     LATEST_DIR.mkdir(parents=True, exist_ok=True)
 
+# Global set to track event IDs for idempotency
+EVENT_CACHE = set()
+
 def append_event(obj: Dict[str, Any], paper: bool = False) -> None:
+    # 5.3 Idempotent Event Logging
+    event_id = obj.get("event_id")
+    if not event_id:
+        # Create stable ID from content (excluding timestamp/volatile fields if possible)
+        # For simplicity, we use everything but the timestamp for the hash
+        content = {k: v for k, v in obj.items() if k != "timestamp"}
+        event_id = hash(json.dumps(content, sort_keys=True))
+        obj["event_id"] = event_id
+    
+    if event_id in EVENT_CACHE:
+        return
+    EVENT_CACHE.add(event_id)
+    # Keep cache from growing too large
+    if len(EVENT_CACHE) > 5000:
+        # Remove oldest items (not strict LRU but works for basic deduplication)
+        list_cache = list(EVENT_CACHE)
+        EVENT_CACHE.clear()
+        EVENT_CACHE.update(list_cache[-2500:])
+
     obj.setdefault("timestamp", utc_ts())
     event_name = obj.get("event", "UnnamedEvent")
     logger.info(f"EVENT: {event_name}", obj)

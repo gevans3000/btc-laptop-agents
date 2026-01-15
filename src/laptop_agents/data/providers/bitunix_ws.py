@@ -47,8 +47,9 @@ class BitunixWSProvider:
             
         self.ws_kline: Optional[websockets.WebSocketClientProtocol] = None
         self.ws_ticker: Optional[websockets.WebSocketClientProtocol] = None
-        self.queue: asyncio.Queue[Union[Candle, Tick]] = asyncio.Queue(maxsize=1000)
+        self.queue: asyncio.Queue[Union[Candle, Tick]] = asyncio.Queue(maxsize=500)
         self._running = False
+        self.connected = False
         self.last_message_time: float = 0.0
         self.heartbeat_timeout_sec: float = 30.0  # Plan said 10, but let's use 30 for safety on dev machines
         self.subscriptions: set[str] = set()
@@ -80,6 +81,7 @@ class BitunixWSProvider:
         logger.info(f"Connecting to Bitunix WS (Ticker): {self.URL}")
         self.ws_ticker = await websockets.connect(self.URL)
         self._running = True
+        self.connected = True
         logger.info("Connected to Bitunix Kline & Ticker WS")
 
     async def subscribe_kline(self, interval: str = "1m"):
@@ -111,7 +113,7 @@ class BitunixWSProvider:
 
     async def _resubscribe(self):
         """Re-send all active subscriptions."""
-        if not self.ws_kline or not self.ws_ticker or not self.subscriptions:
+        if not self.ws_kline or not self.ws_ticker or not self.subscriptions or not self.connected:
             return
         
         for sub in self.subscriptions:
@@ -119,11 +121,16 @@ class BitunixWSProvider:
                 "op": "subscribe",
                 "args": [sub]
             }
-            if "kline" in sub:
-                await self.ws_kline.send(json.dumps(msg))
-            else:
-                await self.ws_ticker.send(json.dumps(msg))
-            logger.info(f"Resubscribed to {sub}")
+            try:
+                if "kline" in sub:
+                    await self.ws_kline.send(json.dumps(msg))
+                else:
+                    await self.ws_ticker.send(json.dumps(msg))
+                logger.info(f"Resubscribed to {sub}")
+            except Exception as e:
+                logger.error(f"Failed to resubscribe to {sub}: {e}")
+                # We don't raise here to allow other subscriptions to try, 
+                # but listen() will likely fail on the next message anyway if connection is dead.
 
     async def _handle_messages(self, ws, name="WS"):
         """Internal loop to process incoming WS messages."""
@@ -176,8 +183,11 @@ class BitunixWSProvider:
                                 volume=validated.baseVol
                             )
                             try:
+                                if self.queue.full():
+                                    self.queue.get_nowait()
+                                    logger.warning("QUEUE_OVERFLOW: Dropped oldest market data item (Candle)")
                                 self.queue.put_nowait(candle)
-                            except asyncio.QueueFull:
+                            except (asyncio.QueueFull, asyncio.QueueEmpty):
                                 pass
                             if self.last_message_time % 60 < 2: # Reduce spam
                                 logger.info(f"WS Candle Update: {candle.ts} | {candle.close}")
@@ -199,13 +209,31 @@ class BitunixWSProvider:
                                 ts=validated.time
                             )
                             try:
+                                if self.queue.full():
+                                    self.queue.get_nowait()
+                                    logger.warning("QUEUE_OVERFLOW: Dropped oldest market data item (Tick)")
                                 self.queue.put_nowait(tick)
-                            except asyncio.QueueFull:
+                            except (asyncio.QueueFull, asyncio.QueueEmpty):
                                 pass
                         except (ValidationError, TypeError, KeyError, ValueError) as e:
                             logger.error(f"Failed to parse ticker data: {e} | Data: {item}")
         except websockets.ConnectionClosed:
             logger.warning(f"Bitunix {name} connection closed in handler")
+
+    async def funding_rate(self) -> float:
+        """Fetch current funding rate via REST."""
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"https://fapi.bitunix.com/api/v1/futures/market/funding_rate?symbol={self.symbol}")
+                data = resp.json()
+                if data.get("code") == 0:
+                    fr_list = data.get("data", [])
+                    if fr_list:
+                        return float(fr_list[0].get("fundingRate", 0.0001))
+        except Exception as e:
+            logger.warning(f"Failed to fetch funding rate: {e}")
+        return 0.0001 # Default
 
     async def _fetch_and_inject_gap(self, start_ts: int, end_ts: int):
         """Fetch missing data from REST and inject into queue."""
@@ -323,6 +351,7 @@ class BitunixWSProvider:
                 logger.error(f"Unexpected error in WS listen: {e}")
                 raise # Trigger tenacity retry
             finally:
+                self.connected = False
                 if self.ws_kline:
                     await self.ws_kline.close()
                     self.ws_kline = None

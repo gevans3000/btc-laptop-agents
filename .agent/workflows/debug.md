@@ -65,7 +65,17 @@ $latestLog = Get-ChildItem logs/*.log -ErrorAction SilentlyContinue | Sort-Objec
 if ($latestLog) { Get-Content $latestLog.FullName -Tail 30 }
 ```
 
-## 8. Clear Cache (Optional)
+## 8. Clear Cache (Robust)
+// turbo
 ```powershell
-Remove-Item -Recurse -Force __pycache__ -ErrorAction SilentlyContinue
+Get-ChildItem -Path . -Filter "__pycache__" -Recurse | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path . -Filter ".pytest_cache" -Recurse | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+```
+
+## 9. Run Fast Smoke Tests
+// turbo
+```powershell
+$env:PYTHONPATH="src"
+# Use -p no:cacheprovider to prevent Windows file locking crashes in CI/agent environments
+python -m pytest tests/test_pipeline_smoke.py -q --tb=short -p no:cacheprovider
 ```

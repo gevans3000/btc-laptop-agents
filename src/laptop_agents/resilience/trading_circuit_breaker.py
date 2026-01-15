@@ -105,3 +105,15 @@ class TradingCircuitBreaker:
         self._tripped = False
         self._trip_reason = None
         self._consecutive_losses = 0
+
+    def restore_state(self, state: dict) -> None:
+        """Restore state from persisted data."""
+        self._tripped = state.get("tripped", False)
+        self._trip_reason = state.get("reason")
+        self._consecutive_losses = state.get("consecutive_losses", 0)
+        self._peak_equity = state.get("peak_equity", self._starting_equity)
+        if state.get("trip_time"):
+            try:
+                self._trip_time = datetime.fromisoformat(state["trip_time"])
+            except ValueError:
+                self._trip_time = None

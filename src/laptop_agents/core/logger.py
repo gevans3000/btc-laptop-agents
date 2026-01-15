@@ -114,10 +114,13 @@ def setup_logger(name: str = "btc_agents", log_dir: str = "logs"):
     fh.addFilter(sensitive_filter)
     logger.addHandler(fh)
     
-    # Console Handler (Human readable)
+    # Console Handler
     ch = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    ch.setFormatter(formatter)
+    if os.environ.get("JSON_LOGS") == "1":
+        ch.setFormatter(JsonFormatter())
+    else:
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        ch.setFormatter(formatter)
     ch.addFilter(sensitive_filter)
     logger.addHandler(ch)
 

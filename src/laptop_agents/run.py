@@ -161,6 +161,7 @@ def main() -> int:
                     strategy_config=strategy_config,
                     stale_timeout=args.stale_timeout,
                     execution_latency_ms=args.execution_latency_ms,
+                    dry_run=args.dry_run,
                     replay_path=args.replay,
                 ))
                 ret = 0 if result.errors == 0 else 1
