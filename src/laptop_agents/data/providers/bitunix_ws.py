@@ -53,6 +53,8 @@ class BitunixWSProvider:
         self.heartbeat_timeout_sec: float = 30.0  # Plan said 10, but let's use 30 for safety on dev machines
         self.subscriptions: set[str] = set()
         self.time_offset: float = 0.0  # ms
+        self.last_kline_ts: Optional[int] = None
+        self.interval: str = "1m"
 
     async def connect(self):
         """Establish WebSocket connection."""
@@ -82,6 +84,7 @@ class BitunixWSProvider:
 
     async def subscribe_kline(self, interval: str = "1m"):
         """Subscribe to kline channel."""
+        self.interval = interval
         if not self.ws_kline:
             raise RuntimeError("WS kline not connected")
             
@@ -154,6 +157,16 @@ class BitunixWSProvider:
                         try:
                             # Use Pydantic for validation
                             validated = self.KlineMessage(**item)
+                            
+                            new_ts = int(validated.time)
+                            interval_sec = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}.get(self.interval, 60)
+                            if self.last_kline_ts and new_ts > self.last_kline_ts + interval_sec:
+                                logger.warning(f"Gap detected! {new_ts - self.last_kline_ts}s missing. Fetching from REST.")
+                                # Start gap fill task
+                                asyncio.create_task(self._fetch_and_inject_gap(self.last_kline_ts, new_ts))
+                            
+                            self.last_kline_ts = new_ts
+                            
                             candle = Candle(
                                 ts=validated.time,
                                 open=validated.open,
@@ -193,6 +206,23 @@ class BitunixWSProvider:
                             logger.error(f"Failed to parse ticker data: {e} | Data: {item}")
         except websockets.ConnectionClosed:
             logger.warning(f"Bitunix {name} connection closed in handler")
+
+    async def _fetch_and_inject_gap(self, start_ts: int, end_ts: int):
+        """Fetch missing data from REST and inject into queue."""
+        try:
+            from laptop_agents.data.loader import load_bitunix_candles
+            # Fetch a few more than needed just in case
+            candles = await asyncio.to_thread(load_bitunix_candles, self.symbol, self.interval, limit=10)
+            for c in candles:
+                try:
+                    c_ts = int(c.ts)
+                    if c_ts > start_ts and c_ts < end_ts:
+                        logger.info(f"Injecting missing candle: {c.ts}")
+                        self.queue.put_nowait(c)
+                except (ValueError, TypeError):
+                    continue
+        except Exception as e:
+            logger.error(f"Failed to fetch gap data: {e}")
         except FatalError:
             raise
         except Exception as e:
