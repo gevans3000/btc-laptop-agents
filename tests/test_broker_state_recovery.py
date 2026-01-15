@@ -55,7 +55,15 @@ def test_broker_state_recovery():
         broker2 = PaperBroker(symbol="BTCUSDT", state_path=str(state_file))
         assert broker2.current_equity == 10000.0
         assert broker2.pos is None
-        assert corrupt_file.exists()
+        
+        # Check for timestamped corrupt file
+        found_corrupt = False
+        # state_file is "test_state_broker.json"
+        # with_suffix replaces .json, so we look for test_state_broker.corrupt.*
+        for f in state_file.parent.glob(state_file.stem + ".corrupt.*"):
+             found_corrupt = True
+             f.unlink()
+        assert found_corrupt
     finally:
         if state_file.exists(): state_file.unlink()
         if corrupt_file.exists(): corrupt_file.unlink()

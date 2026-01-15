@@ -11,6 +11,7 @@ import json
 import random
 import asyncio
 from pathlib import Path
+import shutil
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -423,7 +424,8 @@ class PaperBroker:
             "processed_order_ids": list(self.processed_order_ids),
             "order_history": self.order_history,
             "working_orders": self.working_orders,
-            "pos": None
+            "pos": None,
+            "saved_at": time.time()  # For debugging
         }
         if self.pos:
             state["pos"] = {
@@ -439,52 +441,101 @@ class PaperBroker:
                 "trail_stop": self.pos.trail_stop
             }
         
-        temp_path = Path(self.state_path).with_suffix(".tmp")
-        with open(temp_path, "w") as f:
-            json.dump(state, f, indent=2)
-        temp_path.replace(self.state_path)
+        main_path = Path(self.state_path)
+        temp_path = main_path.with_suffix(".tmp")
+        backup_path = main_path.with_suffix(".bak")
+        
+        try:
+            # Step 1: Write to temp file
+            with open(temp_path, "w") as f:
+                json.dump(state, f, indent=2)
+            
+            # Step 2: Validate temp file is valid JSON
+            with open(temp_path, "r") as f:
+                json.load(f)  # Will raise if corrupt
+            
+            # Step 3: Backup existing state (if exists and valid)
+            if main_path.exists():
+                try:
+                    with open(main_path, "r") as f:
+                        json.load(f)  # Validate before backing up
+                    import shutil
+                    shutil.copy2(main_path, backup_path)
+                except (json.JSONDecodeError, Exception):
+                    pass  # Don't backup corrupt files
+            
+            # Step 4: Atomic rename temp -> main
+            temp_path.replace(main_path)
+            
+        except Exception as e:
+            logger.error(f"Failed to save state: {e}")
+            # Clean up temp file if it exists
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass
 
     def _load_state(self) -> None:
         path = Path(self.state_path)
-        if not path.exists():
-            return
+        backup_path = path.with_suffix(".bak")
         
-        is_corrupt = False
-        try:
-            with open(path) as f:
-                try:
+        # Try main file first, then backup
+        for try_path, is_backup in [(path, False), (backup_path, True)]:
+            if not try_path.exists():
+                continue
+                
+            try:
+                with open(try_path) as f:
                     state = json.load(f)
-                except json.JSONDecodeError:
-                    is_corrupt = True
-            
-            if is_corrupt:
-                corrupt_path = path.with_suffix(".json.corrupt")
-                # Safety: if corrupt file already exists, delete it or rename differently
-                if corrupt_path.exists():
-                    corrupt_path.unlink()
-                path.rename(corrupt_path)
-                logger.critical(f"BROKER STATE CORRUPT: Renamed to {corrupt_path}. Starting with fresh state.")
-                return
-
-            self.starting_equity = state.get("starting_equity", self.starting_equity)
-            self.current_equity = state.get("current_equity", self.current_equity)
-            self.processed_order_ids = set(state.get("processed_order_ids", []))
-            self.order_history = state.get("order_history", [])
-            self.working_orders = state.get("working_orders", [])
-            # Expire stale working orders (> 24 hours old)
-            now = time.time()
-            self.working_orders = [
-                o for o in self.working_orders 
-                if now - o.get("created_at", now) < 86400  # 24 hours
-            ]
-            if len(state.get("working_orders", [])) != len(self.working_orders):
-                logger.info(f"Expired {len(state.get('working_orders', [])) - len(self.working_orders)} stale working orders")
-            pos_data = state.get("pos")
-            if pos_data:
-                self.pos = Position(**pos_data)
-            logger.info(f"Loaded broker state from {self.state_path}")
-        except Exception as e:
-            logger.error(f"Failed to load broker state: {e}")
+                
+                self.starting_equity = state.get("starting_equity", self.starting_equity)
+                self.current_equity = state.get("current_equity", self.current_equity)
+                self.processed_order_ids = set(state.get("processed_order_ids", []))
+                self.order_history = state.get("order_history", [])
+                self.working_orders = state.get("working_orders", [])
+                
+                # Expire stale working orders (> 24 hours old)
+                now = time.time()
+                original_count = len(self.working_orders)
+                self.working_orders = [
+                    o for o in self.working_orders 
+                    if now - o.get("created_at", now) < 86400  # 24 hours
+                ]
+                if original_count != len(self.working_orders):
+                    logger.info(f"Expired {original_count - len(self.working_orders)} stale working orders")
+                
+                pos_data = state.get("pos")
+                if pos_data:
+                    self.pos = Position(**pos_data)
+                
+                source = "backup" if is_backup else "primary"
+                logger.info(f"Loaded broker state from {source}: {try_path}")
+                
+                # If we loaded from backup, immediately save to restore primary
+                if is_backup:
+                    logger.warning("Loaded from BACKUP. Primary was corrupt. Restoring primary file...")
+                    self._save_state()
+                
+                return  # Success - exit the loop
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"State file corrupt ({try_path}): {e}")
+                # Rename corrupt file for debugging
+                corrupt_path = try_path.with_suffix(f".corrupt.{int(time.time())}")
+                try:
+                    try_path.rename(corrupt_path)
+                    logger.warning(f"Renamed corrupt file to {corrupt_path}")
+                except Exception:
+                    pass
+                continue  # Try next file
+                
+            except Exception as e:
+                logger.error(f"Failed to load broker state from {try_path}: {e}")
+                continue
+        
+        # If we get here, no valid state was found
+        logger.warning("No valid state file found. Starting with fresh state.")
 
     def get_unrealized_pnl(self, current_price: float) -> float:
         if self.pos is None:

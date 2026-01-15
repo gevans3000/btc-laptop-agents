@@ -56,8 +56,8 @@ def pytest_exception_interact(node, call, report):
             try:
                 # Capture with "NEEDS_DIAGNOSIS" so it shows up in pending reports
                 error_fingerprinter.capture(error_text, "NEEDS_DIAGNOSIS")
-                print(f" ✓ Error captured to Knowledge Base (queued for diagnosis)")
+                print(f" [OK] Error captured to Knowledge Base (queued for diagnosis)")
             except Exception as e:
-                print(f" ⚠ Failed to capture error: {e}")
+                print(f" [!] Failed to capture error: {e}")
                 
         print("="*80 + "\n")

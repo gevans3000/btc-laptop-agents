@@ -65,7 +65,8 @@ class AsyncRunner:
         self.iterations = 0
         self.errors = 0
         self.consecutive_ws_errors: int = 0
-        self.max_ws_errors: int = 3
+        self.max_ws_errors: int = 10  # Increased tolerance; provider has its own tenacity retries
+        self.ws_error_backoff_sec: float = 5.0  # Base backoff between reconnect attempts
         
         # New: Store risk parameters
         self.risk_pct = risk_pct
@@ -110,6 +111,8 @@ class AsyncRunner:
         
         # Control
         self.shutdown_event = asyncio.Event()
+        # Execution queue for decoupled order processing
+        self.execution_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
         self.start_time = time.time()
         from laptop_agents.core.orchestrator import REPO_ROOT
         self.kill_file = REPO_ROOT / "kill.txt"
@@ -173,6 +176,7 @@ class AsyncRunner:
             asyncio.create_task(self.kill_switch_task()),
             asyncio.create_task(self.stale_data_task()),
             asyncio.create_task(self.funding_task()),
+            asyncio.create_task(self.execution_task()),
         ]
         
         try:
@@ -270,8 +274,10 @@ Total Fees: ${total_fees:,.2f}
                 if isinstance(item, Tick):
                     self.latest_tick = item
                     self.last_data_time = time.time()
-                    # Immediate watchdog check on EVERY tick is handled by watchdog_task
-                    # but we could also trigger it here for even lower latency
+                    # Reset consecutive errors on successful data receipt
+                    if self.consecutive_ws_errors > 0:
+                        logger.info(f"WS connection recovered. Resetting error count from {self.consecutive_ws_errors} to 0.")
+                        self.consecutive_ws_errors = 0
                     
                 elif isinstance(item, Candle):
                     # 1.1 Implement Gap Backfill Logic
@@ -305,13 +311,24 @@ Total Fees: ${total_fees:,.2f}
                         
         except asyncio.CancelledError:
             pass
+        except asyncio.CancelledError:
+            raise  # Don't count cancellation as an error
         except Exception as e:
             logger.error(f"Error in market_data_task: {e}")
             self.consecutive_ws_errors += 1
             self.errors += 1
+            
             if self.consecutive_ws_errors >= self.max_ws_errors:
                 logger.error(f"WS_FATAL: {self.max_ws_errors} consecutive errors. Triggering shutdown.")
                 self.shutdown_event.set()
+            else:
+                # Exponential backoff before next reconnect attempt
+                backoff = min(self.ws_error_backoff_sec * (2 ** (self.consecutive_ws_errors - 1)), 60.0)
+                logger.warning(f"WS error #{self.consecutive_ws_errors}. Backing off {backoff:.1f}s before retry...")
+                await asyncio.sleep(backoff)
+                # Recursively restart the task if not shutdown
+                if not self.shutdown_event.is_set():
+                    await self.market_data_task()
 
     async def kill_switch_task(self):
         """Monitors for kill.txt file to trigger emergency shutdown."""
@@ -412,44 +429,29 @@ Total Fees: ${total_fees:,.2f}
                         "client_order_id": f"async_{int(time.time())}_{self.iterations}"
                     }
 
-            # Execute via broker
-            current_tick = self.latest_tick
+            # Queue order for async execution (non-blocking)
             if order and order.get("go"):
-                if not self.dry_run:
-                    import random
-                    latency = random.randint(50, 500)
-                    logger.info(f"Simulating latency: {latency}ms")
-                    await asyncio.sleep(latency / 1000.0)
-                    # After sleep, we MUST use the newest tick for fill price to avoid look-ahead bias
-                    current_tick = self.latest_tick
-
-            events = self.broker.on_candle(candle, order, tick=current_tick)
-            
-            for fill in events.get("fills", []):
-                self.trades += 1
-                logger.info(f"STRATEGY FILL: {fill['side']} @ {fill['price']}")
-                append_event({"event": "StrategyFill", **fill}, paper=True)
-                
-            for exit_event in events.get("exits", []):
-                self.trades += 1
-                logger.info(f"STRATEGY EXIT: {exit_event['reason']} @ {exit_event['price']}")
-                append_event({"event": "StrategyExit", **exit_event}, paper=True)
-
-            # Update circuit breaker
-            trade_pnl = None
-            for exit_event in events.get("exits", []):
-                trade_pnl = exit_event.get("pnl", 0)
-                
-            self.circuit_breaker.update_equity(self.broker.current_equity, trade_pnl)
-
-            if self.circuit_breaker.is_tripped():
-                logger.warning(f"CIRCUIT BREAKER TRIPPED: {self.circuit_breaker.get_status()}")
-                self.shutdown_event.set()
-
-            # Save state (skip in dry_run for performance/stress-tests)
-            if not self.dry_run:
-                self.state_manager.set_circuit_breaker_state(self.circuit_breaker.get_status())
-                self.state_manager.save()
+                import random
+                latency_ms = random.randint(50, 500)
+                logger.info(f"Queuing order for execution (latency: {latency_ms}ms)")
+                try:
+                    self.execution_queue.put_nowait({
+                        "order": order,
+                        "candle": candle,
+                        "latency_ms": latency_ms,
+                        "queued_at": time.time()
+                    })
+                except asyncio.QueueFull:
+                    logger.error("EXECUTION_QUEUE_FULL: Order dropped!")
+                    append_event({"event": "OrderDropped", "reason": "queue_full"}, paper=True)
+            else:
+                # Still process candle for exits on existing positions
+                events = self.broker.on_candle(candle, None, tick=self.latest_tick)
+                for exit_event in events.get("exits", []):
+                    self.trades += 1
+                    logger.info(f"CANDLE EXIT: {exit_event['reason']} @ {exit_event['price']}")
+                    append_event({"event": "CandleExit", **exit_event}, paper=True)
+                    self.circuit_breaker.update_equity(self.broker.current_equity, exit_event.get("pnl", 0))
 
         except Exception as e:
             logger.error(f"Error in on_candle_closed: {e}")
@@ -558,6 +560,66 @@ Total Fees: ${total_fees:,.2f}
                     last_funding_hour = None
                     
                 await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            pass
+
+    async def execution_task(self):
+        """Consumes orders from execution_queue and processes them with simulated latency."""
+        try:
+            while not self.shutdown_event.is_set():
+                try:
+                    # Wait for an order with timeout so we can check shutdown
+                    order_payload = await asyncio.wait_for(
+                        self.execution_queue.get(), 
+                        timeout=1.0
+                    )
+                except asyncio.TimeoutError:
+                    continue
+                
+                order = order_payload.get("order")
+                candle = order_payload.get("candle")
+                
+                if not order or not order.get("go"):
+                    continue
+                
+                # Simulate network latency WITHOUT blocking main loop
+                if not self.dry_run:
+                    latency = order_payload.get("latency_ms", 200)
+                    logger.debug(f"Executing order with {latency}ms simulated latency")
+                    await asyncio.sleep(latency / 1000.0)
+                
+                # Get the CURRENT tick after latency (realistic fill price)
+                current_tick = self.latest_tick
+                
+                # Execute via broker
+                events = self.broker.on_candle(candle, order, tick=current_tick)
+                
+                for fill in events.get("fills", []):
+                    self.trades += 1
+                    logger.info(f"EXECUTION FILL: {fill['side']} @ {fill['price']}")
+                    append_event({"event": "ExecutionFill", **fill}, paper=True)
+                    
+                for exit_event in events.get("exits", []):
+                    self.trades += 1
+                    logger.info(f"EXECUTION EXIT: {exit_event['reason']} @ {exit_event['price']}")
+                    append_event({"event": "ExecutionExit", **exit_event}, paper=True)
+                
+                # Update circuit breaker
+                trade_pnl = None
+                for exit_event in events.get("exits", []):
+                    trade_pnl = exit_event.get("pnl", 0)
+                    
+                self.circuit_breaker.update_equity(self.broker.current_equity, trade_pnl)
+                
+                if self.circuit_breaker.is_tripped():
+                    logger.warning(f"CIRCUIT BREAKER TRIPPED: {self.circuit_breaker.get_status()}")
+                    self.shutdown_event.set()
+                
+                # Save state
+                if not self.dry_run:
+                    self.state_manager.set_circuit_breaker_state(self.circuit_breaker.get_status())
+                    self.state_manager.save()
+                    
         except asyncio.CancelledError:
             pass
 
