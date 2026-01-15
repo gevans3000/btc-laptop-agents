@@ -51,9 +51,27 @@ class BitunixWSProvider:
         self.last_message_time: float = 0.0
         self.heartbeat_timeout_sec: float = 30.0  # Plan said 10, but let's use 30 for safety on dev machines
         self.subscriptions: set[str] = set()
+        self.time_offset: float = 0.0  # ms
 
     async def connect(self):
         """Establish WebSocket connection."""
+        # 2.1 NTP/Server Time Synchronization
+        try:
+            import httpx
+            from email.utils import parsedate_to_datetime
+            start = time.time()
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get("https://fapi.bitunix.com/api/v1/futures/market/tickers?symbols=BTCUSD")
+                server_date = resp.headers.get("Date")
+                if server_date:
+                    dt = parsedate_to_datetime(server_date)
+                    server_ts = dt.timestamp() * 1000
+                    latency = (time.time() - start) * 1000 / 2
+                    self.time_offset = server_ts - (time.time() * 1000) + latency
+                    logger.info(f"Synchronized with Bitunix. Time offset: {self.time_offset:.2f}ms")
+        except Exception as e:
+            logger.warning(f"Failed to sync time via REST: {e}")
+
         logger.info(f"Connecting to Bitunix WS: {self.URL}")
         self.ws = await websockets.connect(self.URL)
         self._running = True
