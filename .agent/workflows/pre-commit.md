@@ -13,6 +13,13 @@ if ($LASTEXITCODE -ne 0) { Write-Host "ABORT: Syntax errors detected." -Foregrou
 Write-Host "✓ Syntax OK" -ForegroundColor Green
 ```
 
+## 1b. Check Learned Lint Rules
+// turbo
+```powershell
+python scripts/check_lint_rules.py
+if ($LASTEXITCODE -ne 0) { Write-Host "ABORT: Learned lint rules violated." -ForegroundColor Red; exit 1 }
+```
+
 ## 2. Run Verification Script
 // turbo
 ```powershell

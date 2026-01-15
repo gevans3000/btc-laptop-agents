@@ -1,0 +1,11 @@
+# Learned Lint Rules
+# These patterns are auto-generated when bugs are fixed.
+# They are checked during /pre-commit to prevent regressions.
+
+rules: []
+# Example rule structure:
+# - id: no-hardcoded-secrets
+#   pattern: "API_KEY\\s*=\\s*['\"][^'\"]+['\"]"
+#   message: "Do not hardcode API keys. Use environment variables."
+#   severity: error
+#   source_bug: "2026-01-10: Leaked key in broker.py"

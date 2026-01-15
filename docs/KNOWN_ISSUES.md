@@ -8,3 +8,17 @@
 **Resolution**: Added hard limit enforcement in `Supervisor._resolve_order` to cap the quantity before it reaches the broker.
 **Status**: Fixed.
 
+## Auto-Generated Error Log
+
+This section is automatically updated when bugs are captured via the Learning Debugger.
+
+To view all known errors:
+```powershell
+python scripts/error_fingerprinter.py list
+```
+
+To search for a specific error:
+```powershell
+python scripts/error_fingerprinter.py lookup "<error_text>"
+```
+
