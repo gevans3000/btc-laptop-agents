@@ -45,7 +45,8 @@ class BitunixWSProvider:
         if "USDT" not in self.symbol and "USD" not in self.symbol:
             self.symbol += "USDT"
             
-        self.ws: Optional[websockets.WebSocketClientProtocol] = None
+        self.ws_kline: Optional[websockets.WebSocketClientProtocol] = None
+        self.ws_ticker: Optional[websockets.WebSocketClientProtocol] = None
         self.queue: asyncio.Queue[Union[Candle, Tick]] = asyncio.Queue(maxsize=1000)
         self._running = False
         self.last_message_time: float = 0.0
@@ -72,40 +73,42 @@ class BitunixWSProvider:
         except Exception as e:
             logger.warning(f"Failed to sync time via REST: {e}")
 
-        logger.info(f"Connecting to Bitunix WS: {self.URL}")
-        self.ws = await websockets.connect(self.URL)
+        logger.info(f"Connecting to Bitunix WS (Kline): {self.URL}")
+        self.ws_kline = await websockets.connect(self.URL)
+        logger.info(f"Connecting to Bitunix WS (Ticker): {self.URL}")
+        self.ws_ticker = await websockets.connect(self.URL)
         self._running = True
-        logger.info("Connected to Bitunix WS")
+        logger.info("Connected to Bitunix Kline & Ticker WS")
 
     async def subscribe_kline(self, interval: str = "1m"):
         """Subscribe to kline channel."""
-        if not self.ws:
-            raise RuntimeError("WS not connected")
+        if not self.ws_kline:
+            raise RuntimeError("WS kline not connected")
             
         msg = {
             "op": "subscribe",
             "args": [f"kline.{interval}.{self.symbol}"]
         }
-        await self.ws.send(json.dumps(msg))
+        await self.ws_kline.send(json.dumps(msg))
         self.subscriptions.add(f"kline.{interval}.{self.symbol}")
         logger.info(f"Subscribed to kline.{interval}.{self.symbol}")
 
     async def subscribe_ticker(self):
         """Subscribe to ticker channel for real-time BBO."""
-        if not self.ws:
-            raise RuntimeError("WS not connected")
+        if not self.ws_ticker:
+            raise RuntimeError("WS ticker not connected")
             
         msg = {
             "op": "subscribe",
             "args": [f"ticker.{self.symbol}"]
         }
-        await self.ws.send(json.dumps(msg))
+        await self.ws_ticker.send(json.dumps(msg))
         self.subscriptions.add(f"ticker.{self.symbol}")
         logger.info(f"Subscribed to ticker.{self.symbol}")
 
     async def _resubscribe(self):
         """Re-send all active subscriptions."""
-        if not self.ws or not self.subscriptions:
+        if not self.ws_kline or not self.ws_ticker or not self.subscriptions:
             return
         
         for sub in self.subscriptions:
@@ -113,13 +116,16 @@ class BitunixWSProvider:
                 "op": "subscribe",
                 "args": [sub]
             }
-            await self.ws.send(json.dumps(msg))
+            if "kline" in sub:
+                await self.ws_kline.send(json.dumps(msg))
+            else:
+                await self.ws_ticker.send(json.dumps(msg))
             logger.info(f"Resubscribed to {sub}")
 
-    async def _handle_messages(self):
+    async def _handle_messages(self, ws, name="WS"):
         """Internal loop to process incoming WS messages."""
         try:
-            async for message in self.ws:
+            async for message in ws:
                 self.last_message_time = time.time()
                 data = json.loads(message)
                 
@@ -130,14 +136,14 @@ class BitunixWSProvider:
                 if not topic or payload is None:
                     # Could be a pong or subscription confirmation
                     if data.get("op") == "ping":
-                        logger.info(f"Received WS JSON Pong: {data}")
+                        logger.debug(f"Received {name} JSON Pong")
                     elif data.get("event") == "error":
                         msg = data.get("msg", "").lower()
-                        logger.error(f"Bitunix WS error: {data}")
+                        logger.error(f"Bitunix {name} error: {data}")
                         if any(x in msg for x in ["invalid token", "ip ban", "maintenance", "authentication failed"]):
                             raise FatalError(f"Fatal Bitunix Error: {data}")
                     else:
-                        logger.debug(f"Received WS message (no topic): {data}")
+                        logger.debug(f"Received {name} message (no topic): {data}")
                     continue
 
                 if "kline" in topic:
@@ -186,7 +192,7 @@ class BitunixWSProvider:
                         except (ValidationError, TypeError, KeyError, ValueError) as e:
                             logger.error(f"Failed to parse ticker data: {e} | Data: {item}")
         except websockets.ConnectionClosed:
-            logger.warning("Bitunix WS connection closed in handler")
+            logger.warning(f"Bitunix {name} connection closed in handler")
         except FatalError:
             raise
         except Exception as e:
@@ -198,13 +204,15 @@ class BitunixWSProvider:
         """Send required JSON pings to keep connection alive."""
         while self._running:
             try:
-                if self.ws:
-                    ping_msg = {
-                        "op": "ping",
-                        "ping": int(time.time())
-                    }
-                    await self.ws.send(json.dumps(ping_msg))
-                    logger.info("Sent WS JSON Ping")
+                ping_msg = {
+                    "op": "ping",
+                    "ping": int(time.time())
+                }
+                if self.ws_kline:
+                    await self.ws_kline.send(json.dumps(ping_msg))
+                if self.ws_ticker:
+                    await self.ws_ticker.send(json.dumps(ping_msg))
+                logger.debug("Sent WS JSON Pings (Kline & Ticker)")
             except Exception as e:
                 logger.warning(f"Failed to send WS ping: {e}")
             await asyncio.sleep(5.0)
@@ -216,9 +224,14 @@ class BitunixWSProvider:
             if self.last_message_time > 0 and (time.time() - self.last_message_time > self.heartbeat_timeout_sec):
                 logger.warning(f"No WS message for {self.heartbeat_timeout_sec}s, forcing reconnect")
                 self._running = False
-                if self.ws:
+                if self.ws_kline:
                     try:
-                        await self.ws.close()
+                        await self.ws_kline.close()
+                    except Exception:
+                        pass
+                if self.ws_ticker:
+                    try:
+                        await self.ws_ticker.close()
                     except Exception:
                         pass
                 break
@@ -247,7 +260,8 @@ class BitunixWSProvider:
                 
                 # Run tasks in the background
                 self.last_message_time = time.time()  # Reset on connect
-                handler_task = asyncio.create_task(self._handle_messages())
+                kline_handler = asyncio.create_task(self._handle_messages(self.ws_kline, "Kline"))
+                ticker_handler = asyncio.create_task(self._handle_messages(self.ws_ticker, "Ticker"))
                 heartbeat_task = asyncio.create_task(self._heartbeat_check())
                 ping_task = asyncio.create_task(self._ping_loop())
                 
@@ -261,10 +275,12 @@ class BitunixWSProvider:
                             break
                         continue
                 
-                # If we get here, the handler or heartbeat stopped
+                # If we get here, one of the handlers or heartbeat stopped
                 heartbeat_task.cancel()
                 ping_task.cancel()
-                await handler_task
+                kline_handler.cancel()
+                ticker_handler.cancel()
+                await asyncio.gather(kline_handler, ticker_handler, return_exceptions=True)
                 raise websockets.ConnectionClosed(1006, "Connection lost")
                 
             except FatalError:
@@ -277,6 +293,9 @@ class BitunixWSProvider:
                 logger.error(f"Unexpected error in WS listen: {e}")
                 raise # Trigger tenacity retry
             finally:
-                if self.ws:
-                    await self.ws.close()
-                    self.ws = None
+                if self.ws_kline:
+                    await self.ws_kline.close()
+                    self.ws_kline = None
+                if self.ws_ticker:
+                    await self.ws_ticker.close()
+                    self.ws_ticker = None
