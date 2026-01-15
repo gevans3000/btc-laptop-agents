@@ -115,17 +115,18 @@ class BitunixBroker:
                     # HUMAN CONFIRMATION GATE
                     logger.info(f">>> PENDING LIVE ORDER: {order['side']} {qty} {self.symbol} @ {px} (Value: ${notional:.2f})")
 
-                    # Check for confirmation bypass file
-                    confirmation_file = Path(__file__).resolve().parent.parent.parent.parent / "config" / "live_trading_enabled.txt"
-                    if confirmation_file.exists():
-                        with open(confirmation_file, "r") as f:
-                            if "TRUE" in f.read().upper():
-                                logger.info("Live trading enabled via config file. Auto-submitting order.")
-                            else:
-                                ans = input(f"CONFIRM SUBMISSION? [y/N]: ")
-                                if ans.lower() != 'y':
-                                    logger.warning("Order cancelled by user.")
-                                    return events
+                    # Check for confirmation bypass
+                    bypass_confirm = os.environ.get("SKIP_LIVE_CONFIRM", "FALSE").upper() == "TRUE"
+                    
+                    if not bypass_confirm:
+                        confirmation_file = Path(__file__).resolve().parent.parent.parent.parent / "config" / "live_trading_enabled.txt"
+                        if confirmation_file.exists():
+                            with open(confirmation_file, "r") as f:
+                                if "TRUE" in f.read().upper():
+                                    bypass_confirm = True
+                    
+                    if bypass_confirm:
+                        logger.info("Live submission confirmation bypassed (Env/Config).")
                     else:
                         ans = input(f"CONFIRM SUBMISSION? [y/N]: ")
                         if ans.lower() != 'y':

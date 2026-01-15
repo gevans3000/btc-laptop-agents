@@ -24,7 +24,7 @@
 4. **Kill Switch**: `config/KILL_SWITCH.txt` blocks all order placement.
 
 ## Recent Changes
-- Added Live Trading System (BitunixBroker with $10 fixed sizing).
+- Added Live Trading System (Dynamic sizing implemented).
 - Added `cancel_order`, `cancel_all_orders` to BitunixFuturesProvider.
 - Added `shutdown()` method for graceful cleanup (cancels orders + closes positions).
 - Added `execution_mode` parameter to `timed_session.py`.

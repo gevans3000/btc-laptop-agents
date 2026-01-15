@@ -42,13 +42,19 @@ $env:PYTHONPATH="src"; .\.venv\Scripts\python.exe -m src.laptop_agents.run --mod
 ```
 **Pass Condition**: Exit code 0, `runs/latest/summary.html` exists.
 
-### Step 4: Integration Test
+### Step 4: Live System Test
+```powershell
+$env:PYTHONPATH="src"; .\.venv\Scripts\python.exe scripts/test_live_system.py
+```
+**Pass Condition**: Exit code 0.
+
+### Step 5: Integration Test
 ```powershell
 $env:PYTHONPATH="src"; .\.venv\Scripts\python.exe scripts/test_dual_mode.py
 ```
 **Pass Condition**: Exit code 0.
 
-### Step 5: Output Summary
+### Step 6: Output Summary
 After all steps complete, output a summary table:
 
 | Step | Command | Status |
@@ -56,10 +62,11 @@ After all steps complete, output a summary table:
 | Audit Paths | `Test-Path ...` | PASS/FAIL |
 | Unit Tests | `pytest tests/` | PASS/FAIL |
 | Smoke Backtest | `--mode backtest` | PASS/FAIL |
+| Live System Test | `test_live_system.py` | PASS/FAIL |
 | Integration | `test_dual_mode.py` | PASS/FAIL |
 
 ## Success Criteria
-All 4 steps must PASS for the skill to succeed.
+All 5 steps must PASS for the skill to succeed.
 
 ## On Failure
 - Do NOT commit any changes

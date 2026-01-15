@@ -38,9 +38,9 @@ else:
     print(f"   PASS: All required methods present: {provider_methods}")
 
 # ============================================================
-# TEST 2: BitunixBroker Fixed $10 Sizing Logic (Unit Test)
+# TEST 2: BitunixBroker Dynamic Sizing Logic
 # ============================================================
-print("\n[TEST 2] Testing BitunixBroker $10 fixed sizing logic...")
+print("\n[TEST 2] Testing BitunixBroker Dynamic Sizing logic...")
 
 from laptop_agents.execution.bitunix_broker import BitunixBroker
 
@@ -64,16 +64,19 @@ class MockCandle:
         self.close = close
         self.ts = "2026-01-12T00:00:00Z"
 
-# Test scenario: Price = $100,000, expected qty = 10 / 100000 = 0.0001
-# But minQty is 0.001, so it should be bumped up to 0.001
+# Test scenario: Price = $100,000
 candle = MockCandle(close=100000.0)
 
-# Create order that would trigger a buy
+# Create order with explicit quantity
+# We use a small quantity that is safe ($100 notional)
+# 0.001 BTC * $100,000 = $100
+target_qty = 0.001
+
 order = {
     "go": True,
     "side": "LONG",
     "entry": 100000.0,
-    "qty": 999.0,  # This should be IGNORED and replaced with $10 / price
+    "qty": target_qty, 
     "sl": 99000.0,
     "tp": 101000.0,
     "equity": 10000.0
@@ -89,14 +92,10 @@ if mock_provider.place_order.called:
     call_args = mock_provider.place_order.call_args
     actual_qty = call_args.kwargs.get('qty')
     
-    # Expected: 10.0 / 100000.0 = 0.0001, but minQty is 0.001
-    # So it should be 0.001
-    expected_qty = 0.001
-    
-    if abs(actual_qty - expected_qty) < 0.0001:
-        print(f"   PASS: Fixed sizing works. Qty = {actual_qty} (expected {expected_qty})")
+    if abs(actual_qty - target_qty) < 0.000001:
+        print(f"   PASS: Dynamic sizing works. Qty = {actual_qty}")
     else:
-        print(f"   FAIL: Wrong qty. Got {actual_qty}, expected {expected_qty}")
+        print(f"   FAIL: Wrong qty. Got {actual_qty}, expected {target_qty}")
         sys.exit(1)
 else:
     print("   FAIL: place_order was not called")

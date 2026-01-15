@@ -95,7 +95,7 @@ Operators interact via `scripts/` ONLY.
 | **Live** | `--execution-mode live` | Real orders via BitunixBroker. |
 
 ### Safety Features
-1. **Fixed $10 Sizing**: All live orders are forced to $10 notional value.
+1. **Dynamic Sizing**: Position size is calculated based on risk/config, validated against hard limits.
 2. **Human Confirmation**: Orders require manual `y` confirmation unless `SKIP_LIVE_CONFIRM=TRUE`.
 3. **Kill Switch**: Create `config/KILL_SWITCH.txt` with `TRUE` to halt all orders.
 4. **Graceful Shutdown**: Ctrl+C triggers `shutdown()` which cancels orders and closes positions.
