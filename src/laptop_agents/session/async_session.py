@@ -53,7 +53,10 @@ class AsyncRunner:
         execution_latency_ms: int = 200,
         dry_run: bool = False,
         provider: Optional[Any] = None,
+        state_dir: Optional[Path] = None,
     ):
+        from laptop_agents.core.orchestrator import PAPER_DIR
+        self.state_dir = state_dir or PAPER_DIR
         self.symbol = symbol
         self.interval = interval
         self.strategy_config = strategy_config
@@ -77,7 +80,8 @@ class AsyncRunner:
         # Components
         from laptop_agents.data.providers.bitunix_ws import BitunixWSProvider
         self.provider = provider or BitunixWSProvider(symbol)
-        state_path = str(PAPER_DIR / "async_broker_state.json")
+        state_path = str(self.state_dir / "async_broker_state.json")
+        from laptop_agents.paper.broker import PaperBroker
         self.broker = PaperBroker(
             symbol=symbol, 
             fees_bps=fees_bps, 
@@ -86,10 +90,28 @@ class AsyncRunner:
             state_path=state_path
         )
         
+        # 2.3 Config Validation on Startup
+        if self.strategy_config:
+            try:
+                from laptop_agents.core.config_models import StrategyConfig
+                validated = StrategyConfig.validate_config(self.strategy_config)
+                self.strategy_config = validated.model_dump()
+                logger.info("Strategy configuration validated successfully.")
+                
+                # Pre-initialize supervisor and state for performance
+                from laptop_agents.agents.supervisor import Supervisor
+                from laptop_agents.agents.state import State as AgentState
+                self.supervisor = Supervisor(provider=None, cfg=self.strategy_config, broker=self.broker)
+                self.agent_state = AgentState(instrument=self.symbol, timeframe=self.interval)
+            except Exception as e:
+                logger.error(f"CONFIG_VALIDATION_FAILED: {e}")
+                # Hard fail on startup as per Perfection Plan Phase 2.3
+                raise ValueError(f"Invalid strategy configuration: {e}")
+        
         # Control
         self.shutdown_event = asyncio.Event()
         self.start_time = time.time()
-        from laptop_agents.run import REPO_ROOT
+        from laptop_agents.core.orchestrator import REPO_ROOT
         self.kill_file = REPO_ROOT / "kill.txt"
         self.last_data_time: float = time.time()
         self.dry_run = dry_run
@@ -100,7 +122,8 @@ class AsyncRunner:
         self.circuit_breaker.set_starting_equity(starting_balance)
         self.duration_min: int = 0  # Will be set in run()
         
-        self.state_manager = StateManager(PAPER_DIR)
+        from laptop_agents.core.state_manager import StateManager
+        self.state_manager = StateManager(self.state_dir)
         self.last_heartbeat_time: float = time.time()
         self.metrics: List[Dict[str, Any]] = []
 
@@ -251,6 +274,20 @@ Total Fees: ${total_fees:,.2f}
                     # but we could also trigger it here for even lower latency
                     
                 elif isinstance(item, Candle):
+                    # 1.1 Implement Gap Backfill Logic
+                    try:
+                        new_ts = int(item.ts)
+                        interval_sec = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}.get(self.interval, 60)
+                        if self.candles:
+                            last_ts = int(self.candles[-1].ts)
+                            # If gap is more than 1.5x interval, we likely missed a candle
+                            if (new_ts - last_ts) > interval_sec * 1.5:
+                                logger.warning(f"GAP_DETECTED: {new_ts - last_ts}s missing between {last_ts} and {new_ts}. Attempting backfill...")
+                                # Call provider method (public now)
+                                await self.provider.fetch_and_inject_gap(last_ts, new_ts)
+                    except (ValueError, TypeError, AttributeError) as ge:
+                        logger.error(f"Error checking for gaps: {ge}")
+
                     # Check if this is a NEW candle or an update to the current one
                     if not self.candles or item.ts != self.candles[-1].ts:
                         # New candle! This means the previous one just closed.
@@ -343,20 +380,14 @@ Total Fees: ${total_fees:,.2f}
             
             if self.strategy_config:
                 try:
-                    from laptop_agents.agents.supervisor import Supervisor
-                    from laptop_agents.agents.state import State as AgentState
+                    # Use persistent supervisor and state for high performance
+                    self.agent_state.candles = self.candles[:-1]
+                    self.agent_state = self.supervisor.step(self.agent_state, candle, skip_broker=True)
                     
-                    # We use historical candles minus the one just closed for state, 
-                    # then step with the closed one.
-                    supervisor = Supervisor(provider=None, cfg=self.strategy_config, broker=self.broker)
-                    state = AgentState(instrument=self.symbol, timeframe=self.interval, candles=self.candles[:-1])
-                    state = supervisor.step(state, candle, skip_broker=True)
-                    
-                    if state.setup.get("side") in ["LONG", "SHORT"]:
-                        raw_signal = "BUY" if state.setup["side"] == "LONG" else "SELL"
+                    if self.agent_state.setup.get("side") in ["LONG", "SHORT"]:
+                        raw_signal = "BUY" if self.agent_state.setup["side"] == "LONG" else "SELL"
                 except Exception as agent_err:
                     logger.error(f"AGENT_ERROR: Strategy agent failed, skipping signal: {agent_err}")
-                    from laptop_agents.core.orchestrator import append_event
                     append_event({"event": "AgentError", "error": str(agent_err)}, paper=True)
                     raw_signal = None  # Suppress trade on agent failure
             
@@ -384,12 +415,13 @@ Total Fees: ${total_fees:,.2f}
             # Execute via broker
             current_tick = self.latest_tick
             if order and order.get("go"):
-                import random
-                latency = random.randint(50, 500)
-                logger.info(f"Simulating latency: {latency}ms")
-                await asyncio.sleep(latency / 1000.0)
-                # After sleep, we MUST use the newest tick for fill price to avoid look-ahead bias
-                current_tick = self.latest_tick
+                if not self.dry_run:
+                    import random
+                    latency = random.randint(50, 500)
+                    logger.info(f"Simulating latency: {latency}ms")
+                    await asyncio.sleep(latency / 1000.0)
+                    # After sleep, we MUST use the newest tick for fill price to avoid look-ahead bias
+                    current_tick = self.latest_tick
 
             events = self.broker.on_candle(candle, order, tick=current_tick)
             
@@ -414,9 +446,10 @@ Total Fees: ${total_fees:,.2f}
                 logger.warning(f"CIRCUIT BREAKER TRIPPED: {self.circuit_breaker.get_status()}")
                 self.shutdown_event.set()
 
-            # Save state
-            self.state_manager.set_circuit_breaker_state(self.circuit_breaker.get_status())
-            self.state_manager.save()
+            # Save state (skip in dry_run for performance/stress-tests)
+            if not self.dry_run:
+                self.state_manager.set_circuit_breaker_state(self.circuit_breaker.get_status())
+                self.state_manager.save()
 
         except Exception as e:
             logger.error(f"Error in on_candle_closed: {e}")
@@ -453,6 +486,7 @@ Total Fees: ${total_fees:,.2f}
                     json.dump({
                         "ts": datetime.now(timezone.utc).isoformat(),
                         "unix_ts": time_module.time(),
+                        "last_updated_ts": time_module.time(),
                         "elapsed": elapsed,
                         "equity": total_equity,
                         "symbol": self.symbol,

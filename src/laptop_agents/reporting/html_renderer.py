@@ -398,6 +398,7 @@ def _generate_html_template(
   <meta charset="utf-8"/>
   <title>Run Summary - {summary.get('run_id','')[:8]}</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body {{
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -449,6 +450,13 @@ def _generate_html_template(
     </div>
     
     <div id="main-chart" class="chart-container"></div>
+  </div>
+
+  <div class="section">
+    <h2>Performance Curve</h2>
+    <div style="height: 300px; width: 100%;">
+      <canvas id="equityCanvas"></canvas>
+    </div>
   </div>
 
   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
@@ -539,27 +547,44 @@ def _generate_html_template(
             plot_bgcolor: 'rgba(0,0,0,0)',
         }};
 
-        Plotly.newPlot('main-chart', [traceCandles, buyMarkers, sellMarkers, traceEquity], layout, {{ responsive: true }});
-    }} else if (equity.length > 0) {{
-        // Fallback for simple equity chart if no candles
-        const traceEquity = {{
-            x: equity.map(e => e.t),
-            y: equity.map(e => e.v),
-            type: 'scatter',
-            name: 'Equity',
-            line: {{ color: '#339af0', width: 3 }},
-            fill: 'tozeroy',
-            fillcolor: 'rgba(51, 154, 240, 0.1)'
-        }};
-        const layout = {{
-            title: 'Equity Growth',
-            margin: {{ t: 40, b: 40, l: 60, r: 40 }},
-            xaxis: {{ type: 'date' }},
-            yaxis: {{ title: 'Balance ($)' }},
-            paper_bgcolor: 'rgba(0,0,0,0)',
-            plot_bgcolor: 'rgba(0,0,0,0)'
-        }};
         Plotly.newPlot('main-chart', [traceEquity], layout, {{ responsive: true }});
+    }}
+
+    // Chart.js Equity Chart Integration
+    if (equity.length > 0) {{
+        const ctx = document.getElementById('equityCanvas').getContext('2d');
+        new Chart(ctx, {{
+            type: 'line',
+            data: {{
+                labels: equity.map(e => e.t),
+                datasets: [{{
+                    label: 'Equity ($)',
+                    data: equity.map(e => e.v),
+                    borderColor: '#339af0',
+                    backgroundColor: 'rgba(51, 154, 240, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.1,
+                    pointRadius: 0
+                }}]
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {{
+                    legend: {{ display: false }}
+                }},
+                scales: {{
+                    y: {{
+                        beginAtZero: false,
+                        grid: {{ color: 'rgba(0,0,0,0.05)' }}
+                    }},
+                    x: {{
+                        display: false
+                    }}
+                }}
+            }}
+        }});
     }}
   </script>
 </body>

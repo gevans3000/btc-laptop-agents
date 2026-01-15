@@ -168,11 +168,13 @@ class PaperBroker:
                 fill_px = float(tick.ask) if side == "LONG" else float(tick.bid)
                 actual_slip_bps = 0.0 # Spread essentially IS the slippage
             else:
-                # 2.2 Synthesized Bid/Ask Spread (Tickless mode)
-                # Plan: Use 5 bps spread (0.0005)
-                spread_mult = 0.0005
-                fill_px = float(candle.close) * (1 + spread_mult) if side == "LONG" else float(candle.close) * (1 - spread_mult)
-                actual_slip_bps = 0.0 # We already applied the spread as fill price adjustment
+                # 1.2 Synthesize Bid/Ask Spread in Tickless Mode (0.05% half-spread)
+                half_spread_bps = 5.0
+                close = float(candle.close)
+                ask = close * (1 + half_spread_bps / 10000)
+                bid = close * (1 - half_spread_bps / 10000)
+                fill_px = ask if side == "LONG" else bid
+                actual_slip_bps = 0.0 # Spread is explicitly modeled in fill_px
         else:
             # limit fill if touched
             if not (candle.low <= entry <= candle.high):

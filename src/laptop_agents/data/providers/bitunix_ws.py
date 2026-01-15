@@ -11,6 +11,7 @@ from tenacity import retry, wait_exponential, stop_after_attempt, stop_never, re
 
 from laptop_agents.core.logger import logger
 from laptop_agents.trading.helpers import Candle, Tick
+from laptop_agents.core.rate_limiter import exchange_rate_limiter
 
 class FatalError(Exception):
     """Exception raised for fatal exchange errors that should not be retried."""
@@ -65,6 +66,7 @@ class BitunixWSProvider:
             from email.utils import parsedate_to_datetime
             start = time.time()
             async with httpx.AsyncClient(timeout=5.0) as client:
+                await exchange_rate_limiter.wait() # Use shared limiter
                 resp = await client.get("https://fapi.bitunix.com/api/v1/futures/market/tickers?symbols=BTCUSD")
                 server_date = resp.headers.get("Date")
                 if server_date:
@@ -170,7 +172,7 @@ class BitunixWSProvider:
                             if self.last_kline_ts and new_ts > self.last_kline_ts + interval_sec:
                                 logger.warning(f"Gap detected! {new_ts - self.last_kline_ts}s missing. Fetching from REST.")
                                 # Start gap fill task
-                                asyncio.create_task(self._fetch_and_inject_gap(self.last_kline_ts, new_ts))
+                                asyncio.create_task(self.fetch_and_inject_gap(self.last_kline_ts, new_ts))
                             
                             self.last_kline_ts = new_ts
                             
@@ -219,12 +221,19 @@ class BitunixWSProvider:
                             logger.error(f"Failed to parse ticker data: {e} | Data: {item}")
         except websockets.ConnectionClosed:
             logger.warning(f"Bitunix {name} connection closed in handler")
+        except FatalError:
+            raise
+        except Exception as e:
+            logger.error(f"Error in Bitunix WS message handler ({name}): {e}")
+        finally:
+            self._running = False
 
     async def funding_rate(self) -> float:
         """Fetch current funding rate via REST."""
         try:
             import httpx
             async with httpx.AsyncClient(timeout=5.0) as client:
+                await exchange_rate_limiter.wait() # Use shared limiter
                 resp = await client.get(f"https://fapi.bitunix.com/api/v1/futures/market/funding_rate?symbol={self.symbol}")
                 data = resp.json()
                 if data.get("code") == 0:
@@ -235,7 +244,7 @@ class BitunixWSProvider:
             logger.warning(f"Failed to fetch funding rate: {e}")
         return 0.0001 # Default
 
-    async def _fetch_and_inject_gap(self, start_ts: int, end_ts: int):
+    async def fetch_and_inject_gap(self, start_ts: int, end_ts: int):
         """Fetch missing data from REST and inject into queue."""
         try:
             from laptop_agents.data.loader import load_bitunix_candles
@@ -251,12 +260,6 @@ class BitunixWSProvider:
                     continue
         except Exception as e:
             logger.error(f"Failed to fetch gap data: {e}")
-        except FatalError:
-            raise
-        except Exception as e:
-            logger.error(f"Error in Bitunix WS message handler: {e}")
-        finally:
-            self._running = False
 
     async def _ping_loop(self):
         """Send required JSON pings to keep connection alive."""

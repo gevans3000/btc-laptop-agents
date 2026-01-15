@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autonomous Trading Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg: #0a0a0c;
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --border: rgba(255, 255, 255, 0.08);
+            --primary: #52a1ff;
+            --success: #00dfa2;
+            --danger: #ff4d4d;
+            --text: #e0e0e0;
+            --text-dim: #888;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            min-height: 100vh;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            background: rgba(0, 223, 162, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(0, 223, 162, 0.2);
+        }
+
+        .status-badge.stale {
+            background: rgba(255, 77, 77, 0.1);
+            color: var(--danger);
+            border: 1px solid rgba(255, 77, 77, 0.2);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        .card h2 {
+            margin-top: 0;
+            font-size: 1rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin: 10px 0;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .sub-value {
+            font-size: 0.9rem;
+            color: var(--text-dim);
+        }
+
+        .log-container {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            height: 300px;
+            overflow-y: auto;
+            background: #000;
+            padding: 15px;
+            border-radius: 8px;
+            line-height: 1.5;
+        }
+
+        .log-entry { margin-bottom: 5px; }
+        .log-entry.info { color: #52a1ff; }
+        .log-entry.warn { color: #f9d949; }
+        .log-entry.error { color: #ff4d4d; }
+
+        .orders-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .orders-table th {
+            text-align: left;
+            color: var(--text-dim);
+            padding-bottom: 10px;
+            font-weight: 400;
+        }
+
+        .orders-table td {
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .trend-up { color: var(--success); }
+        .trend-down { color: var(--danger); }
+
+        #equityChart {
+            height: 200px !important;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <h1 style="margin: 0; font-size: 1.2rem;">Bitunix Autonomous Engine</h1>
+            <div id="statusBadge" class="status-badge">CONNECTED</div>
+        </div>
+        <div id="clock" style="color: var(--text-dim); font-size: 0.9rem; font-family: 'JetBrains Mono';">--:--:--</div>
+    </header>
+
+    <div class="grid">
+        <div class="card">
+            <h2>EQUITY</h2>
+            <div id="equityValue" class="value">$0.00</div>
+            <div id="pnlValue" class="sub-value">PnL: $0.00 (0.00%)</div>
+        </div>
+        <div class="card">
+            <h2>POSITION</h2>
+            <div id="posValue" class="value">FLAT</div>
+            <div id="posDetail" class="sub-value">--</div>
+        </div>
+        <div class="card">
+            <h2>SYSTEM</h2>
+            <div style="display: flex; gap: 20px;">
+                <div>
+                    <div style="color: var(--text-dim); font-size: 0.8rem;">RAM</div>
+                    <div id="ramValue" style="font-weight: bold;">-- MB</div>
+                </div>
+                <div>
+                    <div style="color: var(--text-dim); font-size: 0.8rem;">CPU</div>
+                    <div id="cpuValue" style="font-weight: bold;">-- %</div>
+                </div>
+                <div>
+                    <div style="color: var(--text-dim); font-size: 0.8rem;">HEARTBEAT</div>
+                    <div id="hbAge" style="font-weight: bold;">--s</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid" style="grid-template-columns: 2fr 1fr;">
+        <div class="card">
+            <h2>RECENT LOGS</h2>
+            <div id="logContainer" class="log-container"></div>
+        </div>
+        <div class="card">
+            <h2>ACTIVE ORDERS</h2>
+            <table class="orders-table">
+                <thead>
+                    <tr>
+                        <th>Side</th>
+                        <th>Price</th>
+                        <th>Qty</th>
+                    </tr>
+                </thead>
+                <tbody id="orderList">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const state = {
+            equityHistory: [],
+            maxHistoryPoints: 60
+        };
+
+        function update() {
+            fetch('/api/status')
+                .then(res => res.json())
+                .then(data => {
+                    // Update Clock
+                    document.getElementById('clock').innerText = new Date(data.server_time * 1000).toLocaleTimeString();
+
+                    // Heartbeat
+                    const hb = data.heartbeat || {};
+                    const hbAge = data.server_time - (hb.last_updated_ts || 0);
+                    document.getElementById('hbAge').innerText = hbAge.toFixed(1) + 's';
+                    
+                    const badge = document.getElementById('statusBadge');
+                    if (hbAge > 10) {
+                        badge.innerText = 'STALE';
+                        badge.className = 'status-badge stale';
+                    } else {
+                        badge.innerText = 'CONNECTED';
+                        badge.className = 'status-badge';
+                    }
+
+                    // Equity
+                    const eq = hb.equity || 0;
+                    document.getElementById('equityValue').innerText = '$' + eq.toLocaleString(undefined, {minimumFractionDigits: 2});
+                    
+                    const broker = data.broker || {};
+                    const startEq = broker.starting_equity || eq;
+                    const pnl = eq - startEq;
+                    const pnlPct = (pnl / startEq) * 100;
+                    const pnlEl = document.getElementById('pnlValue');
+                    pnlEl.innerText = `PnL: $${pnl.toLocaleString(undefined, {minimumFractionDigits: 2})} (${pnlPct.toFixed(2)}%)`;
+                    pnlEl.className = 'sub-value ' + (pnl >= 0 ? 'trend-up' : 'trend-down');
+
+                    // Position
+                    const pos = broker.pos || null;
+                    const posEl = document.getElementById('posValue');
+                    const posDetail = document.getElementById('posDetail');
+                    if (pos) {
+                        posEl.innerText = pos.side;
+                        posEl.className = 'value ' + (pos.side === 'LONG' ? 'trend-up' : 'trend-down');
+                        posDetail.innerText = `@ ${pos.entry.toLocaleString()} | Qty: ${pos.qty}`;
+                    } else {
+                        posEl.innerText = 'FLAT';
+                        posEl.className = 'value';
+                        posDetail.innerText = '--';
+                    }
+
+                    // System
+                    document.getElementById('ramValue').innerText = (hb.ram_mb || 0).toFixed(0) + ' MB';
+                    document.getElementById('cpuValue').innerText = (hb.cpu_pct || 0).toFixed(1) + ' %';
+
+                    // Orders
+                    const orders = broker.working_orders || [];
+                    const orderList = document.getElementById('orderList');
+                    orderList.innerHTML = orders.map(o => `
+                        <tr>
+                            <td class="${o.side === 'LONG' ? 'trend-up' : 'trend-down'}">${o.side}</td>
+                            <td>${o.entry.toLocaleString()}</td>
+                            <td>${o.qty}</td>
+                        </tr>
+                    `).join('');
+
+                    // Logs
+                    const logContainer = document.getElementById('logContainer');
+                    const currentLogs = (data.logs || []).join('');
+                    if (logContainer.innerText !== currentLogs) {
+                        logContainer.innerText = currentLogs;
+                        logContainer.scrollTop = logContainer.scrollHeight;
+                    }
+                })
+                .catch(err => console.error('Dashboard Update Failed:', err));
+        }
+
+        setInterval(update, 2000);
+        update();
+    </script>
+</body>
+</html>
