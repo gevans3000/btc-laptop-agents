@@ -10,8 +10,9 @@
 | Action | Script | Expected Output |
 | :--- | :--- | :--- |
 | **Verify System** | `.\scripts\verify.ps1` | `VERIFY: PASS` |
-| **Start (Agents)** | `.\scripts\watchdog.ps1` | Monitors and restarts trading daemon. |
-| **View Dashboard** | `.\scripts\dashboard_up.ps1` | Interactive UI on `http://localhost:8000` |
+| **Pre-Commit Check** | `/pre-commit` (or `python scripts/verify.ps1`) | Ensures code quality. |
+| **Start Live Dashboard** | `.\scripts\live_dashboard.ps1` | Interactive UI on `http://localhost:5000` |
+| **Monitor Health** | `python scripts/monitor_heartbeat.py` | Alerts if process freezes (>5s stale). |
 | **Backtest** | `python -m src.laptop_agents.run --mode backtest` | Results in `runs/latest/` |
 | **Emergency Stop**| `Edit config/KILL_SWITCH.txt -> TRUE` | Blocks all order submissions. |
 
@@ -27,32 +28,47 @@
   ```
 
 ### B. Verification
-Before running any live code, ALWAYS run the verification suite:
+Before running any live code, ALWAYS run the pre-commit checks:
 ```powershell
-.\scripts\verify.ps1
+# Using the AI agent workflow
+/pre-commit
+
+# Or manually
+python -m pytest tests/ -q
+python scripts/verify.ps1
 ```
-This checks compilation, runs deterministic risk engine tests, and validates artifact schemas.
 
 ## 3. Operational Modes
 
 The system primarily runs through `src/laptop_agents/run.py`.
 
-### A. Orchestrated Mode (Multi-Agent)
-This is the modern pipeline using the modular agent stack (Market Intake -> Analysis -> Execution).
-- **Run Once (Simulation)**: 
-  `python -m src.laptop_agents.run --mode orchestrated --source mock`
-- **Live Trading**: 
-  `python -m src.laptop_agents.run --mode orchestrated --source bitunix --execution-mode live`
+### A. Live Session (Autonomous)
+This is the standard mode for running the agent for a fixed duration with high-performance async engine.
 
-### B. Production Deployment (Recommended)
-Use the **Watchdog** for live trading to ensure the bot survives crashes or internet blips:
+- **Paper Trading (10 mins)**:
+  ```powershell
+  $env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode paper --duration 10 --async --dashboard
+  ```
+
+- **Live Trading (REAL MONEY)**:
+  Requires manual confirmation unless `SKIP_LIVE_CONFIRM=TRUE`.
+  ```powershell
+  $env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode live --duration 60 --async --dashboard
+  ```
+
+### B. Orchestrated Sim (Dev)
+Test the agent stack with mock data:
 ```powershell
-.\scripts\watchdog.ps1 --mode orchestrated --source bitunix --execution-mode live
+python -m src.laptop_agents.run --mode orchestrated --source mock
 ```
-- Logs are located in `logs/watchdog.log`.
-- Trading state events are in `logs/system.jsonl`.
 
-### C. Checking Status & Recovery
+### C. Stress Testing
+Verify system stability under load:
+```powershell
+python tests/stress/test_high_load.py
+```
+
+### D. Checking Status & Recovery
 If the watchdog is running, you can monitor the system via:
 1. **The Dashboard**: `.\scripts\dashboard_up.ps1`
 2. **The Logs**: `Get-Content logs/system.jsonl -Wait`
@@ -164,10 +180,10 @@ $env:PYTHONPATH='src'; python scripts/check_live_ready.py
 ### Start Live Session
 ```powershell
 # Paper mode (safe - no real money)
-$env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode paper --duration 10
+$env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode paper --duration 10 --async --dashboard
 
 # Live mode (REAL MONEY)
-$env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode live --duration 10
+$env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode live --duration 60 --async --dashboard
 ```
 
 ### Emergency Stop
@@ -176,24 +192,18 @@ $env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --sou
 3. Or run: `$env:PYTHONPATH='src'; python -c "from laptop_agents.execution.bitunix_broker import BitunixBroker; ..."`
 
 ### Monitoring
-- Heartbeat: `logs/heartbeat.json`
-- Events: `paper/events.jsonl`
-- Equity checkpoint: `logs/daily_checkpoint.json`
+- **Dashboard**: `.\scripts\live_dashboard.ps1` (http://localhost:5000)
+- **Log Stream**: `Get-Content logs/system.jsonl -Wait`
+- **Heartbeat**: `python scripts/monitor_heartbeat.py`
 
-### C. Rate Limit Protection
+### Rate Limit Protection
 When running in `--execution-mode live`, the system only sends orders to the exchange for the **final candle** in the historical batch. This prevents hitting API rate limits during the initial candle load.
 
-### D. Environment Variables
+### Environment Variables
 Live trading requires the following in `.env`:
 ```env
 BITUNIX_API_KEY=your_api_key
 BITUNIX_API_SECRET=your_secret_key
-```
-
-### E. Watchdog Parameters
-The watchdog now supports all CLI parameters:
-```powershell
-.\scripts\watchdog.ps1 -Mode orchestrated -Source bitunix -Symbol BTCUSD -Interval 1m -Limit 480 -ExecutionMode live -RiskPct 0.5
 ```
 
 ## 8. Resilience & Safety (Production)
@@ -201,18 +211,24 @@ The watchdog now supports all CLI parameters:
 ### A. Process Watchdog
 To run the system with auto-restart capability (resilience):
 ```powershell
-.\scripts\watchdog.ps1 --mode orchestrated --source bitunix --limit 200 --execution-mode live
+.\scripts\watchdog.ps1 --mode live-session --source bitunix --execution-mode live --async
 ```
 - **Failsafe**: If the python process crashes/exits, the watchdog waits 10s and restarts it.
 - **Log**: View watchdog activity in `logs/watchdog.log`.
 
-### B. Safety Kill Switch
+### B. Heartbeat Monitor
+Run this in a separate terminal to detect frozen processes (not just crashes):
+```powershell
+python scripts/monitor_heartbeat.py
+```
+
+### C. Safety Kill Switch
 If you need to instantly block all new order submissions:
 1. Open or create `config/KILL_SWITCH.txt`.
 2. Write `TRUE` inside the file.
 3. The system will log `KILL SWITCH DETECTED!` and block any further `place_order` calls.
 
-### C. Hard-Coded Limits
+### D. Hard-Coded Limits
 The following "Hardware" limits are enforced in `src/laptop_agents/core/hard_limits.py` and cannot be overridden by CLI arguments:
 - **Max Position Size**: $200,000 USD.
 - **Max Daily Loss**: $50 USD.
@@ -221,12 +237,12 @@ The following "Hardware" limits are enforced in `src/laptop_agents/core/hard_lim
 ## 9. Monitoring & Observability
 
 ### A. Live Dashboard Server
-Instead of opening a static file, serve the results locally:
+Use the Flask-based real-time dashboard:
 ```powershell
-.\scripts\dashboard_up.ps1
+.\scripts\live_dashboard.ps1
 ```
-- **Access**: `http://localhost:8000/summary.html`
-- **Benefit**: Keeps the dashboard accessible and allows for automated refreshes (future).
+- **Access**: `http://localhost:5000`
+- **Benefit**: Auto-refreshing equity curve, active orders, and system logs.
 
 ### B. Structured JSON Logs
 The system produces machine-readable logs in `logs/system.jsonl`:

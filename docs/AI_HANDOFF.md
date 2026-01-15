@@ -34,8 +34,13 @@
 - Added `execution_mode` parameter to `timed_session.py`.
 - Refactored `exec_engine.py` to modular `trading/exec_engine.py` (Live Loop).
 - Implemented **Learning Debugger** with auto-capture in `logger.py`, diagnostic script for AI Agent, and regression test generator.
+- Implemented **Autonomous Trading Perfection** features:
+    - **Live Dashboard**: Real-time Flask app (`scripts/live_dashboard.ps1`).
+    - **Heartbeat Watchdog**: Stale process detector (`scripts/monitor_heartbeat.py`).
+    - **Reliability Layer**: Shared rate limiting, gap backfill, and synthesized spread.
+    - **Stress Testing**: High-load validation (`tests/stress/test_high_load.py`).
 
 ## Verification
-Always run `.\scripts\verify.ps1` or `python scripts/test_live_system.py` before finalizing changes.
+Always run `.\scripts\verify.ps1` or `/pre-commit` before finalizing changes.
 
 
