@@ -34,6 +34,8 @@ The canonical entrypoint is `python -m src.laptop_agents.run`.
 | **Async Engine** | `--async` | Uses `asyncio` + WebSockets for sub-second responses. | Stable |
 | **Orchestrated** | `--mode orchestrated` | Runs the V2 pipeline with explicit artifact stages. | Beta |
 | **Validate** | `--mode validate` | Walk-forward optimization sweep. | Alpha |
+| **Preflight** | `--preflight` | Runs readiness checks before execution. | Stable |
+| **Cognitive Debug** | `/debug` | Learning debugger with memory and auto-capture. | Beta |
 
 ## 3. Data Sources
 

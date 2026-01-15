@@ -24,6 +24,9 @@ Our architecture has transitioned from a monolithic `run.py` to a modular system
 | **Resilience** | `src/laptop_agents/resilience/` | Circuit breakers, retries, error handling. |
 | **Trading Engine** | `src/laptop_agents/trading/exec_engine.py` | Core trading loop logic. |
 | **Hard Limits** | `src/laptop_agents/core/hard_limits.py` | Immutable safety constraints. |
+| **Learning Debugger** | `scripts/error_fingerprinter.py` | Cognitive memory: hash and store errors. |
+| **Diagnosis** | `scripts/diagnose_pending_errors.py` | AI Agent interface for error resolution. |
+| **Linter** | `scripts/check_lint_rules.py` | Semantic check for learned anti-patterns. |
 
 ## 2. Script Control Surface
 
@@ -48,6 +51,6 @@ Our architecture has transitioned from a monolithic `run.py` to a modular system
 | **Shutdown** | `BitunixBroker.shutdown()` | Emergency cancel all orders + close positions. |
 
 ---
-*Note: This map is updated as refactoring phases complete. Phase E (Live Trading & Deployment) is current.*
+*Note: This map is updated as refactoring phases complete. Phase E (Live Trading & Deployment) and Phase F (Learning Debugger) are current.*
 
 

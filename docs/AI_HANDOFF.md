@@ -17,6 +17,7 @@
 - **Brokers**: `PaperBroker` (simulation), `BitunixBroker` (live).
 - **WS Provider**: `src/laptop_agents/data/providers/bitunix_ws.py` - Real-time market data.
 - **Hard Limits**: `src/laptop_agents/core/hard_limits.py` - Immutable safety constraints.
+- **Learning Debugger**: Cognitive loop via `error_fingerprinter.py` and `AutonomousMemoryHandler` in `logger.py`.
 
 ## Key Concepts
 1. **Execution Mode**: `--execution-mode paper` vs `live` determines broker selection.
@@ -32,6 +33,7 @@
 - Added `shutdown()` method for graceful cleanup (cancels orders + closes positions).
 - Added `execution_mode` parameter to `timed_session.py`.
 - Refactored `exec_engine.py` to modular `trading/exec_engine.py` (Live Loop).
+- Implemented **Learning Debugger** with auto-capture in `logger.py`, diagnostic script for AI Agent, and regression test generator.
 
 ## Verification
 Always run `.\scripts\verify.ps1` or `python scripts/test_live_system.py` before finalizing changes.

@@ -10,7 +10,7 @@ description: Ensure all Markdown documentation and instructions are synchronized
 Verify that all components and scripts listed in `docs/MAP.md` exist at the specified locations.
 ```powershell
 # Extract paths from MAP.md and check their existence
-Select-String -Path docs/MAP.md -Pattern '`src/.*\.py`|`scripts/.*\.ps1`|`scripts/.*\.py`|`config/.*`' | ForEach-Object {
+Select-String -Path docs/MAP.md -Pattern '`src/[^`]*\.py`|`scripts/[^`]*\.ps1`|`scripts/[^`]*\.py`|`config/[^`]*`' | ForEach-Object {
     $path = $_.Matches.Value.Trim('`')
     if (Test-Path $path) {
         Write-Host "✓ Exists: $path" -ForegroundColor Green

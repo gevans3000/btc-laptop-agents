@@ -128,7 +128,7 @@ python -m src.laptop_agents.run --mode backtest --backtest 500 \
   --risk-pct 1.0 \
   --stop-bps 30.0 \
   --tp-r 1.5 \
-  --max-leverage 1.0 \
+  --max_leverage 1.0 \
   --intrabar-mode conservative
 ```
 
@@ -136,7 +136,7 @@ python -m src.laptop_agents.run --mode backtest --backtest 500 \
 - `--risk-pct`: % of equity risked per trade (default: 1.0)
 - `--stop-bps`: Stop distance in basis points (default: 30.0 = 0.30%)
 - `--tp-r`: Take profit ratio (default: 1.5 = 1.5x stop distance)
-- `--max-leverage`: Maximum leverage (default: 1.0 = no leverage)
+- `--max_leverage`: Maximum leverage (default: 1.0 = no leverage)
 - `--intrabar-mode`: `conservative` (stop first) or `optimistic` (TP first)
 
 ### D. Outputs
@@ -235,4 +235,10 @@ The system produces machine-readable logs in `logs/system.jsonl`:
 
 ### C. Latency Tracking
 Every trade fill in `live` mode now includes `latency_sec` in its event data (logged to `system.jsonl`). This measures the time from signal generation to exchange fill confirmation.
+
+### D. Advanced Flags (Troubleshooting)
+- `--async`: Use the high-performance `asyncio` + WebSockets engine (recommended for live-session).
+- `--preflight`: Run connectivity and credential checks before starting.
+- `--stale-timeout`: Seconds before stale WebSocket data triggers a safety shutdown (default: 60).
+- `--replay <path>`: Replay a previous `events.jsonl` for deterministic debugging.
 
