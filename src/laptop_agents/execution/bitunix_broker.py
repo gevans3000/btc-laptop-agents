@@ -33,6 +33,8 @@ class BitunixBroker:
         self._entry_side: Optional[str] = None
         self._entry_qty: Optional[float] = None
         self._last_order_id: Optional[str] = None
+        self.order_timestamps = []
+        self.starting_equity: Optional[float] = None
 
     @property
     def pos(self) -> Optional[Any]:
@@ -77,6 +79,27 @@ class BitunixBroker:
             try:
                 # We only submit if we don't think we have a position already 
                 if not self.last_pos:
+                    # Rate limiting (orders per minute)
+                    now = time.time()
+                    self.order_timestamps = [t for t in self.order_timestamps if now - t < 60]
+                    if len(self.order_timestamps) >= hard_limits.MAX_ORDERS_PER_MINUTE:
+                        msg = f"REJECTED: Rate limit {hard_limits.MAX_ORDERS_PER_MINUTE} orders/min exceeded"
+                        logger.error(msg)
+                        raise SafetyException(msg)
+                    self.order_timestamps.append(now)
+
+                    # Daily loss check
+                    equity = float(order.get("equity") or 0.0)
+                    if self.starting_equity is None and equity > 0:
+                        self.starting_equity = equity
+                    
+                    if self.starting_equity and equity > 0:
+                        drawdown_pct = (self.starting_equity - equity) / self.starting_equity * 100.0
+                        if drawdown_pct > hard_limits.MAX_DAILY_LOSS_PCT:
+                            msg = f"REJECTED: Daily loss {drawdown_pct:.2f}% > {hard_limits.MAX_DAILY_LOSS_PCT}%"
+                            logger.error(msg)
+                            raise SafetyException(msg)
+
                     if self._order_generated_at is None:
                          self._order_generated_at = time.time()
                     

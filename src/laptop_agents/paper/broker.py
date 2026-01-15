@@ -5,6 +5,9 @@ from typing import Any, Dict, Optional, Tuple
 from ..core import hard_limits
 from ..trading.helpers import calculate_fees, apply_slippage
 import logging
+import time
+import json
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +20,7 @@ class Position:
     sl: float
     tp: float
     opened_at: str
+    entry_fees: float = 0.0
     bars_open: int = 0
     trail_active: bool = False
     trail_stop: float = 0.0
@@ -29,11 +33,20 @@ class PaperBroker:
     - conservative intrabar resolution (stop-first if both touched)
     """
 
-    def __init__(self, symbol: str = "BTCUSDT", fees_bps: float = 0.0, slip_bps: float = 0.0) -> None:
+    def __init__(self, symbol: str = "BTCUSDT", fees_bps: float = 0.0, slip_bps: float = 0.0, starting_equity: float = 10000.0, state_path: Optional[str] = None) -> None:
+        self.symbol = symbol
         self.pos: Optional[Position] = None
         self.is_inverse = symbol == "BTCUSD"
         self.fees_bps = fees_bps
         self.slip_bps = slip_bps
+        self.starting_equity = starting_equity
+        self.current_equity = starting_equity
+        self.processed_order_ids = set()
+        self.order_timestamps = []
+        self.order_history = []
+        self.state_path = state_path
+        if self.state_path:
+            self._load_state()
 
     def on_candle(self, candle: Any, order: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         events: Dict[str, Any] = {"fills": [], "exits": []}
@@ -51,10 +64,35 @@ class PaperBroker:
             fill = self._try_fill(candle, order)
             if fill:
                 events["fills"].append(fill)
+                if self.state_path:
+                    self._save_state()
 
         return events
 
     def _try_fill(self, candle: Any, order: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        # Idempotency check
+        client_order_id = order.get("client_order_id")
+        if client_order_id:
+            if client_order_id in self.processed_order_ids:
+                logger.warning(f"Duplicate order {client_order_id} ignored")
+                return None
+            self.processed_order_ids.add(client_order_id)
+
+        # Rate limiting (orders per minute)
+        now = time.time()
+        self.order_timestamps = [t for t in self.order_timestamps if now - t < 60]
+        if len(self.order_timestamps) >= hard_limits.MAX_ORDERS_PER_MINUTE:
+            logger.warning(f"REJECTED: Rate limit {hard_limits.MAX_ORDERS_PER_MINUTE} orders/min exceeded")
+            return None
+        self.order_timestamps.append(now)
+
+        # Daily loss check
+        equity = float(order.get("equity") or self.current_equity)
+        drawdown_pct = (self.starting_equity - equity) / self.starting_equity * 100.0
+        if drawdown_pct > hard_limits.MAX_DAILY_LOSS_PCT:
+            logger.warning(f"REJECTED: Daily loss {drawdown_pct:.2f}% > {hard_limits.MAX_DAILY_LOSS_PCT}%")
+            return None
+
         entry_type = order["entry_type"]  # "limit" or "market"
         entry = float(order["entry"])
         side = order["side"]
@@ -70,9 +108,17 @@ class PaperBroker:
                 return None
             fill_px = entry
 
+        # Liquidity Capping
+        candle_vol = getattr(candle, "volume", 0)
+        max_fill_qty = candle_vol * 0.1 if candle_vol > 0 else qty
+        actual_qty = min(qty, max_fill_qty)
+        
+        if actual_qty < qty:
+            logger.info(f"PARTIAL FILL: Capped {qty:.4f} to {actual_qty:.4f} (10% of candle volume)")
+
         # Apply slippage and fees to entry
         fill_px_slipped = apply_slippage(fill_px, is_entry=True, is_long=(side == "LONG"), slip_bps=self.slip_bps)
-        notional = qty * fill_px_slipped
+        notional = actual_qty * fill_px_slipped
         entry_fees = calculate_fees(notional, self.fees_bps)
 
         # HARD LIMIT ENFORCEMENT
@@ -89,10 +135,18 @@ class PaperBroker:
 
         # For Inverse, we store 'qty' as Notional USD, but the input 'qty' is in Coins.
         # So we convert it here for the Position record.
-        pos_qty = notional if self.is_inverse else qty
+        pos_qty = notional if self.is_inverse else actual_qty
         
-        self.pos = Position(side=side, entry=fill_px_slipped, qty=pos_qty, sl=sl, tp=tp, opened_at=candle.ts)
-        return {"type": "fill", "side": side, "price": fill_px_slipped, "qty": pos_qty, "sl": sl, "tp": tp, "at": candle.ts, "fees": entry_fees}
+        self.pos = Position(side=side, entry=fill_px_slipped, qty=pos_qty, sl=sl, tp=tp, opened_at=candle.ts, entry_fees=entry_fees)
+        fill_event = {"type": "fill", "side": side, "price": fill_px_slipped, "qty": pos_qty, "sl": sl, "tp": tp, "at": candle.ts, "fees": entry_fees}
+        if actual_qty < qty:
+            fill_event["partial"] = True
+            fill_event["requested_qty"] = qty
+        
+        if self.state_path:
+            self._save_state()
+
+        return fill_event
 
     def _check_exit(self, candle: Any) -> Optional[Dict[str, Any]]:
         assert self.pos is not None
@@ -172,10 +226,64 @@ class PaperBroker:
             risk = abs(p.entry - p.sl) * p.qty
             
         exit_fees = calculate_fees(abs(p.qty * px_slipped if not self.is_inverse else p.qty), self.fees_bps)
-        net_pnl = pnl - exit_fees
+        net_pnl = pnl - exit_fees - p.entry_fees
         
+        self.current_equity += net_pnl
+        self.order_history.append({"type": "exit", "pnl": net_pnl, "at": ts})
+        
+        if self.state_path:
+            self._save_state()
+
         r_mult = (net_pnl / risk) if risk > 0 else 0.0
-        return {"type": "exit", "reason": reason, "price": px_slipped, "pnl": net_pnl, "r": r_mult, "bars_open": p.bars_open, "at": ts, "fees": exit_fees}
+        return {"type": "exit", "reason": reason, "price": px_slipped, "pnl": net_pnl, "r": r_mult, "bars_open": p.bars_open, "at": ts, "fees": exit_fees + p.entry_fees}
+
+    def _save_state(self) -> None:
+        if not self.state_path:
+            return
+        state = {
+            "symbol": self.symbol,
+            "starting_equity": self.starting_equity,
+            "current_equity": self.current_equity,
+            "processed_order_ids": list(self.processed_order_ids),
+            "order_history": self.order_history,
+            "pos": None
+        }
+        if self.pos:
+            state["pos"] = {
+                "side": self.pos.side,
+                "entry": self.pos.entry,
+                "qty": self.pos.qty,
+                "sl": self.pos.sl,
+                "tp": self.pos.tp,
+                "opened_at": self.pos.opened_at,
+                "entry_fees": self.pos.entry_fees,
+                "bars_open": self.pos.bars_open,
+                "trail_active": self.pos.trail_active,
+                "trail_stop": self.pos.trail_stop
+            }
+        
+        temp_path = Path(self.state_path).with_suffix(".tmp")
+        with open(temp_path, "w") as f:
+            json.dump(state, f, indent=2)
+        temp_path.replace(self.state_path)
+
+    def _load_state(self) -> None:
+        path = Path(self.state_path)
+        if not path.exists():
+            return
+        try:
+            with open(path) as f:
+                state = json.load(f)
+            self.starting_equity = state.get("starting_equity", self.starting_equity)
+            self.current_equity = state.get("current_equity", self.current_equity)
+            self.processed_order_ids = set(state.get("processed_order_ids", []))
+            self.order_history = state.get("order_history", [])
+            pos_data = state.get("pos")
+            if pos_data:
+                self.pos = Position(**pos_data)
+            logger.info(f"Loaded broker state from {self.state_path}")
+        except Exception as e:
+            logger.error(f"Failed to load broker state: {e}")
 
     def get_unrealized_pnl(self, current_price: float) -> float:
         if self.pos is None:
@@ -192,3 +300,18 @@ class PaperBroker:
                 return (current_price - p.entry) * p.qty
             else:
                 return (p.entry - current_price) * p.qty
+
+    def close_all(self, current_price: float) -> List[Dict[str, Any]]:
+        """Force close any open positions."""
+        if self.pos is None:
+            return []
+        logger.info(f"FORCED CLOSE OF {self.pos.side} @ {current_price}")
+        exit_event = self._exit(datetime.now(timezone.utc).isoformat(), current_price, "FORCE_CLOSE")
+        self.pos = None
+        return [exit_event]
+
+    def shutdown(self) -> None:
+        """Cleanup on shutdown."""
+        if self.state_path:
+            self._save_state()
+        logger.info("Broker shutdown complete.")

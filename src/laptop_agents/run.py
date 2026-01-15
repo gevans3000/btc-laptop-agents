@@ -74,6 +74,10 @@ def main() -> int:
     if "rr_min" in risk_cfg and args.tp_r == 1.5:
         args.tp_r = risk_cfg["rr_min"]
 
+    # Validate Configuration
+    from laptop_agents.core.validation import validate_config
+    validate_config(args, strategy_config)
+
     # Ensure directories exist
     RUNS_DIR.mkdir(exist_ok=True)
     LATEST_DIR.mkdir(parents=True, exist_ok=True)

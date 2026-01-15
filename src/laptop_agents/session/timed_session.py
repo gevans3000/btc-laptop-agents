@@ -30,7 +30,6 @@ class SessionResult:
     ending_equity: float = 10000.0
     duration_sec: float = 0.0
     stopped_reason: str = "completed"
-    events: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class GracefulShutdown:
@@ -115,7 +114,8 @@ def run_timed_session(
         broker = BitunixBroker(provider)
         logger.info(f"Live session initialized with BitunixBroker for {symbol}")
     else:
-        broker = PaperBroker(symbol=symbol, fees_bps=fees_bps, slip_bps=slip_bps)
+        state_path = str(PAPER_DIR / "broker_state.json")
+        broker = PaperBroker(symbol=symbol, fees_bps=fees_bps, slip_bps=slip_bps, starting_equity=starting_balance, state_path=state_path)
         
     circuit_breaker = TradingCircuitBreaker(max_daily_drawdown_pct=5.0, max_consecutive_losses=5)
     circuit_breaker.set_starting_equity(starting_balance)
@@ -149,6 +149,11 @@ def run_timed_session(
             # Check for shutdown request
             if shutdown.shutdown_requested:
                 result.stopped_reason = "shutdown_requested"
+                break
+            
+            # Check duration limit
+            if time.time() >= end_time:
+                result.stopped_reason = "duration_limit_reached"
                 break
             
             # Check circuit breaker
@@ -237,6 +242,9 @@ def run_timed_session(
                         }
                 
                 # Execute via broker
+                if order:
+                    order["client_order_id"] = f"ord_{int(time.time())}_{iteration}"
+                
                 events = broker.on_candle(latest_candle, order)
                 
                 # Track trades
@@ -306,9 +314,12 @@ def run_timed_session(
                     break
                 time.sleep(1)  # Check every second
         
-        # Shutdown cleanup (Cancel orders, close positions if live)
+        # Shutdown cleanup (Cancel orders, close positions)
         if hasattr(broker, "shutdown"):
             try:
+                # If we have a position, try to close it at the final price
+                if hasattr(broker, "close_all") and broker.pos:
+                    broker.close_all(float(candles[-1].close))
                 broker.shutdown()
             except Exception as e:
                 logger.error(f"Error during broker shutdown: {e}")
