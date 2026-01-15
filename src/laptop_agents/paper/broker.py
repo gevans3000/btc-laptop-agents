@@ -178,9 +178,23 @@ class PaperBroker:
         candle_vol = getattr(candle, "volume", 0)
         max_fill_qty = candle_vol * 0.1 if candle_vol > 0 else qty
         actual_qty = min(qty, max_fill_qty)
-        
+
         if actual_qty < qty:
             logger.info(f"PARTIAL FILL: Capped {qty:.4f} to {actual_qty:.4f} (10% of candle volume)")
+
+        # 3.2 Order Book Impact & Depth Simulation
+        # Simulate ~1M USD liquidity; penalty scale is 5% impact coefficient
+        simulated_liquidity = 1000000.0
+        order_notional = actual_qty * fill_px
+        impact_pct = (order_notional / simulated_liquidity) * 0.05
+        
+        if side == "LONG":
+            fill_px = fill_px * (1.0 + impact_pct)
+        else:
+            fill_px = fill_px * (1.0 - impact_pct)
+            
+        if impact_pct > 0.00001:  # 0.1 bps
+            logger.info(f"Market Impact Penalty: {impact_pct*10000.0:.2f} bps (${impact_pct*order_notional:.2f})")
 
         # Apply slippage and fees to entry
         if tick and tick.bid and tick.ask and entry_type == "market":
