@@ -406,6 +406,14 @@ class PaperBroker:
             self.processed_order_ids = set(state.get("processed_order_ids", []))
             self.order_history = state.get("order_history", [])
             self.working_orders = state.get("working_orders", [])
+            # Expire stale working orders (> 24 hours old)
+            now = time.time()
+            self.working_orders = [
+                o for o in self.working_orders 
+                if now - o.get("created_at", now) < 86400  # 24 hours
+            ]
+            if len(state.get("working_orders", [])) != len(self.working_orders):
+                logger.info(f"Expired {len(state.get('working_orders', [])) - len(self.working_orders)} stale working orders")
             pos_data = state.get("pos")
             if pos_data:
                 self.pos = Position(**pos_data)

@@ -10,7 +10,8 @@ param(
     [string]$ExecutionMode = "paper",
     [float]$RiskPct = 1.0,
     [float]$StopBps = 30.0,
-    [float]$TpR = 1.5
+    [float]$TpR = 1.5,
+    [int]$RestartDelay = 10
 )
 
 $LogFile = "logs/watchdog.log"
@@ -34,13 +35,13 @@ while ($true) {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     
     if ($exitCode -ne 0) {
-        Add-Content -Path $LogFile -Value "$timestamp [ERROR] Process crashed with exit code $exitCode. Restarting in 10s..."
-        Write-Error "Process crashed ($exitCode). Restarting in 10s..."
+        Add-Content -Path $LogFile -Value "$timestamp [ERROR] Process crashed with exit code $exitCode. Restarting in ${RestartDelay}s..."
+        Write-Error "Process crashed ($exitCode). Restarting in ${RestartDelay}s..."
     }
     else {
-        Add-Content -Path $LogFile -Value "$timestamp [INFO] Process exited normally. Restarting in 10s..."
-        Write-Host "Process exited normally. Restarting in 10s..."
+        Add-Content -Path $LogFile -Value "$timestamp [INFO] Process exited normally. Restarting in ${RestartDelay}s..."
+        Write-Host "Process exited normally. Restarting in ${RestartDelay}s..."
     }
     
-    Start-Sleep -Seconds 10
+    Start-Sleep -Seconds $RestartDelay
 }

@@ -49,7 +49,7 @@ def main() -> int:
     ap.add_argument("--show", action="store_true", help="Auto-open summary.html in browser after run")
     ap.add_argument("--strategy", type=str, default="default", help="Strategy name from config/strategies/")
     ap.add_argument("--async", dest="async_mode", action="store_true", default=False, help="Use high-performance asyncio engine")
-    ap.add_argument("--stale-timeout", type=int, default=30, help="Seconds before stale data triggers shutdown")
+    ap.add_argument("--stale-timeout", type=int, default=60, help="Seconds before stale data triggers shutdown")
     ap.add_argument("--preflight", action="store_true", help="Run system readiness checks")
     ap.add_argument("--replay", type=str, default=None, help="Path to events.jsonl for deterministic replay")
     args = ap.parse_args()

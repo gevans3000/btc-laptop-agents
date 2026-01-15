@@ -44,7 +44,7 @@ class AsyncRunner:
         tp_r: float = 1.5,
         fees_bps: float = 2.0,
         slip_bps: float = 0.5,
-        stale_timeout: int = 30,
+        stale_timeout: int = 60,
         provider: Optional[Any] = None,
     ):
         self.symbol = symbol
@@ -54,6 +54,8 @@ class AsyncRunner:
         self.status = "initializing"
         self.iterations = 0
         self.errors = 0
+        self.consecutive_ws_errors: int = 0
+        self.max_ws_errors: int = 3
         
         # New: Store risk parameters
         self.risk_pct = risk_pct
@@ -80,7 +82,7 @@ class AsyncRunner:
         # Control
         self.shutdown_event = asyncio.Event()
         self.start_time = time.time()
-        self.kill_file = Path("kill.txt")
+        self.kill_file = Path(__file__).resolve().parent.parent.parent.parent / "kill.txt"
         self.last_data_time: float = time.time()
         self.stale_data_timeout_sec: float = float(stale_timeout)
         
@@ -182,7 +184,11 @@ class AsyncRunner:
             pass
         except Exception as e:
             logger.error(f"Error in market_data_task: {e}")
+            self.consecutive_ws_errors += 1
             self.errors += 1
+            if self.consecutive_ws_errors >= self.max_ws_errors:
+                logger.error(f"WS_FATAL: {self.max_ws_errors} consecutive errors. Triggering shutdown.")
+                self.shutdown_event.set()
 
     async def kill_switch_task(self):
         """Monitors for kill.txt file to trigger emergency shutdown."""
@@ -246,17 +252,23 @@ class AsyncRunner:
             raw_signal = None
             
             if self.strategy_config:
-                from laptop_agents.agents.supervisor import Supervisor
-                from laptop_agents.agents.state import State as AgentState
-                
-                # We use historical candles minus the one just closed for state, 
-                # then step with the closed one.
-                supervisor = Supervisor(provider=None, cfg=self.strategy_config, broker=self.broker)
-                state = AgentState(instrument=self.symbol, timeframe=self.interval, candles=self.candles[:-1])
-                state = supervisor.step(state, candle, skip_broker=True)
-                
-                if state.setup.get("side") in ["LONG", "SHORT"]:
-                    raw_signal = "BUY" if state.setup["side"] == "LONG" else "SELL"
+                try:
+                    from laptop_agents.agents.supervisor import Supervisor
+                    from laptop_agents.agents.state import State as AgentState
+                    
+                    # We use historical candles minus the one just closed for state, 
+                    # then step with the closed one.
+                    supervisor = Supervisor(provider=None, cfg=self.strategy_config, broker=self.broker)
+                    state = AgentState(instrument=self.symbol, timeframe=self.interval, candles=self.candles[:-1])
+                    state = supervisor.step(state, candle, skip_broker=True)
+                    
+                    if state.setup.get("side") in ["LONG", "SHORT"]:
+                        raw_signal = "BUY" if state.setup["side"] == "LONG" else "SELL"
+                except Exception as agent_err:
+                    logger.error(f"AGENT_ERROR: Strategy agent failed, skipping signal: {agent_err}")
+                    from laptop_agents.core.orchestrator import append_event
+                    append_event({"event": "AgentError", "error": str(agent_err)}, paper=True)
+                    raw_signal = None  # Suppress trade on agent failure
             
             if raw_signal:
                 signal_side = "LONG" if raw_signal == "BUY" else "SHORT"
