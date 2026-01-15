@@ -389,7 +389,15 @@ class PaperBroker:
         net_pnl = pnl - exit_fees - p.entry_fees
         
         self.current_equity += net_pnl
-        self.order_history.append({"type": "exit", "pnl": net_pnl, "at": ts})
+        self.order_history.append({
+            "type": "exit", 
+            "reason": reason,
+            "pnl": net_pnl, 
+            "at": ts,
+            "fees": exit_fees + p.entry_fees,
+            "r": r_mult,
+            "side": p.side
+        })
         
         if self.state_path:
             self._save_state()

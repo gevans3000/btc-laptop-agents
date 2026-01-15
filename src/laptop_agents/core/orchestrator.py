@@ -371,15 +371,24 @@ def run_orchestrated_mode(
         if (LATEST_DIR / "summary.html").exists():
             shutil.copy2(LATEST_DIR / "summary.html", run_dir / "summary.html")
             
+        # 3.3 Post-Run Performance Summary (CLI)
+        wins = [t for t in trades if t.get("pnl", 0) > 0]
+        win_rate = (len(wins) / len(trades) * 100) if trades else 0.0
+        total_fees = sum(t.get("fees", 0) for t in trades)
+        net_pnl = float(ending_balance - starting_balance)
+        pnl_pct = (net_pnl / starting_balance * 100) if starting_balance > 0 else 0.0
+
         summary_text = f"""
 ========== SESSION COMPLETE ==========
 Run ID:     {run_id}
 Symbol:     {symbol}
-Candles:    {len(candles)}
-Trades:     {len(trades)}
 Start:      ${starting_balance:,.2f}
 End:        ${ending_balance:,.2f}
-Net PnL:    ${ending_balance - starting_balance:,.2f}
+Net PnL:    ${net_pnl:,.2f} ({pnl_pct:+.2f}%)
+--------------------------------------
+Trades:     {len(trades)}
+Win Rate:   {win_rate:.1f}%
+Total Fees: ${total_fees:,.2f}
 =======================================
 """
         logger.info(summary_text)

@@ -193,8 +193,30 @@ class AsyncRunner:
                 with open(report_path, "w") as f:
                     json.dump(report, f, indent=2)
                 logger.info(f"Final report written to {report_path}")
+
+                # 3.3 Post-Run Performance Summary (CLI)
+                trades_list = [h for h in self.broker.order_history if h.get("type") == "exit"]
+                wins = [t for t in trades_list if t.get("pnl", 0) > 0]
+                win_rate = (len(wins) / len(trades_list) * 100) if trades_list else 0.0
+                total_fees = sum(t.get("fees", 0) for t in trades_list)
+                net_pnl = float(self.broker.current_equity - self.starting_equity)
+                pnl_pct = (net_pnl / self.starting_equity * 100) if self.starting_equity > 0 else 0.0
+
+                summary_text = f"""
+========== SESSION COMPLETE (ASYNC) ==========
+Symbol:     {self.symbol}
+Start:      ${self.starting_equity:,.2f}
+End:        ${self.broker.current_equity:,.2f}
+Net PnL:    ${net_pnl:,.2f} ({pnl_pct:+.2f}%)
+--------------------------------------
+Trades:     {len(trades_list)}
+Win Rate:   {win_rate:.1f}%
+Total Fees: ${total_fees:,.2f}
+==============================================
+"""
+                logger.info(summary_text)
             except Exception as re:
-                logger.error(f"Failed to write final report: {re}")
+                logger.error(f"Failed to write final report/summary: {re}")
 
             if self.errors > 0:
                 write_alert(f"Session failed with {self.errors} errors")
