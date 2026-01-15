@@ -503,6 +503,37 @@ class PaperBroker:
         self.pos = None
         return [exit_event]
 
+    def apply_funding(self, rate: float, ts: str) -> None:
+        """Simulate funding fee: cost = current_position_size * rate."""
+        if self.pos is None:
+            return
+            
+        p = self.pos
+        # Note: p.qty is already in USD notional for Inverse or Coins for Linear (converted in _try_fill)
+        # Actually in _try_fill: pos_qty = notional if self.is_inverse else actual_qty
+        # For funding, we need the ABSOLUTE USD NOTIONAL.
+        
+        if self.is_inverse:
+            notional_usd = p.qty # qty IS notional for inverse in my Position record
+        else:
+            # Linear. We need to fetch current price or use entry? Plan says 'current_position_size'.
+            # I'll use entry price for simplicity, or 1.0 if not available.
+            notional_usd = p.qty * p.entry 
+            
+        cost = notional_usd * rate
+        self.current_equity -= cost
+        
+        logger.info(f"FUNDING APPLIED: Rate {rate*100:.4f}% | Cost: ${cost:,.2f} | Equity: ${self.current_equity:,.2f}")
+        from laptop_agents.core.orchestrator import append_event
+        append_event({
+            "event": "FundingApplied",
+            "rate": rate,
+            "cost": cost,
+            "equity": self.current_equity,
+            "side": p.side,
+            "at": ts
+        }, paper=True)
+
     def shutdown(self) -> None:
         """Cleanup on shutdown."""
         if self.state_path:

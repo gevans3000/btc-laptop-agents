@@ -147,6 +147,7 @@ class AsyncRunner:
             asyncio.create_task(self.timer_task(end_time)),
             asyncio.create_task(self.kill_switch_task()),
             asyncio.create_task(self.stale_data_task()),
+            asyncio.create_task(self.funding_task()),
         ]
         
         try:
@@ -481,6 +482,30 @@ Total Fees: ${total_fees:,.2f}
                 await asyncio.sleep(1.0)
             logger.info("Duration limit reached. Shutting down...")
             self.shutdown_event.set()
+        except asyncio.CancelledError:
+            pass
+
+    async def funding_task(self):
+        """Checks for 8-hour funding windows (00:00, 08:00, 16:00 UTC)."""
+        # Initialize last_funding_hour to current hour to avoid instant charge on startup if within window
+        now = datetime.now(timezone.utc)
+        last_funding_hour = now.hour if now.minute == 0 else None
+        
+        try:
+            while not self.shutdown_event.is_set():
+                now = datetime.now(timezone.utc)
+                # Funding windows: 00:00, 08:00, 16:00 UTC
+                if now.hour in [0, 8, 16] and now.minute == 0 and now.hour != last_funding_hour:
+                    logger.info(f"Funding window detected at {now.hour:02d}:00 UTC")
+                    # Fixed mock rate of 0.01% (typical for BTC perpetuals)
+                    rate = 0.0001 
+                    self.broker.apply_funding(rate, now.isoformat())
+                    last_funding_hour = now.hour
+                
+                if now.minute != 0:
+                    last_funding_hour = None
+                    
+                await asyncio.sleep(30)
         except asyncio.CancelledError:
             pass
 
