@@ -35,6 +35,16 @@ class Candle:
     volume: float
 
 
+@dataclass
+class Tick:
+    """Real-time market tick."""
+    symbol: str
+    bid: float
+    ask: float
+    last: float
+    ts: str
+
+
 def sma(vals: List[float], window: int) -> Optional[float]:
     """Simple moving average over the last `window` values."""
     if len(vals) < window:

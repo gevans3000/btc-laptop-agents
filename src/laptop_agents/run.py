@@ -48,6 +48,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--show", action="store_true", help="Auto-open summary.html in browser after run")
     ap.add_argument("--strategy", type=str, default="default", help="Strategy name from config/strategies/")
+    ap.add_argument("--async", dest="async_mode", action="store_true", default=False, help="Use high-performance asyncio engine")
     args = ap.parse_args()
 
     # Load strategy configuration
@@ -88,24 +89,42 @@ def main() -> int:
     try:
         ret = 1
         if mode == "live-session":
-            from laptop_agents.session.timed_session import run_timed_session
-            result = run_timed_session(
-                duration_min=args.duration,
-                poll_interval_sec=60,
-                symbol=args.symbol,
-                interval=args.interval,
-                source=args.source,
-                limit=args.limit,
-                starting_balance=10000.0,
-                risk_pct=args.risk_pct,
-                stop_bps=args.stop_bps,
-                tp_r=args.tp_r,
-                execution_mode=args.execution_mode,
-                fees_bps=args.fees_bps,
-                slip_bps=args.slip_bps,
-                strategy_config=strategy_config,
-            )
-            ret = 0 if result.errors == 0 else 1
+            if args.async_mode:
+                import asyncio
+                from laptop_agents.session.async_session import run_async_session
+                # Run the async session
+                result = asyncio.run(run_async_session(
+                    duration_min=args.duration,
+                    symbol=args.symbol,
+                    interval=args.interval,
+                    starting_balance=10000.0,
+                    risk_pct=args.risk_pct,
+                    stop_bps=args.stop_bps,
+                    tp_r=args.tp_r,
+                    fees_bps=args.fees_bps,
+                    slip_bps=args.slip_bps,
+                    strategy_config=strategy_config,
+                ))
+                ret = 0 if result.errors == 0 else 1
+            else:
+                from laptop_agents.session.timed_session import run_timed_session
+                result = run_timed_session(
+                    duration_min=args.duration,
+                    poll_interval_sec=60,
+                    symbol=args.symbol,
+                    interval=args.interval,
+                    source=args.source,
+                    limit=args.limit,
+                    starting_balance=10000.0,
+                    risk_pct=args.risk_pct,
+                    stop_bps=args.stop_bps,
+                    tp_r=args.tp_r,
+                    execution_mode=args.execution_mode,
+                    fees_bps=args.fees_bps,
+                    slip_bps=args.slip_bps,
+                    strategy_config=strategy_config,
+                )
+                ret = 0 if result.errors == 0 else 1
         elif mode == "orchestrated":
             success, msg = run_orchestrated_mode(
                 symbol=args.symbol,

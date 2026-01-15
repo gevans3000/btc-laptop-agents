@@ -8,6 +8,7 @@ import logging
 import time
 import json
 from pathlib import Path
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,18 @@ class PaperBroker:
                 if self.state_path:
                     self._save_state()
 
+        return events
+
+    def on_tick(self, tick: Any) -> Dict[str, Any]:
+        """Process a real-time tick for SL/TP monitoring."""
+        events: Dict[str, Any] = {"exits": []}
+        if self.pos is not None:
+            exit_event = self._check_tick_exit(tick)
+            if exit_event:
+                events["exits"].append(exit_event)
+                self.pos = None
+                if self.state_path:
+                    self._save_state()
         return events
 
     def _try_fill(self, candle: Any, order: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -147,6 +160,30 @@ class PaperBroker:
             self._save_state()
 
         return fill_event
+
+    def _check_tick_exit(self, tick: Any) -> Optional[Dict[str, Any]]:
+        """Sub-minute check for SL/TP against latest tick price."""
+        assert self.pos is not None
+        p = self.pos
+        px = float(tick.last)
+        ts = str(tick.ts)
+
+        if p.side == "LONG":
+            if px <= p.sl:
+                return self._exit(ts, p.sl, "SL_TICK")
+            if px >= p.tp:
+                return self._exit(ts, p.tp, "TP_TICK")
+            if p.trail_active and px <= p.trail_stop:
+                return self._exit(ts, p.trail_stop, "TRAIL_TICK")
+        else: # SHORT
+            if px >= p.sl:
+                return self._exit(ts, p.sl, "SL_TICK")
+            if px <= p.tp:
+                return self._exit(ts, p.tp, "TP_TICK")
+            if p.trail_active and px >= p.trail_stop:
+                return self._exit(ts, p.trail_stop, "TRAIL_TICK")
+
+        return None
 
     def _check_exit(self, candle: Any) -> Optional[Dict[str, Any]]:
         assert self.pos is not None
