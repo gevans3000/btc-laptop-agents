@@ -22,6 +22,7 @@ import threading
 import os
 from laptop_agents.core.state_manager import StateManager
 from laptop_agents.core.logger import write_alert
+import psutil
 
 @dataclass
 class AsyncSessionResult:
@@ -394,6 +395,14 @@ class AsyncRunner:
                 unrealized = self.broker.get_unrealized_pnl(price)
                 total_equity = self.broker.current_equity + unrealized
                 
+                process = psutil.Process()
+                mem_mb = process.memory_info().rss / 1024 / 1024
+                cpu_pct = process.cpu_percent()
+
+                if mem_mb > 1024:
+                    logger.critical(f"High Memory Usage: {mem_mb:.1f} MB. Triggering shutdown.")
+                    self.shutdown_event.set()
+
                 # Write heartbeat file for watchdog
                 with heartbeat_path.open("w") as f:
                     json.dump({
@@ -402,6 +411,8 @@ class AsyncRunner:
                         "elapsed": elapsed,
                         "equity": total_equity,
                         "symbol": self.symbol,
+                        "ram_mb": round(mem_mb, 2),
+                        "cpu_pct": cpu_pct
                     }, f)
                 
                 remaining = max(0, (self.start_time + (self.duration_min * 60)) - time.time())
