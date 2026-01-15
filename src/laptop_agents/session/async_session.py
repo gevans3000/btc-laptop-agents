@@ -16,7 +16,9 @@ from laptop_agents.trading.helpers import Candle, Tick, normalize_candle_order
 from laptop_agents.data.loader import load_bitunix_candles
 from laptop_agents.resilience.trading_circuit_breaker import TradingCircuitBreaker
 from laptop_agents.core.orchestrator import render_html, write_trades_csv, LATEST_DIR
-from laptop_agents.core import hard_limits
+from laptop_agents.core.hard_limits import MAX_ERRORS_PER_SESSION
+import threading
+import os
 from laptop_agents.core.state_manager import StateManager
 
 @dataclass
@@ -45,6 +47,7 @@ class AsyncRunner:
         fees_bps: float = 2.0,
         slip_bps: float = 0.5,
         stale_timeout: int = 60,
+        execution_latency_ms: int = 200,
         provider: Optional[Any] = None,
     ):
         self.symbol = symbol
@@ -85,12 +88,14 @@ class AsyncRunner:
         self.kill_file = Path(__file__).resolve().parent.parent.parent.parent / "kill.txt"
         self.last_data_time: float = time.time()
         self.stale_data_timeout_sec: float = float(stale_timeout)
+        self.execution_latency_ms = execution_latency_ms
         
         self.circuit_breaker = TradingCircuitBreaker(max_daily_drawdown_pct=5.0, max_consecutive_losses=5)
         self.circuit_breaker.set_starting_equity(starting_balance)
         self.duration_min: int = 0  # Will be set in run()
         
         self.state_manager = StateManager(PAPER_DIR)
+        self.last_heartbeat_time: float = time.time()
 
     async def run(self, duration_min: int):
         """Main entry point to run the async loop."""
@@ -108,6 +113,10 @@ class AsyncRunner:
                  logger.warning("Circuit breaker was previously TRIPPED. It remains TRIPPED.")
                  # Note: TradingCircuitBreaker doesn't have a direct 'trip()' method but is_tripped() checks state
         
+        # Start Threaded Watchdog (independent of event loop)
+        watchdog_thread = threading.Thread(target=self._threaded_watchdog, daemon=True)
+        watchdog_thread.start()
+        logger.info("Threaded watchdog started.")
         # Pre-load some historical candles if possible to seed strategy
         try:
             logger.info("Seeding historical candles via REST...")
@@ -290,7 +299,11 @@ class AsyncRunner:
                     }
 
             # Execute via broker
-            events = self.broker.on_candle(candle, order)
+            if order and order.get("go") and self.execution_latency_ms > 0:
+                logger.info(f"Simulating latency: {self.execution_latency_ms}ms")
+                await asyncio.sleep(self.execution_latency_ms / 1000.0)
+
+            events = self.broker.on_candle(candle, order, tick=self.latest_tick)
             
             for fill in events.get("fills", []):
                 self.trades += 1
@@ -320,7 +333,7 @@ class AsyncRunner:
         except Exception as e:
             logger.error(f"Error in on_candle_closed: {e}")
             self.errors += 1
-            if self.errors >= hard_limits.MAX_ERRORS_PER_SESSION:
+            if self.errors >= MAX_ERRORS_PER_SESSION:
                 logger.error(f"ERROR BUDGET EXHAUSTED: {self.errors} errors. Shutting down.")
                 self.shutdown_event.set()
 
@@ -367,6 +380,7 @@ class AsyncRunner:
                     "elapsed": elapsed
                 }, paper=True)
                 
+                self.last_heartbeat_time = time.time()
                 await asyncio.sleep(1.0)
         except asyncio.CancelledError:
             pass
@@ -381,6 +395,17 @@ class AsyncRunner:
         except asyncio.CancelledError:
             pass
 
+    def _threaded_watchdog(self):
+        """Independent thread that kills the process if main loop freezes."""
+        while not self.shutdown_event.is_set():
+            age = time.time() - self.last_heartbeat_time
+            if age > 30:
+                # Use critical print as logger might be stuck too
+                print(f"\n\n!!! WATCHDOG FATAL: Main loop frozen for {age:.1f}s. FORCE EXITing. !!!\n\n")
+                logger.critical(f"WATCHDOG_FATAL: Main loop frozen for {age:.1f}s. HARD EXIT.")
+                os._exit(1)
+            time.sleep(1)
+
 async def run_async_session(
     duration_min: int = 10,
     symbol: str = "BTCUSDT",
@@ -393,6 +418,7 @@ async def run_async_session(
     slip_bps: float = 0.5,
     strategy_config: Optional[Dict[str, Any]] = None,
     stale_timeout: int = 30,
+    execution_latency_ms: int = 200,
     replay_path: Optional[str] = None,
 ) -> AsyncSessionResult:
     """Entry point for the async session."""
@@ -408,6 +434,7 @@ async def run_async_session(
         fees_bps=fees_bps,
         slip_bps=slip_bps,
         stale_timeout=stale_timeout,
+        execution_latency_ms=execution_latency_ms,
         provider=None
     )
     

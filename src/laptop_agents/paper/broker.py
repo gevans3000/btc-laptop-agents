@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 from ..core import hard_limits
 from ..trading.helpers import calculate_fees, apply_slippage
+from ..execution.fees import get_fee_bps
 import logging
 import time
 import json
@@ -57,7 +58,7 @@ class PaperBroker:
         if self.state_path:
             self._load_state()
 
-    def on_candle(self, candle: Any, order: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def on_candle(self, candle: Any, order: Optional[Dict[str, Any]], tick: Optional[Any] = None) -> Dict[str, Any]:
         events: Dict[str, Any] = {"fills": [], "exits": []}
 
         # 0) process working orders
@@ -74,7 +75,7 @@ class PaperBroker:
 
         # 2) open new position if none
         if self.pos is None and order and order.get("go"):
-            fill = self._try_fill(candle, order)
+            fill = self._try_fill(candle, order, tick=tick)
             if fill:
                 events["fills"].append(fill)
                 if self.state_path:
@@ -94,7 +95,7 @@ class PaperBroker:
                     self._save_state()
         return events
 
-    def _try_fill(self, candle: Any, order: Dict[str, Any], is_working: bool = False) -> Optional[Dict[str, Any]]:
+    def _try_fill(self, candle: Any, order: Dict[str, Any], is_working: bool = False, tick: Optional[Any] = None) -> Optional[Dict[str, Any]]:
         # Idempotency check
         client_order_id = order.get("client_order_id")
         if client_order_id and not is_working:
@@ -159,8 +160,16 @@ class PaperBroker:
         tp = float(order["tp"])
 
         if entry_type == "market":
-            fill_px = float(candle.close)
+            if tick and tick.bid and tick.ask:
+                fill_px = float(tick.ask) if side == "LONG" else float(tick.bid)
+                # If we use real tick, we don't need random slippage as much, 
+                # but we'll apply a minimal 0.1bps for executor jitter
+                actual_slip_bps = 0.1
+            else:
+                fill_px = float(candle.close)
+                actual_slip_bps = self.slip_bps
         else:
+            # limit fill if touched
             # limit fill if touched
             if not (candle.low <= entry <= candle.high):
                 return None
@@ -175,16 +184,24 @@ class PaperBroker:
             logger.info(f"PARTIAL FILL: Capped {qty:.4f} to {actual_qty:.4f} (10% of candle volume)")
 
         # Apply slippage and fees to entry
-        base_slip = self.slip_bps
-        random_slip_factor = self.rng.uniform(0.5, 1.5)  # 50% to 150% of base slippage
-        effective_slip = base_slip * random_slip_factor
+        if tick and tick.bid and tick.ask and entry_type == "market":
+            # Already used bid/ask, just add tiny jitter
+            effective_slip = 0.1
+        else:
+            base_slip = self.slip_bps
+            random_slip_factor = self.rng.uniform(0.5, 1.5)  # 50% to 150% of base slippage
+            effective_slip = base_slip * random_slip_factor
+            
         fill_px_slipped = apply_slippage(fill_px, is_entry=True, is_long=(side == "LONG"), slip_bps=effective_slip)
         
         # Add simulated latency log
         simulated_latency_ms = self.rng.randint(50, 500)
         logger.debug(f"Simulated execution latency: {simulated_latency_ms}ms")
         notional = actual_qty * fill_px_slipped
-        entry_fees = calculate_fees(notional, self.fees_bps)
+        
+        # Use Dynamic Fees
+        fee_bps = get_fee_bps(entry_type)
+        entry_fees = calculate_fees(notional, fee_bps)
 
         # For Inverse, we store 'qty' as Notional USD, but the input 'qty' is in Coins.
         # So we convert it here for the Position record.
@@ -327,6 +344,8 @@ class PaperBroker:
         assert self.pos is not None
         p = self.pos
         # Apply slippage and fees to exit
+        # For exits, we usually don't have the exact tick at the moment of SL/TP hit 
+        # unless it's a tick-based exit.
         random_slip_factor = self.rng.uniform(0.5, 1.5)
         effective_slip = self.slip_bps * random_slip_factor
         px_slipped = apply_slippage(px, is_entry=False, is_long=(p.side == "LONG"), slip_bps=effective_slip)
@@ -351,7 +370,9 @@ class PaperBroker:
             pnl = (px_slipped - p.entry) * p.qty if p.side == "LONG" else (p.entry - px_slipped) * p.qty
             risk = abs(p.entry - p.sl) * p.qty
             
-        exit_fees = calculate_fees(abs(p.qty * px_slipped if not self.is_inverse else p.qty), self.fees_bps)
+        # Exits are always Taker orders
+        exit_fee_bps = get_fee_bps("MARKET")
+        exit_fees = calculate_fees(abs(p.qty * px_slipped if not self.is_inverse else p.qty), exit_fee_bps)
         net_pnl = pnl - exit_fees - p.entry_fees
         
         self.current_equity += net_pnl
