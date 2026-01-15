@@ -28,10 +28,10 @@ The canonical entrypoint is `python -m src.laptop_agents.run`.
 | **Live Session** | `--mode live-session` | Autonomous polling loop for timed trading. | `paper/events.jsonl` |
 | **Single** | *default* | Single-step simulation (dev/debug). | `events.jsonl` |
 
-### Experimental Modes
-
-| Mode | CLI Argument | Description | Status |
+### Modern & High-Performance Modes
+| Feature | Flag | Description | Status |
 | :--- | :--- | :--- | :--- |
+| **Async Engine** | `--async` | Uses `asyncio` + WebSockets for sub-second responses. | Stable |
 | **Orchestrated** | `--mode orchestrated` | Runs the V2 pipeline with explicit artifact stages. | Beta |
 | **Validate** | `--mode validate` | Walk-forward optimization sweep. | Alpha |
 
@@ -41,6 +41,7 @@ The canonical entrypoint is `python -m src.laptop_agents.run`.
 | :--- | :--- | :--- | :--- |
 | **Mock** | `--source mock` | No | Synthetic sine-wave data for offline dev. |
 | **Bitunix** | `--source bitunix` | Optional | Live/Historical market data. API/Secret needed for private endpoints only. |
+| **WebSocket** | (Auto with `--async`) | Yes | Real-time ticker and kline streams from Bitunix. |
 
 ## 4. Canonical Outputs (The Contract)
 
@@ -87,6 +88,12 @@ Operators interact via `scripts/` ONLY.
 *   `mvp_open.ps1`: Dashboard viewer.
 
 ## 7. Live Trading
+
+### Execution Engines
+| Engine | Flag | Description |
+| :--- | :--- | :--- |
+| **Sync** | (Default) | Polling-based loop (60s default). |
+| **Async** | `--async` | Event-driven loop using WebSockets. |
 
 ### Execution Modes
 | Mode | Flag | Description |
