@@ -1,1 +1,3 @@
-{"_meta": "Known Errors Database", "version": "1.0", "created": "2026-01-15"}
+{"_meta": "Known Errors Database", "version": "1.0", "updated": "2026-01-15T12:52:40.290311"}
+{"fingerprint": "9b9a3e0c57049405", "error_snippet": "Test Autocopy Error", "solution": "This was just a test fix", "root_cause": "Manual verification", "timestamp": "2026-01-15T12:47:38.769308", "last_seen": "2026-01-15T12:47:48.347497", "occurrences": 2}
+{"fingerprint": "5bdd89d716569469", "error_snippet": "Simulation: DB Connection Failed", "solution": "Verify database credentials in .env and ensure DB service is running", "root_cause": "Authentication Failure or Service Down", "timestamp": "2026-01-15T12:52:12.990190", "last_seen": "2026-01-15T12:52:12.990190", "occurrences": 1, "diagnosed_at": "2026-01-15T12:52:40.290311", "diagnosed_by": "AI_AGENT"}
