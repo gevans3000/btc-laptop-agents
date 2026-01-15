@@ -1,9 +1,30 @@
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime
 from typing import Any, Dict, Optional
+
+SENSITIVE_PATTERNS = [
+    r'(?i)(api[_-]?key|secret|password|token|auth)(["\']?\s*[:=]\s*["\']?)[A-Za-z0-9+/=_-]{16,}',
+    r'(?i)(Bearer\s+)[A-Za-z0-9+/=_-]{20,}',
+]
+
+def scrub_secrets(text: str) -> str:
+    """Replace sensitive values with ***."""
+    # Also scrub any values from .env
+    env_secrets = [v for k, v in os.environ.items() 
+                   if any(x in k.upper() for x in ['KEY', 'SECRET', 'TOKEN', 'PASSWORD'])
+                   and v and len(v) > 8]
+    for secret in env_secrets:
+        text = text.replace(secret, '***')
+    
+    # Process patterns
+    text = re.sub(SENSITIVE_PATTERNS[0], r'\1\2***', text)
+    text = re.sub(SENSITIVE_PATTERNS[1], r'\1***', text)
+    return text
+
 
 class JsonFormatter(logging.Formatter):
     def format(self, record):
@@ -19,7 +40,7 @@ class JsonFormatter(logging.Formatter):
              # Support for logger.info("msg", {"extra": "data"}) style if meta not used
              log_entry["meta"] = record.args
              
-        return json.dumps(log_entry, separators=(",", ":"))
+        return scrub_secrets(json.dumps(log_entry, separators=(",", ":")))
 
 def setup_logger(name: str = "btc_agents", log_dir: str = "logs"):
     if not os.path.exists(log_dir):
