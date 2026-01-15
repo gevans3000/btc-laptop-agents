@@ -36,6 +36,13 @@ python src/laptop_agents/run.py --help > temp_help.txt
 Write-Host "Current CLI help saved to temp_help.txt. Compare with RUNBOOK.md flags."
 ```
 
+## 3b. Generate Troubleshooting Guide
+// turbo
+Generate `docs/troubleshooting/known_issues.md` from the automated knowledge base.
+```powershell
+python scripts/generate_troubleshooting_docs.py
+```
+
 ## 4. Cross-Document Consistency
 Review key files for conflicting information:
 1.  **MAP.md** vs **SPEC.md** (Architecture vs Implementation)

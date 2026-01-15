@@ -81,6 +81,36 @@ def append_event(obj: Dict[str, Any], paper: bool = False) -> None:
             f.flush()
             os.fsync(f.fileno())
 
+def _run_diagnostics(e: Exception) -> None:
+    """Run learning debugger diagnostics on an exception."""
+    try:
+        import sys
+        
+        # Try to import from scripts
+        try:
+            from scripts import error_fingerprinter
+        except ImportError:
+            if str(REPO_ROOT / "scripts") not in sys.path:
+                sys.path.append(str(REPO_ROOT / "scripts"))
+            import error_fingerprinter
+
+        error_text = f"{type(e).__name__}: {str(e)}"
+        match = error_fingerprinter.lookup(error_text)
+        
+        if match:
+             solution = match.get("solution", "")
+             if solution and solution not in ["NEEDS_DIAGNOSIS", "Pending Diagnosis", ""]:
+                 logger.error(f"\n[LEARNING DEBUGGER] MATCHED KNOWN ERROR: {match['fingerprint']}")
+                 logger.error(f"[LEARNING DEBUGGER] SUGGESTED FIX: {solution}\n")
+        else:
+             # Capture new error
+             error_fingerprinter.capture(error_text, "NEEDS_DIAGNOSIS")
+             logger.error(f"\n[LEARNING DEBUGGER] New error captured for diagnosis.\n")
+
+    except Exception as inner_e:
+        # Don't let the debugger crash the app if something goes wrong with it
+        logger.warning(f"[LEARNING DEBUGGER] Failed during error analysis: {inner_e}")
+
 def validate_events_jsonl(events_path: Path) -> tuple[bool, str]:
     return _validate_events_jsonl(events_path, append_event_fn=append_event)
 
@@ -430,6 +460,7 @@ Total Fees: ${total_fees:,.2f}
         
     except Exception as e:
         import traceback
+        _run_diagnostics(e)
         append_event({"event": "OrchestratedModularError", "error": str(e), "trace": traceback.format_exc()[-500:]})
         return False, str(e)
 
@@ -588,5 +619,6 @@ def run_legacy_orchestration(
 
     except Exception as e:
         logger.exception(f"Legacy Run failed: {e}")
+        _run_diagnostics(e)
         append_event({"event": "RunError", "error": str(e)})
         return 1
