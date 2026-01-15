@@ -53,11 +53,16 @@ class PaperBroker:
         self.order_timestamps = []
         self.order_history = []
         self.state_path = state_path
+        self.working_orders: List[Dict[str, Any]] = []
         if self.state_path:
             self._load_state()
 
     def on_candle(self, candle: Any, order: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         events: Dict[str, Any] = {"fills": [], "exits": []}
+
+        # 0) process working orders
+        working_fills = self._process_working_orders(candle)
+        events["fills"].extend(working_fills)
 
         # 1) manage open position
         if self.pos is not None:
@@ -89,10 +94,10 @@ class PaperBroker:
                     self._save_state()
         return events
 
-    def _try_fill(self, candle: Any, order: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _try_fill(self, candle: Any, order: Dict[str, Any], is_working: bool = False) -> Optional[Dict[str, Any]]:
         # Idempotency check
         client_order_id = order.get("client_order_id")
-        if client_order_id:
+        if client_order_id and not is_working:
             if client_order_id in self.processed_order_ids:
                 logger.warning(f"Duplicate order {client_order_id} ignored")
                 from laptop_agents.core.orchestrator import append_event
@@ -102,7 +107,7 @@ class PaperBroker:
 
         # Trade frequency throttle
         now = time.time()
-        if now - self.last_trade_time < self.min_trade_interval_sec:
+        if not is_working and now - self.last_trade_time < self.min_trade_interval_sec:
             logger.info(f"THROTTLED: Only {now - self.last_trade_time:.1f}s since last trade (min: {self.min_trade_interval_sec}s)")
             from laptop_agents.core.orchestrator import append_event
             append_event({"event": "OrderRejected", "reason": "throttled", "seconds_since_last": now - self.last_trade_time}, paper=True)
@@ -190,6 +195,21 @@ class PaperBroker:
         if actual_qty < qty:
             fill_event["partial"] = True
             fill_event["requested_qty"] = qty
+            
+            # Create a working order for the remainder
+            remainder = {
+                "client_order_id": f"{client_order_id or 'anon'}_remainder",
+                "side": side,
+                "entry_type": "limit",
+                "entry": fill_px,
+                "qty": qty - actual_qty,
+                "sl": sl,
+                "tp": tp,
+                "equity": equity,
+                "created_at": time.time()
+            }
+            self.working_orders.append(remainder)
+            logger.info(f"WORKING ORDER CREATED: {qty - actual_qty:.4f} remaining")
         
         if self.state_path:
             self._save_state()
@@ -421,3 +441,21 @@ class PaperBroker:
         if self.state_path:
             self._save_state()
         logger.info("Broker shutdown complete.")
+
+    def _process_working_orders(self, candle: Any) -> List[Dict[str, Any]]:
+        """Check if any working orders can be filled."""
+        fills = []
+        remaining = []
+        for order in self.working_orders:
+            if self.pos is None:  # Only fill if no position
+                # We need to bypass the client_order_id check for working orders 
+                # as they are already processed.
+                fill = self._try_fill(candle, order, is_working=True)
+                if fill:
+                    fills.append(fill)
+                else:
+                    remaining.append(order)
+            else:
+                remaining.append(order)
+        self.working_orders = remaining
+        return fills
