@@ -388,6 +388,7 @@ class PaperBroker:
         exit_fees = calculate_fees(abs(p.qty * px_slipped if not self.is_inverse else p.qty), exit_fee_bps)
         net_pnl = pnl - exit_fees - p.entry_fees
         
+        r_mult = (net_pnl / risk) if risk > 0 else 0.0
         self.current_equity += net_pnl
         self.order_history.append({
             "type": "exit", 
@@ -402,7 +403,6 @@ class PaperBroker:
         if self.state_path:
             self._save_state()
 
-        r_mult = (net_pnl / risk) if risk > 0 else 0.0
         return {"type": "exit", "reason": reason, "price": px_slipped, "pnl": net_pnl, "r": r_mult, "bars_open": p.bars_open, "at": ts, "fees": exit_fees + p.entry_fees}
 
     def _save_state(self) -> None:
