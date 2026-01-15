@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+import os
+import atexit
+import psutil
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -22,6 +25,27 @@ from laptop_agents.core.orchestrator import (
 )
 
 def main() -> int:
+    # 1.1 Single-Instance Locking
+    LOCK_FILE = REPO_ROOT / ".agent" / "lockfile.pid"
+    if LOCK_FILE.exists():
+        try:
+            with open(LOCK_FILE, "r") as f:
+                content = f.read().strip()
+                if content:
+                    old_pid = int(content)
+                    if psutil.pid_exists(old_pid):
+                        print(f"Already running with PID {old_pid}. Exiting.")
+                        return 1
+        except Exception as e:
+            print(f"Error checking lockfile: {e}")
+    
+    # Write current PID
+    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(LOCK_FILE, "w") as f:
+        f.write(str(os.getpid()))
+    
+    atexit.register(lambda: os.remove(LOCK_FILE) if LOCK_FILE.exists() else None)
+
     ap = argparse.ArgumentParser(description="Laptop Agents CLI")
     ap.add_argument("--source", choices=["mock", "bitunix"], default="bitunix")
     ap.add_argument("--symbol", default="BTCUSD")
