@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import socket
 from typing import AsyncGenerator, List, Optional, Union
 from pydantic import BaseModel, ValidationError
 import websockets
@@ -198,7 +199,7 @@ class BitunixWSProvider:
     @retry(
         wait=wait_exponential(multiplier=1, min=2, max=60),
         stop=stop_after_attempt(10),  # Max 10 reconnect attempts
-        retry=retry_if_exception_type((websockets.ConnectionClosed, ConnectionError, asyncio.TimeoutError)),
+        retry=retry_if_exception_type((websockets.ConnectionClosed, ConnectionError, asyncio.TimeoutError, socket.gaierror)),
         before_sleep=lambda retry_state: logger.warning(
             f"Bitunix WS connection lost. Attempting reconnect in {retry_state.next_action.sleep:.1f}s..."
         )
