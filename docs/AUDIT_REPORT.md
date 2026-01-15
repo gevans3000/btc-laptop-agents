@@ -27,7 +27,7 @@ The codebase has transitioned from monolith to modular design:
 | Backtest | `src/laptop_agents/backtest/engine.py` | Bar + Position mode backtests |
 | Agents | `src/laptop_agents/agents/` | Supervisor, AgentState, SetupSignal |
 | Resilience | `src/laptop_agents/resilience/` | Circuit breakers, retries, error handling |
-| Validation | `src/laptop_agents/tools/validation.py` | Schema validation |
+| Validation | `src/laptop_agents/core/validation.py` | Schema validation |
 
 ### Modes & Defaults
 - **Default Mode**: `single` (code default) / `live` (script default).
@@ -134,7 +134,7 @@ All Phase D objectives complete. The codebase is ready for the next phase of dev
 | Backtest | `src/laptop_agents/backtest/engine.py` | Bar + Position mode backtests | [x] |
 | Agents | `src/laptop_agents/agents/` | Supervisor, AgentState, SetupSignal | [x] |
 | Trading Math | `src/laptop_agents/trading/helpers.py` | Position sizing, SMA, trade sim | [x] |
-| Validation | `src/laptop_agents/tools/validation.py` | Schema validation for artifacts | [x] |
+| Validation | `src/laptop_agents/core/validation.py` | Schema validation for artifacts | [x] |
 | Resilience | `src/laptop_agents/resilience/` | Circuit breakers, retries | [x] |
 
 ---
