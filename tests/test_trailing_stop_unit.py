@@ -1,11 +1,19 @@
 import unittest
 from laptop_agents.paper.broker import PaperBroker, Position
 
+
 class TestTrailingStop(unittest.TestCase):
     def test_trail_activates_on_profit(self):
         broker = PaperBroker(symbol="BTCUSDT")
         # Simulate position entry
-        broker.pos = Position(side="LONG", entry=50000, qty=0.1, sl=49000, tp=52000, opened_at="2026-01-01T00:00:00Z")
+        broker.pos = Position(
+            side="LONG",
+            entry=50000,
+            qty=0.1,
+            sl=49000,
+            tp=52000,
+            opened_at="2026-01-01T00:00:00Z",
+        )
 
         # Price moves up 1% (>0.5R) - should activate trail
         class FakeCandle:
@@ -19,7 +27,14 @@ class TestTrailingStop(unittest.TestCase):
 
     def test_trail_stop_moves_up(self):
         broker = PaperBroker(symbol="BTCUSDT")
-        broker.pos = Position(side="LONG", entry=50000, qty=0.1, sl=49000, tp=52000, opened_at="2026-01-01T00:00:00Z")
+        broker.pos = Position(
+            side="LONG",
+            entry=50000,
+            qty=0.1,
+            sl=49000,
+            tp=52000,
+            opened_at="2026-01-01T00:00:00Z",
+        )
         broker.pos.trail_active = True
         broker.pos.trail_stop = 50000
 
@@ -31,5 +46,6 @@ class TestTrailingStop(unittest.TestCase):
         broker._check_exit(FakeCandle())
         self.assertGreater(broker.pos.trail_stop, 50000)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

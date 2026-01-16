@@ -1,18 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
-import math
 
-
-@dataclass(frozen=True)
-class Candle:
-    ts: str
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float
+from typing import Any, Dict, List, Optional, Tuple
+from laptop_agents.trading.helpers import Candle
 
 
 def ema(values: List[float], period: int) -> Optional[float]:
@@ -34,13 +24,15 @@ def atr(candles: List[Candle], period: int = 14) -> Optional[float]:
         return None
     trs: List[float] = []
     for i in range(1, len(candles)):
-        trs.append(true_range(candles[i-1].close, candles[i].high, candles[i].low))
+        trs.append(true_range(candles[i - 1].close, candles[i].high, candles[i].low))
     if len(trs) < period:
         return None
     return sum(trs[-period:]) / period
 
 
-def swing_high_low(candles: List[Candle], lookback: int = 40) -> Tuple[Optional[float], Optional[float]]:
+def swing_high_low(
+    candles: List[Candle], lookback: int = 40
+) -> Tuple[Optional[float], Optional[float]]:
     if not candles:
         return None, None
     window = candles[-lookback:] if len(candles) >= lookback else candles
@@ -68,11 +60,11 @@ def vwap(candles: List[Candle]) -> List[float]:
     """Calculate Volume Weighted Average Price."""
     if not candles:
         return []
-    
+
     vwap_values = []
     cum_pv = 0.0
     cum_vol = 0.0
-    
+
     for c in candles:
         typical_price = (c.high + c.low + c.close) / 3.0
         cum_pv += typical_price * c.volume
@@ -89,7 +81,7 @@ def cvd_indicator(candles: List[Candle]) -> List[float]:
     cvd = []
     current_cvd = 0.0
     for c in candles:
-        range_len = (c.high - c.low)
+        range_len = c.high - c.low
         if range_len == 0:
             delta = 0.0
         else:
@@ -107,7 +99,7 @@ def detect_sweep(candles: List[Candle], lookback: int = 10) -> Dict[str, Any]:
     if len(candles) < lookback + 1:
         return {"swept": None, "level": None, "reclaimed": False}
 
-    window = candles[-(lookback + 1):-1]
+    window = candles[-(lookback + 1) : -1]
     curr = candles[-1]
 
     swing_high = max(c.high for c in window)
