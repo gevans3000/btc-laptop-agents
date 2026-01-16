@@ -4,7 +4,7 @@ Syncs local state with exchange positions and handles order submission.
 """
 from __future__ import annotations
 
-import logging
+from laptop_agents.core.logger import logger
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from ..data.providers.bitunix_futures import BitunixFuturesProvider
@@ -12,8 +12,6 @@ from ..resilience.errors import SafetyException
 from ..core import hard_limits
 import os
 from pathlib import Path
-
-logger = logging.getLogger(__name__)
 
 class BitunixBroker:
     """

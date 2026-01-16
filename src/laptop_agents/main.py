@@ -23,16 +23,13 @@ app.command(
     help="Run a trading session (passes all arguments to the runner logic)"
 )(session.run)
 
-# Legacy mappings from cli.py
-try:
-    from laptop_agents import cli as old_cli
-    app.command(name="debug-feeds")(old_cli.debug_feeds)
-    app.command(name="run-mock")(old_cli.run_mock)
-    app.command(name="replay")(old_cli.run_live_history)
-    app.command(name="report")(old_cli.report)
-    app.command(name="journal-tail")(old_cli.journal_tail)
-except ImportError:
-    pass
+# Legacy mappings from commands.legacy
+from laptop_agents.commands import legacy as old_cli
+app.command(name="debug-feeds")(old_cli.debug_feeds)
+app.command(name="run-mock")(old_cli.run_mock)
+app.command(name="replay")(old_cli.run_live_history)
+app.command(name="report")(old_cli.report)
+app.command(name="journal-tail")(old_cli.journal_tail)
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):

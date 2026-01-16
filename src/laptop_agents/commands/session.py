@@ -4,7 +4,7 @@ import time
 import signal
 import threading
 import argparse
-import logging
+from laptop_agents.core.logger import logger
 import typer
 from pathlib import Path
 from rich.console import Console
@@ -23,7 +23,6 @@ LOCK_FILE = REPO_ROOT / ".agent" / "lockfile.pid"
 
 def run(ctx: typer.Context):
     """Wrapper for the main run logic."""
-    from laptop_agents.core.logger import logger
     
     def signal_handler(sig, frame):
         console.print("\n[bold red]!!! SHUTTING DOWN !!![/bold red]")
@@ -88,8 +87,8 @@ def run(ctx: typer.Context):
     
     args = ap.parse_args(ctx.args)
 
-    if args.quiet: logger.setLevel(logging.ERROR)
-    elif args.verbose: logger.setLevel(logging.DEBUG)
+    if args.quiet: logger.setLevel("ERROR")
+    elif args.verbose: logger.setLevel("DEBUG")
     
     args.symbol = args.symbol.upper().replace("/", "").replace("-", "")
     

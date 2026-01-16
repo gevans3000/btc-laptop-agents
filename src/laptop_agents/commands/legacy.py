@@ -5,8 +5,8 @@ from pathlib import Path
 import typer
 from rich import print
 
-from .agents import State, Supervisor
-from .data.providers import (
+from ..agents import State, Supervisor
+from ..data.providers import (
     MockProvider,
     BinanceFuturesProvider,
     KrakenSpotProvider,
@@ -15,14 +15,14 @@ from .data.providers import (
     CompositeProvider,
     BitunixFuturesProvider,
 )
-from .indicators import Candle
+from ..indicators import Candle
 
 app = typer.Typer(help="BTC Laptop Agents — 5-agent paper trading loop (5m)")
 
 
 # Robust path resolution
 HERE = Path(__file__).resolve()
-REPO_ROOT = HERE.parent.parent.parent
+REPO_ROOT = HERE.parent.parent.parent.parent
 
 def load_cfg(path: str = "config/strategies/default.json") -> dict:
     """Load config with robust path resolution (CWD or REPO_ROOT)."""
@@ -173,7 +173,7 @@ def run_live_history(limit: int = 500, cfg: str = "config/default.json", journal
 @app.command()
 def report(journal: str = "data/paper_journal.jsonl", out_dir: str = "data/reports"):
     """Generate a backtest report + CSV into data/reports/ (permanent on disk)."""
-    from .reporting import write_report
+    from ..reporting import write_report
     paths = write_report(journal_path=journal, out_dir=out_dir)
     print(f"[green]Wrote report[/green]: {paths['md']}")
     print(f"[green]Wrote trades CSV[/green]: {paths['csv']}")
@@ -181,11 +181,7 @@ def report(journal: str = "data/paper_journal.jsonl", out_dir: str = "data/repor
 
 @app.command()
 def journal_tail(n: int = 10, journal: str = "data/paper_journal.jsonl"):
-    from .trading import PaperJournal
+    from ..trading import PaperJournal
     j = PaperJournal(journal)
     for e in j.last(n):
         print(e)
-
-
-if __name__ == "__main__":
-    app()

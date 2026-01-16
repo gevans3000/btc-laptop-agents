@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional, Tuple
 from ..core import hard_limits
 from ..trading.helpers import calculate_fees, apply_slippage
 from ..execution.fees import get_fee_bps
-import logging
+from laptop_agents.core.logger import logger
 import time
 import json
 import random
@@ -13,8 +13,6 @@ import asyncio
 from pathlib import Path
 import shutil
 from datetime import datetime, timezone
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -109,11 +107,6 @@ class PaperBroker:
 
         # Trade frequency throttle
         now = time.time()
-        if not is_working and now - self.last_trade_time < self.min_trade_interval_sec:
-            logger.info(f"THROTTLED: Only {now - self.last_trade_time:.1f}s since last trade (min: {self.min_trade_interval_sec}s)")
-            from laptop_agents.core.orchestrator import append_event
-            append_event({"event": "OrderRejected", "reason": "throttled", "seconds_since_last": now - self.last_trade_time}, paper=True)
-            return None
 
         # Rate limiting (orders per minute)
         now = time.time()
@@ -169,8 +162,8 @@ class PaperBroker:
                 fill_px = float(tick.ask) if side == "LONG" else float(tick.bid)
                 actual_slip_bps = 0.0 # Spread essentially IS the slippage
             else:
-                # 1.2 Synthesize Bid/Ask Spread in Tickless Mode (0.05% half-spread)
-                half_spread_bps = 5.0
+                # 1.2 Synthesize Bid/Ask Spread in Tickless Mode (Only if slippage is enabled)
+                half_spread_bps = 5.0 if self.slip_bps > 0 else 0.0
                 close = float(candle.close)
                 ask = close * (1 + half_spread_bps / 10000)
                 bid = close * (1 - half_spread_bps / 10000)
@@ -191,19 +184,21 @@ class PaperBroker:
         if actual_qty < qty:
             logger.info(f"PARTIAL FILL: Capped {qty:.4f} to {actual_qty:.4f} (10% of candle volume)")
 
-        # 3.2 Order Book Impact & Depth Simulation
-        # Simulate ~1M USD liquidity; penalty scale is 5% impact coefficient
-        simulated_liquidity = 1000000.0
-        order_notional = actual_qty * fill_px
-        impact_pct = (order_notional / simulated_liquidity) * 0.05
-        
-        if side == "LONG":
-            fill_px = fill_px * (1.0 + impact_pct)
-        else:
-            fill_px = fill_px * (1.0 - impact_pct)
+        # 3.2 Order Book Impact & Depth Simulation (Only if slippage is enabled)
+        impact_pct = 0.0
+        if self.slip_bps > 0:
+            simulated_liquidity = 1000000.0 # 1M USD depth
+            order_notional = actual_qty * fill_px
+            impact_pct = (order_notional / simulated_liquidity) * 0.05
             
-        if impact_pct > 0.00001:  # 0.1 bps
-            logger.info(f"Market Impact Penalty: {impact_pct*10000.0:.2f} bps (${impact_pct*order_notional:.2f})")
+            if side == "LONG":
+                fill_px = fill_px * (1.0 + impact_pct)
+            else:
+                fill_px = fill_px * (1.0 - impact_pct)
+            
+            if impact_pct > 0.00001:  # 0.1 bps
+                logger.info(f"Market Impact Penalty: {impact_pct*10000.0:.2f} bps (${impact_pct*order_notional:.2f})")
+
 
         # Apply slippage and fees to entry
         if tick and tick.bid and tick.ask and entry_type == "market":

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import csv
 import json
-import logging
+from laptop_agents.core.logger import logger
 import math
 import uuid
 from pathlib import Path
@@ -21,7 +21,6 @@ from laptop_agents.trading.helpers import (
     utc_ts,
 )
 
-logger = logging.getLogger(__name__)
 
 # Context (Dependency Injection)
 LATEST_DIR: Optional[Path] = None

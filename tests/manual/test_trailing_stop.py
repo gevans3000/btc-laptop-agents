@@ -29,7 +29,9 @@ class TestTrailingStop(unittest.TestCase):
         
         # 1. Entry
         c1 = MockCandle("T1", 50000, 50500, 49500, 50000)
-        broker.on_candle(c1, order)
+        events = broker.on_candle(c1, order)
+        print(f"Entry events: {events}")
+        print(f"Broker position: {broker.pos}")
         self.assertFalse(broker.pos.trail_active)
         
         # 2. Advance to 51,001 (Should activate trail)

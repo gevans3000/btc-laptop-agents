@@ -1,9 +1,8 @@
 from __future__ import annotations
-import logging
+from laptop_agents.core.logger import logger
 from laptop_agents.core.registry import default_registry
 from laptop_agents.memory.local_store import LocalMemoryStore
 
-log = logging.getLogger("laptop_agents.runner")
 
 class Runner:
     def __init__(self, data_dir: str):
@@ -18,5 +17,5 @@ class Runner:
         agent = self.registry[agent_name]
         res = agent.run(task)
         self.memory.add("agent", res.output, meta=res.meta)
-        log.info("Ran agent=%s", agent_name)
+        logger.info("Ran agent=%s", agent_name)
         return res.output

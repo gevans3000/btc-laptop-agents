@@ -1,9 +1,8 @@
 import asyncio
 import time
 import threading
-import logging
+from laptop_agents.core.logger import logger
 
-logger = logging.getLogger(__name__)
 
 class RateLimiter:
     """
