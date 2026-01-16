@@ -44,17 +44,12 @@ While the system is "autonomous" in the sense that it can run in the background,
 *   **[x] Fix 1.3: Enhanced Status Script**
     *   **Fix:** Check the modification time of `logs/heartbeat.json`. If > 60s old, report **ZOMBIE / HUNG**. (Implemented in `mvp_status.ps1`).
 
-### Phase 2: Medium Effort (Configuration Unification)
-*   **Fix 2.1: "Config First" Architecture**
-    *   **Issue:** CLI args are too numerous and fight with JSON.
-    *   **Fix:** Deprecate most CLI args in favor of `--config <path>`.
-        *   Make `run.py` load config first.
-        *   CLI args become *overrides* (e.g., `python run.py --config safe.json --risk-pct 0.5`).
-*   **Fix 2.2: Script Profiles**
-    *   **Issue:** `mvp_start_live.ps1` is hardcoded.
-    *   **Fix:** Add a parameter: `mvp_start_live.ps1 -Profile <name>`.
-        *   Maps to `config/profiles/<name>.json`.
-        *   Example: `.\scripts\mvp_start_live.ps1 -Profile aggressive`
+### Phase 2: Medium Effort (Configuration Unification) - COMPLETED
+*   **[x] Fix 2.1: "Config First" Architecture**
+    *   **Fix:** Deprecate most CLI args in favor of `--config <path>`. Make `run.py` load config first and treat CLI args as explicit overrides. (Implemented in `run.py`).
+*   **[x] Fix 2.2: Script Profiles**
+    *   **Fix:** Add a parameter: `mvp_start_live.ps1 -Profile <name>`. (Implemented in `mvp_start_live.ps1`).
+        *   Example usage: `.\scripts\mvp_start_live.ps1 -Profile scalp_1m_sweep -Symbol BTCUSDT`
 
 ### Phase 3: Architectural Upgrades (True Autonomy)
 *   **Fix 3.1: Python-Based Supervisor**
