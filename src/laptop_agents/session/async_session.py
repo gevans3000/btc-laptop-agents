@@ -386,9 +386,12 @@ Total Fees: ${total_fees:,.2f}
             self.errors = MAX_ERRORS_PER_SESSION
             self.shutdown_event.set()
         except Exception as e:
-            logger.error(f"FATAL: market_data_task failed: {e}")
-            self.errors += 1
-            self.shutdown_event.set()
+            if self.shutdown_event.is_set():
+                logger.info(f"Market data task stopped (shutdown active): {e}")
+            else:
+                logger.error(f"FATAL: market_data_task failed: {e}")
+                self.errors += 1
+                self.shutdown_event.set()
 
     async def checkpoint_task(self):
         """Periodically saves state to disk for crash recovery."""
