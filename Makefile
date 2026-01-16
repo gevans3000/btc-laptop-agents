@@ -18,4 +18,3 @@ clean:
 
 bootstrap:
 	python -m pip install -e .[test]
-	la doctor --fix

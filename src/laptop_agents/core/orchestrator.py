@@ -10,10 +10,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Path resolution
-HERE = Path(__file__).resolve()
-# src/laptop_agents/core/orchestrator.py -> core -> laptop_agents -> src -> repo_root
-REPO_ROOT = HERE.parent.parent.parent.parent
+from laptop_agents.constants import REPO_ROOT
 
 # Core Logger
 from laptop_agents.core.logger import logger
@@ -112,15 +109,7 @@ def append_event(obj: Dict[str, Any], paper: bool = False) -> None:
 def _run_diagnostics(e: Exception) -> None:
     """Run learning debugger diagnostics on an exception."""
     try:
-        import sys
-        
-        # Try to import from scripts
-        try:
-            from scripts import error_fingerprinter
-        except ImportError:
-            if str(REPO_ROOT / "scripts") not in sys.path:
-                sys.path.append(str(REPO_ROOT / "scripts"))
-            import error_fingerprinter
+        from laptop_agents.core.diagnostics import fingerprinter as error_fingerprinter
 
         error_text = f"{type(e).__name__}: {str(e)}"
         match = error_fingerprinter.lookup(error_text)

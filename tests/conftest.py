@@ -7,12 +7,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
-try:
-    from scripts import error_fingerprinter
-except ImportError:
-    # If scripts not importable as module, try adding to path directly and import
-    sys.path.append(str(PROJECT_ROOT / "scripts"))
-    import error_fingerprinter
+from laptop_agents.core.diagnostics import fingerprinter as error_fingerprinter
 
 def pytest_exception_interact(node, call, report):
     """

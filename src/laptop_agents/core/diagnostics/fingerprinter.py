@@ -2,9 +2,9 @@
 Error Fingerprinter: Capture, hash, and manage error signatures.
 
 Usage:
-    python scripts/error_fingerprinter.py capture "<error_message>" "<solution>"
-    python scripts/error_fingerprinter.py lookup "<error_message>"
-    python scripts/error_fingerprinter.py list
+    python -m laptop_agents.core.diagnostics.fingerprinter capture "<error_message>" "<solution>"
+    python -m laptop_agents.core.diagnostics.fingerprinter lookup "<error_message>"
+    python -m laptop_agents.core.diagnostics.fingerprinter list
 """
 import sys
 import json
@@ -12,9 +12,9 @@ import hashlib
 from pathlib import Path
 from datetime import datetime
 
-# Determine project root to ensure absolute paths work
-PROJECT_ROOT = Path(__file__).parent.parent
-MEMORY_FILE = PROJECT_ROOT / ".agent/memory/known_errors.jsonl"
+from laptop_agents.constants import REPO_ROOT
+
+MEMORY_FILE = REPO_ROOT / ".agent/memory/known_errors.jsonl"
 
 def fingerprint(error_text: str) -> str:
     """Generate a stable hash for an error signature."""
