@@ -3,6 +3,8 @@ from __future__ import annotations
 import random
 from datetime import datetime, timezone, timedelta
 from typing import List
+import tenacity
+from laptop_agents.core.rate_limiter import exchange_rate_limiter
 
 from laptop_agents.trading.helpers import Candle
 
@@ -50,8 +52,16 @@ def _get_bitunix_provider_class():
     return provider_cls, api_key, secret_key
 
 
+@tenacity.retry(
+    stop=tenacity.stop_after_attempt(3),
+    wait=tenacity.wait_exponential(min=2, max=10),
+    retry=tenacity.retry_if_exception_type(Exception)
+)
 def load_bitunix_candles(symbol: str, interval: str, limit: int) -> List[Candle]:
     """Fetch candles from Bitunix API (supports paged fetching for limits > 200)."""
+    # Rate limiting
+    exchange_rate_limiter.wait_sync()
+
     Provider, api_key, secret_key = _get_bitunix_provider_class()
     client = Provider(symbol=symbol, api_key=api_key, secret_key=secret_key)
     # Use paged fetch to support limits > 200

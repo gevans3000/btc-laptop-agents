@@ -7,8 +7,10 @@ import socket
 from typing import AsyncGenerator, List, Optional, Union
 from pydantic import BaseModel, ValidationError
 import websockets
-from tenacity import retry, wait_exponential, stop_after_attempt, stop_never, retry_if_exception_type
+from tenacity import retry, wait_exponential, stop_after_attempt, stop_never, retry_if_exception_type, stop_after_delay
 
+import os
+from pathlib import Path
 from laptop_agents.core.logger import logger
 from laptop_agents.trading.helpers import Candle, Tick
 from laptop_agents.core.rate_limiter import exchange_rate_limiter
@@ -60,6 +62,18 @@ class BitunixWSProvider:
 
     async def connect(self):
         """Establish WebSocket connection."""
+        # Load subscriptions if empty
+        if not self.subscriptions:
+            try:
+                sub_path = Path("paper/ws_subscriptions.json")
+                if sub_path.exists():
+                    with open(sub_path, "r") as f:
+                        saved_subs = json.load(f)
+                        self.subscriptions = set(saved_subs)
+                        logger.info(f"Loaded {len(self.subscriptions)} subscriptions from cache")
+            except Exception as e:
+                logger.warning(f"Failed to load subscriptions from cache: {e}")
+
         # 2.1 NTP/Server Time Synchronization
         try:
             import httpx
@@ -98,6 +112,13 @@ class BitunixWSProvider:
         }
         await self.ws_kline.send(json.dumps(msg))
         self.subscriptions.add(f"kline.{interval}.{self.symbol}")
+        # Persistence
+        try:
+            os.makedirs("paper", exist_ok=True)
+            with open("paper/ws_subscriptions.json", "w") as f:
+                json.dump(list(self.subscriptions), f)
+        except Exception as e:
+            logger.warning(f"Failed to persist subscriptions: {e}")
         logger.info(f"Subscribed to kline.{interval}.{self.symbol}")
 
     async def subscribe_ticker(self):
@@ -111,6 +132,13 @@ class BitunixWSProvider:
         }
         await self.ws_ticker.send(json.dumps(msg))
         self.subscriptions.add(f"ticker.{self.symbol}")
+        # Persistence
+        try:
+            os.makedirs("paper", exist_ok=True)
+            with open("paper/ws_subscriptions.json", "w") as f:
+                json.dump(list(self.subscriptions), f)
+        except Exception as e:
+            logger.warning(f"Failed to persist subscriptions: {e}")
         logger.info(f"Subscribed to ticker.{self.symbol}")
 
     async def _resubscribe(self):
@@ -250,14 +278,21 @@ class BitunixWSProvider:
             from laptop_agents.data.loader import load_bitunix_candles
             # Fetch a few more than needed just in case
             candles = await asyncio.to_thread(load_bitunix_candles, self.symbol, self.interval, limit=10)
+            injected_count = 0
             for c in candles:
                 try:
                     c_ts = int(c.ts)
                     if c_ts > start_ts and c_ts < end_ts:
                         logger.info(f"Injecting missing candle: {c.ts}")
                         self.queue.put_nowait(c)
+                        injected_count += 1
                 except (ValueError, TypeError):
                     continue
+            
+            if injected_count > 0:
+                logger.info(f"Gap fill: Successfully injected {injected_count} candles")
+            else:
+                logger.warning(f"Gap fill: Found 0 candles to inject for range {start_ts} to {end_ts}")
         except Exception as e:
             logger.error(f"Failed to fetch gap data: {e}")
 
@@ -299,7 +334,7 @@ class BitunixWSProvider:
 
     @retry(
         wait=wait_exponential(multiplier=1, min=2, max=60),
-        stop=stop_after_attempt(10),  # Max 10 reconnect attempts
+        stop=stop_after_delay(600),  # Survival for 10 minutes of outage
         retry=retry_if_exception_type((websockets.ConnectionClosed, ConnectionError, asyncio.TimeoutError, socket.gaierror)),
         before_sleep=lambda retry_state: logger.warning(
             f"Bitunix WS connection lost. Attempting reconnect in {retry_state.next_action.sleep:.1f}s..."

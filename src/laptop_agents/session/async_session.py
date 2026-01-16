@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from laptop_agents.core.logger import logger
 from laptop_agents.core.orchestrator import append_event, PAPER_DIR
-from laptop_agents.data.providers.bitunix_ws import BitunixWSProvider
+from laptop_agents.data.providers.bitunix_ws import BitunixWSProvider, FatalError
 from laptop_agents.paper.broker import PaperBroker
 from laptop_agents.trading.helpers import Candle, Tick, normalize_candle_order
 from laptop_agents.data.loader import load_bitunix_candles
@@ -75,7 +75,26 @@ class AsyncRunner:
         
         # State
         self.latest_tick: Optional[Tick] = None
+        # Load last price cache
+        try:
+            cache_path = Path("paper/last_price_cache.json")
+            if cache_path.exists():
+                with open(cache_path, "r") as f:
+                    cache = json.load(f)
+                    # Create a dummy Tick from cache
+                    self.latest_tick = Tick(
+                        symbol=self.symbol,
+                        bid=cache["last"],
+                        ask=cache["last"],
+                        last=cache["last"],
+                        ts=cache.get("ts", str(int(time.time() * 1000)))
+                    )
+                    logger.info(f"Loaded last price from cache: {cache['last']} (stale marker applied internally)")
+        except Exception as e:
+            logger.warning(f"Failed to load last price cache: {e}")
+        
         self.candles: List[Candle] = []
+
         self.trades = 0
         
         # Components
@@ -156,22 +175,38 @@ class AsyncRunner:
         watchdog_thread.start()
         logger.info("Threaded watchdog started.")
         # Pre-load some historical candles if possible to seed strategy
-        try:
-            logger.info("Seeding historical candles via REST...")
-            min_history = 100
-            if self.strategy_config:
-                min_history = self.strategy_config.get("engine", {}).get("min_history_bars", 100)
+        retry_count = 0
+        min_history = 100
+        if self.strategy_config:
+            min_history = self.strategy_config.get("engine", {}).get("min_history_bars", 100)
+
+        while retry_count < 5:
+            try:
+                logger.info(f"Seeding historical candles via REST (attempt {retry_count + 1}/5)...")
+                # Using max(100, min_history) logic from original
+                self.candles = load_bitunix_candles(self.symbol, self.interval, limit=max(100, min_history))
+                self.candles = normalize_candle_order(self.candles)
+                
+                if len(self.candles) >= min_history:
+                    logger.info(f"Seed complete: {len(self.candles)} candles")
+                    break
+                else:
+                    logger.warning(f"Incomplete seed: {len(self.candles)}/{min_history}. Retrying in 10s...")
+            except Exception as e:
+                logger.warning(f"Seed attempt {retry_count + 1} failed: {e}")
             
-            self.candles = load_bitunix_candles(self.symbol, self.interval, limit=max(100, min_history))
-            self.candles = normalize_candle_order(self.candles)
-            logger.info(f"Seed complete: {len(self.candles)} candles")
-            
-            from laptop_agents.trading.helpers import detect_candle_gaps
-            gaps = detect_candle_gaps(self.candles, self.interval)
-            for gap in gaps:
-                logger.warning(f"GAP_DETECTED: {gap['missing_count']} missing between {gap['prev_ts']} and {gap['curr_ts']}")
-        except Exception as e:
-            logger.warning(f"Failed to seed candles: {e}")
+            retry_count += 1
+            if retry_count < 5:
+                await asyncio.sleep(10)
+        
+        if len(self.candles) < min_history:
+            raise FatalError(f"Failed to seed sufficient historical candles after 5 attempts ({len(self.candles)} < {min_history})")
+
+        from laptop_agents.trading.helpers import detect_candle_gaps
+        gaps = detect_candle_gaps(self.candles, self.interval)
+        for gap in gaps:
+            logger.warning(f"GAP_DETECTED: {gap['missing_count']} missing between {gap['prev_ts']} and {gap['curr_ts']}")
+
 
         # Start tasks
         tasks = [
@@ -346,6 +381,10 @@ Total Fees: ${total_fees:,.2f}
                         
         except asyncio.CancelledError:
             pass
+        except FatalError as fe:
+            logger.error(f"FATAL_ERROR in market_data_task: {fe}")
+            self.errors = MAX_ERRORS_PER_SESSION
+            self.shutdown_event.set()
         except Exception as e:
             logger.error(f"FATAL: market_data_task failed: {e}")
             self.errors += 1
@@ -536,9 +575,19 @@ Total Fees: ${total_fees:,.2f}
                 mem_mb = process.memory_info().rss / 1024 / 1024
                 cpu_pct = process.cpu_percent()
 
-                if mem_mb > 1024:
-                    logger.critical(f"High Memory Usage: {mem_mb:.1f} MB. Triggering shutdown.")
+                if mem_mb > 1500:
+                    logger.critical(f"CRITICAL: Memory Limit Exceeded ({mem_mb:.1f} MB). RSS > 1.5GB. Triggering shutdown.")
                     self.shutdown_event.set()
+
+                # Save last price cache
+                if self.latest_tick:
+                    try:
+                        price_cache_path = Path("paper/last_price_cache.json")
+                        price_cache_path.parent.mkdir(exist_ok=True)
+                        with open(price_cache_path, "w") as f:
+                            json.dump({"last": self.latest_tick.last, "ts": self.latest_tick.ts}, f)
+                    except Exception:
+                        pass
 
                 # Write heartbeat file for watchdog
                 with heartbeat_path.open("w") as f:
@@ -682,13 +731,26 @@ Total Fees: ${total_fees:,.2f}
 
     def _threaded_watchdog(self):
         """Independent thread that kills the process if main loop freezes."""
+        process = psutil.Process()
         while not self.shutdown_event.is_set():
+            # Heartbeat check
             age = time.time() - self.last_heartbeat_time
             if age > 30:
                 # Use critical print as logger might be stuck too
                 print(f"\n\n!!! WATCHDOG FATAL: Main loop frozen for {age:.1f}s. FORCE EXITing. !!!\n\n")
                 logger.critical(f"WATCHDOG_FATAL: Main loop frozen for {age:.1f}s. HARD EXIT.")
                 os._exit(1)
+            
+            # Memory check
+            try:
+                mem_rss_mb = process.memory_info().rss / 1024 / 1024
+                if mem_rss_mb > 1500:
+                    print(f"\n\n!!! CRITICAL: Memory Limit Exceeded ({mem_rss_mb:.1f} MB). FORCE EXITing. !!!\n\n")
+                    logger.critical(f"CRITICAL: Memory Limit Exceeded ({mem_rss_mb:.1f} MB). RSS > 1.5GB.")
+                    os._exit(1)
+            except Exception:
+                pass
+                
             time.sleep(1)
 
 async def run_async_session(
@@ -709,79 +771,121 @@ async def run_async_session(
 ) -> AsyncSessionResult:
     """Entry point for the async session."""
     
-    runner = AsyncRunner(
-        symbol=symbol,
-        interval=interval,
-        strategy_config=strategy_config,
-        starting_balance=starting_balance,
-        risk_pct=risk_pct,
-        stop_bps=stop_bps,
-        tp_r=tp_r,
-        fees_bps=fees_bps,
-        slip_bps=slip_bps,
-        stale_timeout=stale_timeout,
-        execution_latency_ms=execution_latency_ms,
-        dry_run=dry_run,
-        provider=None
-    )
-    
-    if replay_path:
-        from laptop_agents.backtest.replay_runner import ReplayProvider
-        runner.provider = ReplayProvider(Path(replay_path))
-        logger.info(f"Using REPLAY PROVIDER from {replay_path}")
-    
-    # Handle OS signals (skip on Windows if not supported)
+    # Task 3: Startup Safety - PID Locking
+    lock_path = Path("paper/async_session.lock")
+    lock_path.parent.mkdir(exist_ok=True)
     try:
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, runner.shutdown_event.set)
-    except (NotImplementedError, AttributeError):
-        # Fallback for Windows or environments where signal handlers are not available
-        logger.warning("Signal handlers not supported in this environment (likely Windows). Use Ctrl+C or wait for duration limit.")
-        # On Windows, KeyboardInterrupt is caught by the asyncio.run block in main() or here.
-        # We can add a small hack to check for it, but usually asyncio.run handles it.
-        
-    try:
-        await runner.run(duration_min)
-    except KeyboardInterrupt:
-        logger.info("KeyboardInterrupt received. Initiating graceful shutdown...")
-        runner.shutdown_event.set()
-        # Give it a moment to clean up
-        await asyncio.sleep(1.0)
+        # atomic 'x' mode (fails if file exists)
+        with open(lock_path, "x") as f:
+            f.write(str(os.getpid()))
+    except FileExistsError:
+        logger.error("Session already running (lock file exists: paper/async_session.lock)")
+        # Return a result indicating it didn't run
+        return AsyncSessionResult(stopped_reason="already_running")
     except Exception as e:
-        logger.error(f"Fatal error in async session: {e}")
-        runner.errors += 1
-    
-    # Generate HTML report
-    try:
-        LATEST_DIR.mkdir(parents=True, exist_ok=True)
-        summary = {
-            "run_id": f"async_{int(runner.start_time)}",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "bitunix",
-            "symbol": symbol,
-            "interval": interval,
-            "candle_count": len(runner.candles),
-            "last_ts": runner.candles[-1].ts if runner.candles else "",
-            "last_close": float(runner.candles[-1].close) if runner.candles else 0.0,
-            "fees_bps": fees_bps,
-            "slip_bps": slip_bps,
-            "starting_balance": starting_balance,
-            "ending_balance": runner.broker.current_equity,
-            "net_pnl": runner.broker.current_equity - starting_balance,
-            "trades": runner.trades,
-            "mode": "async",
-        }
-        render_html(summary, [], "", candles=runner.candles)
-        logger.info(f"HTML report generated at {LATEST_DIR / 'summary.html'}")
-    except Exception as e:
-        logger.error(f"Failed to generate HTML report: {e}")
+        logger.warning(f"Could not create PID lock file: {e}")
 
-    return AsyncSessionResult(
-        iterations=runner.iterations,
-        trades=runner.trades,
-        errors=runner.errors,
-        starting_equity=runner.starting_equity,
-        ending_equity=runner.broker.current_equity,
-        duration_sec=time.time() - runner.start_time
-    )
+    runner = None
+    try:
+        runner = AsyncRunner(
+            symbol=symbol,
+            interval=interval,
+            strategy_config=strategy_config,
+            starting_balance=starting_balance,
+            risk_pct=risk_pct,
+            stop_bps=stop_bps,
+            tp_r=tp_r,
+            fees_bps=fees_bps,
+            slip_bps=slip_bps,
+            stale_timeout=stale_timeout,
+            execution_latency_ms=execution_latency_ms,
+            dry_run=dry_run,
+            provider=None
+        )
+        
+        if replay_path:
+            from laptop_agents.backtest.replay_runner import ReplayProvider
+            runner.provider = ReplayProvider(Path(replay_path))
+            logger.info(f"Using REPLAY PROVIDER from {replay_path}")
+        
+        # Handle OS signals
+        def handle_sigterm(signum, frame):
+            logger.info(f"Signal {signum} received - Forcing broker close.")
+            if runner and runner.broker and runner.latest_tick:
+                try:
+                    runner.broker.close_all(runner.latest_tick.last)
+                except Exception as e:
+                    logger.error(f"Failed to close positions on SIGTERM: {e}")
+            if runner:
+                runner.shutdown_event.set()
+
+        try:
+            loop = asyncio.get_running_loop()
+            if os.name != 'nt':
+                for sig in (signal.SIGINT, signal.SIGTERM):
+                    loop.add_signal_handler(sig, runner.shutdown_event.set)
+            else:
+                # On Windows, use signal module for basic handlers
+                signal.signal(signal.SIGINT, handle_sigterm)
+                signal.signal(signal.SIGTERM, handle_sigterm)
+        except (NotImplementedError, AttributeError, ValueError) as se:
+            logger.warning(f"Signal handlers not fully supported: {se}")
+            
+        try:
+            await runner.run(duration_min)
+        except KeyboardInterrupt:
+            logger.info("KeyboardInterrupt received. Initiating graceful shutdown...")
+            runner.shutdown_event.set()
+            # Give it a moment to clean up
+            await asyncio.sleep(1.0)
+        except Exception as e:
+            logger.error(f"Fatal error in async session run: {e}")
+            runner.errors += 1
+        
+        # Generate HTML report
+        try:
+            LATEST_DIR.mkdir(parents=True, exist_ok=True)
+            summary = {
+                "run_id": f"async_{int(runner.start_time)}",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "bitunix",
+                "symbol": symbol,
+                "interval": interval,
+                "candle_count": len(runner.candles),
+                "last_ts": runner.candles[-1].ts if runner.candles else "",
+                "last_close": float(runner.candles[-1].close) if runner.candles else 0.0,
+                "fees_bps": fees_bps,
+                "slip_bps": slip_bps,
+                "starting_balance": starting_balance,
+                "ending_balance": runner.broker.current_equity,
+                "net_pnl": runner.broker.current_equity - starting_balance,
+                "trades": runner.trades,
+                "mode": "async",
+            }
+            render_html(summary, [], "", candles=runner.candles)
+            logger.info(f"HTML report generated at {LATEST_DIR / 'summary.html'}")
+        except Exception as e:
+            logger.error(f"Failed to generate HTML report: {e}")
+
+    except Exception as top_e:
+        logger.error(f"Fatal error in async session setup: {top_e}")
+    finally:
+        # Cleanup PID lock
+        if lock_path.exists():
+            try:
+                lock_path.unlink()
+            except Exception:
+                pass
+
+    if runner:
+        return AsyncSessionResult(
+            iterations=runner.iterations,
+            trades=runner.trades,
+            errors=runner.errors,
+            starting_equity=runner.starting_equity,
+            ending_equity=runner.broker.current_equity,
+            duration_sec=time.time() - runner.start_time
+        )
+    else:
+        return AsyncSessionResult(stopped_reason="init_failed")
+
