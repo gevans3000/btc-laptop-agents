@@ -30,8 +30,8 @@ def main():
     if not api_key or not secret_key:
         sys.exit(1)
     
-    # Use BTCUSD as default for check
-    symbol = "BTCUSD"
+    # Use BTCUSDT as default for check
+    symbol = "BTCUSDT"
     
     try:
         provider = BitunixFuturesProvider(

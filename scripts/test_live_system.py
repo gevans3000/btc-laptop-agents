@@ -46,7 +46,7 @@ from laptop_agents.execution.bitunix_broker import BitunixBroker
 
 # Create a mock provider
 mock_provider = MagicMock(spec=BitunixFuturesProvider)
-mock_provider.symbol = "BTCUSD"
+mock_provider.symbol = "BTCUSDT"
 mock_provider.fetch_instrument_info.return_value = {
     "tickSize": 0.01,
     "lotSize": 0.001,
@@ -107,7 +107,7 @@ else:
 print("\n[TEST 3] Testing BitunixBroker shutdown() method...")
 
 mock_provider2 = MagicMock(spec=BitunixFuturesProvider)
-mock_provider2.symbol = "BTCUSD"
+mock_provider2.symbol = "BTCUSDT"
 mock_provider2.cancel_all_orders.return_value = {"code": 0, "data": {"successList": [], "failureList": []}, "msg": "Success"}
 mock_provider2.get_pending_positions.return_value = []  # No positions to close
 
@@ -137,13 +137,13 @@ if not api_key or not secret_key:
 else:
     try:
         live_provider = BitunixFuturesProvider(
-            symbol="BTCUSD",
+            symbol="BTCUSDT",
             api_key=api_key,
             secret_key=secret_key
         )
         
         # Test get_pending_positions
-        positions = live_provider.get_pending_positions(symbol="BTCUSD")
+        positions = live_provider.get_pending_positions(symbol="BTCUSDT")
         print(f"   PASS: get_pending_positions() returned {len(positions)} positions")
         
         # Test get_open_orders
@@ -151,7 +151,7 @@ else:
         print(f"   PASS: get_open_orders() returned {len(orders)} orders")
         
         # Test cancel_all_orders (safe - just cancels any open orders)
-        result = live_provider.cancel_all_orders(symbol="BTCUSD")
+        result = live_provider.cancel_all_orders(symbol="BTCUSDT")
         print(f"   PASS: cancel_all_orders() succeeded: {result.get('msg')}")
         
     except Exception as e:
@@ -181,4 +181,4 @@ print("ALL TESTS PASSED!")
 print("=" * 60)
 print("\nThe Live Trading System is ready for use.")
 print("Next step: Run a short paper session to verify end-to-end flow:")
-print("  $env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSD --execution-mode paper --duration 2")
+print("  $env:PYTHONPATH='src'; python src/laptop_agents/run.py --mode live-session --source bitunix --symbol BTCUSDT --execution-mode paper --duration 2")

@@ -95,9 +95,9 @@ def _pair_candidates(instrument: str) -> List[str]:
     ins = instrument.strip().upper()
     # Kraken commonly uses XBT instead of BTC
     if ins in ("BTCUSDT", "XBTUSDT"):
-        return ["XBT/USDT", "XBTUSDT", "BTC/USDT", "BTCUSDT", "XBT/USD", "XBTUSD", "BTC/USD", "BTCUSD"]
-    if ins in ("BTCUSD", "XBTUSD"):
-        return ["XBT/USD", "XBTUSD", "BTC/USD", "BTCUSD"]
+        return ["XBT/USDT", "XBTUSDT", "BTC/USDT", "BTCUSDT", "XBT/USD", "XBTUSD", "BTC/USD", "BTCUSDT"]
+    if ins in ("BTCUSDT", "XBTUSD"):
+        return ["XBT/USD", "XBTUSD", "BTC/USD", "BTCUSDT"]
     if len(ins) == 6:
         return [f"{ins[:3]}/{ins[3:]}", ins]
     return [ins]

@@ -21,4 +21,4 @@ RUN mkdir -p logs runs && chown trader:trader logs runs
 USER trader
 
 # Default command
-CMD ["python", "-m", "src.laptop_agents.run", "--mode", "live-session", "--async", "--duration", "10"]
+CMD ["la", "run", "--mode", "live-session", "--async", "--duration", "10"]

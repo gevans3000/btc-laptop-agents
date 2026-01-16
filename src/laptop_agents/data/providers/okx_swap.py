@@ -145,7 +145,7 @@ def _to_okx_swap_inst_id(instrument: str) -> str:
     ins = instrument.strip().upper()
     if ins in ("BTCUSDT", "XBTUSDT"):
         return "BTC-USDT-SWAP"
-    if ins in ("BTCUSD", "XBTUSD"):
+    if ins in ("BTCUSDT", "XBTUSD"):
         return "BTC-USD-SWAP"
     if len(ins) == 6:
         return f"{ins[:3]}-{ins[3:]}-SWAP"

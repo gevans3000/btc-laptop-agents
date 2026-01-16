@@ -50,7 +50,7 @@ sys.excepthook = handle_exception
 def start(
     mode: str = typer.Option("live-session", help="Mode: live-session, backtest, etc."),
     execution_mode: str = typer.Option("paper", help="paper or live"),
-    symbol: str = typer.Option("BTCUSD", help="Symbol to trade"),
+    symbol: str = typer.Option("BTCUSDT", help="Symbol to trade"),
     detach: bool = typer.Option(False, "--detach", help="Run in background"),
 ):
     """Launch a session and manage PID."""
@@ -194,7 +194,7 @@ def run(ctx: typer.Context):
     # but adjust for Typer's ctx.args
     ap = argparse.ArgumentParser(description="Laptop Agents CLI")
     ap.add_argument("--source", choices=["mock", "bitunix"], default=os.environ.get("LA_SOURCE", "mock"))
-    ap.add_argument("--symbol", default=os.environ.get("LA_SYMBOL", "BTCUSD"))
+    ap.add_argument("--symbol", default=os.environ.get("LA_SYMBOL", "BTCUSDT"))
     ap.add_argument("--interval", default=os.environ.get("LA_INTERVAL", "1m"))
     ap.add_argument("--limit", type=int, default=int(os.environ.get("LA_LIMIT", "200")))
     ap.add_argument("--fees-bps", type=float, default=2.0)
@@ -282,6 +282,27 @@ def run(ctx: typer.Context):
             if args.async_mode:
                 import asyncio
                 from laptop_agents.session.async_session import run_async_session
+                
+                # Construct valid StrategyConfig dict
+                strat_config = session_config.model_dump()
+                strat_config.update({
+                    "risk": {
+                        "risk_pct": args.risk_pct,
+                        "stop_bps": args.stop_bps,
+                        "tp_r": args.tp_r,
+                        "max_leverage": args.max_leverage,
+                        "equity": 10000.0
+                    },
+                    "setups": {
+                        "default": {
+                            "active": True,
+                            "params": {}
+                        },
+                        "pullback_ribbon": {"enabled": False},
+                        "sweep_invalidation": {"enabled": False}
+                    }
+                })
+
                 session_result = asyncio.run(run_async_session(
                     duration_min=session_config.duration,
                     symbol=session_config.symbol,
@@ -292,7 +313,7 @@ def run(ctx: typer.Context):
                     tp_r=args.tp_r,
                     fees_bps=session_config.fees_bps,
                     slip_bps=session_config.slip_bps,
-                    strategy_config=session_config.model_dump(),
+                    strategy_config=strat_config,
                     stale_timeout=args.stale_timeout,
                     execution_latency_ms=args.execution_latency_ms,
                     dry_run=session_config.dry_run,
@@ -367,7 +388,7 @@ def run(ctx: typer.Context):
 def watch(
     mode: str = typer.Option("live-session", help="Mode: live-session, backtest, etc."),
     execution_mode: str = typer.Option("paper", help="paper or live"),
-    symbol: str = typer.Option("BTCUSD", help="Symbol to trade"),
+    symbol: str = typer.Option("BTCUSDT", help="Symbol to trade"),
     duration: int = typer.Option(10, help="Duration in minutes"),
 ):
     """Monitor a session; if it exits with a non-zero code, wait 10s and restart."""

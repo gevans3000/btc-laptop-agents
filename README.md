@@ -42,7 +42,7 @@ la stop
 ### Common Flags for `la run`
 - `--mode`: `backtest`, `live-session`, `orchestrated`
 - `--source`: `mock`, `bitunix`
-- `--symbol`: `BTCUSD` (default)
+- `--symbol`: `BTCUSDT` (default)
 - `--duration`: Minutes for live-session
 - `--async`: Use high-performance execution engine
 - `--dashboard`: Launch real-time web dashboard
@@ -77,10 +77,17 @@ Test-Path .workspace/agent.pid
 
 ## 📂 Hermetic Workspace
 
-All system artifacts are stored in a hidden directory to keep the root clean:
-- `.workspace/runs/` - Historical run data
-- `.workspace/logs/` - System and supervisor logs
-- `.workspace/agent.pid` - Process management
+All system artifacts are stored in `.workspace/` to keep the root clean:
+
+| Path | Purpose |
+|------|---------|
+| `.workspace/runs/` | Historical run data |
+| `.workspace/runs/latest/` | Current/most recent run |
+| `.workspace/logs/` | System and supervisor logs |
+| `.workspace/paper/` | Paper trading state |
+| `.workspace/agent.pid` | Process management |
+| `config/strategies/` | Strategy configurations |
+| `config/KILL_SWITCH.txt` | Emergency stop (set to TRUE to halt) |
 
 ---
 

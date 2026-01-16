@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -68,7 +68,7 @@ def positions(
 
 @app.command()
 def probe(
-    symbol: str = typer.Option("BTCUSD", help="Bitunix futures symbol to probe (ex: BTCUSD or BTCUSDT)."),
+    symbol: str = typer.Option("BTCUSDT", help="Bitunix futures symbol to probe (ex: BTCUSDT or BTCUSDT)."),
     interval: str = typer.Option("5m", help="Kline interval (ex: 5m)."),
     limit: int = typer.Option(50, help="How many candles to fetch (max 200 per request)."),
 ):
@@ -93,7 +93,7 @@ def probe(
 
 @app.command("run-history")
 def run_history(
-    symbol: str = typer.Option("BTCUSD", help="Bitunix futures symbol (ex: BTCUSD)."),
+    symbol: str = typer.Option("BTCUSDT", help="Bitunix futures symbol (ex: BTCUSDT)."),
     interval: str = typer.Option("5m", help="Kline interval (ex: 5m)."),
     limit: int = typer.Option(300, help="How many candles to simulate through."),
     cfg_path: str = typer.Option("config/default.json", help="Your existing stack config (setups/risk gates)."),
@@ -134,7 +134,7 @@ def run_history(
 
 @app.command("live-session")
 def live_session(
-    symbol: str = typer.Option("BTCUSD", help="Bitunix futures symbol (ex: BTCUSD for BTC-M, BTCUSDT for USDT-M)."),
+    symbol: str = typer.Option("BTCUSDT", help="Bitunix futures symbol (ex: BTCUSDT for BTC-M, BTCUSDT for USDT-M)."),
     interval: str = typer.Option("1m", help="Timeframe (e.g. 1m, 5m)."),
     duration_min: int = typer.Option(60, help="How many minutes to run this session."),
     cfg_path: str = typer.Option("config/default.json", help="Strategy configuration file."),
@@ -211,7 +211,7 @@ def live_session(
             if ev.get("fill") and ev["fill"].get("side"):
                 fill = ev["fill"]
                 side = fill["side"]
-                # For Bitunix BTCUSD, min contract is usually 1. 
+                # For Bitunix BTCUSDT, min contract is usually 1. 
                 # For USDT-M, it varies but 0.001 BTC is common.
                 # We will use the quantity from the agent but log it clearly.
                 qty = float(fill["qty"])

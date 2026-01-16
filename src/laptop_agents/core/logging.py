@@ -1,4 +1,4 @@
-﻿import os
+import os
 import logging
 
 def setup_logging() -> None:

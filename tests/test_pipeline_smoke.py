@@ -25,7 +25,7 @@ def test_pipeline_smoke(tmp_path):
     sup = Supervisor(provider=provider, cfg=cfg, journal_path=str(journal))
 
     state = AgentState(
-        instrument=cfg.get("instrument", "BTCUSD"),
+        instrument=cfg.get("instrument", "BTCUSDT"),
         timeframe=cfg.get("timeframe", "1h")
     )
 

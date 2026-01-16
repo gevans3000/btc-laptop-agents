@@ -29,6 +29,23 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
   BITUNIX_API_SECRET=your_secret
   ```
 
+### C. Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `config/strategies/default.json` | Default strategy parameters |
+| `config/strategies/*.json` | Named strategy presets |
+| `config/KILL_SWITCH.txt` | Set to `TRUE` to halt all trading |
+| `config/symbol_overrides.json` | Symbol-specific overrides (optional) |
+
+All strategy configs follow this schema:
+- `meta`: name, author, timeframe
+- `engine`: timing parameters
+- `derivatives_gates`: funding rate limits
+- `setups`: strategy-specific parameters
+- `risk`: equity, risk_pct, rr_min
+- `cvd`: CVD indicator settings
+
 ### B. Standard Commands
 | Action | Command |
 | :--- | :--- |
@@ -66,7 +83,7 @@ The canonical entrypoint is `la` (or `python -m laptop_agents`).
 ### A. Live Session (Autonomous)
 The standard mode for running the agent for a fixed duration.
 ```bash
-la run --mode live-session --symbol BTCUSD --duration 10 --async
+la run --mode live-session --symbol BTCUSDT --duration 10 --async
 ```
 
 ### B. Backtesting

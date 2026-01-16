@@ -1,4 +1,4 @@
-﻿from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock
 from laptop_agents.core.runner import Runner
 import tempfile
 import shutil
@@ -44,7 +44,7 @@ def test_timed_session_mock():
             duration_min=0.2,
             poll_interval_sec=2,
             source="mock",
-            symbol="BTCUSD",
+            symbol="BTCUSDT",
             limit=200,
         )
         

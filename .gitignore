@@ -25,10 +25,8 @@ ENV/
 /data/
 /src/data/
 temp_journal.jsonl
-*.txt
-config/live_trading_enabled.txt
-!LICENSE
-!requirements.txt
+# Text file artifacts (keep config control files)
+temp_journal.jsonl
 
 # Generated data files only (keep providers/ directory)
 src/laptop_agents/data/*.jsonl

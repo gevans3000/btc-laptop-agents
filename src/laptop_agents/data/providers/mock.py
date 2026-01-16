@@ -19,13 +19,14 @@ class Candle:
 class MockProvider:
     """Deterministic candle stream for tests/demos (no internet)."""
 
-    def __init__(self, seed: int = 7, start: float = 100_000.0) -> None:
+    def __init__(self, seed: int = 7, start: float = 100_000.0, interval_mins: int = 1) -> None:
         self.rng = random.Random(seed)
         self.price = start
-        self.now = datetime.now(timezone.utc) - timedelta(minutes=5 * 500)
+        self.interval_mins = interval_mins
+        self.now = datetime.now(timezone.utc) - timedelta(minutes=interval_mins * 500)
 
     def next_candle(self) -> Candle:
-        self.now = self.now + timedelta(minutes=5)
+        self.now = self.now + timedelta(minutes=self.interval_mins)
 
         # Create a mild trend + noise so setups actually trigger
         drift = 0.00015
@@ -42,3 +43,28 @@ class MockProvider:
 
     def history(self, n: int = 200) -> List[Candle]:
         return [self.next_candle() for _ in range(n)]
+    async def listen(self):
+        """Async generator that produces ticks and candles for demo/test."""
+        from laptop_agents.trading.helpers import Tick, Candle as IndicatorCandle
+        import asyncio
+        
+        while True:
+            # Produce a "Tick"
+            self.price = self.price * (1.0 + self.rng.uniform(-0.0002, 0.0002))
+            tick = Tick(
+                symbol="BTCUSDT",
+                bid=self.price * 0.9999,
+                ask=self.price * 1.0001,
+                last=self.price,
+                ts=str(int(datetime.now(timezone.utc).timestamp() * 1000))
+            )
+            yield tick
+            
+            # Occasionally produce a candle (simulated every ~5 ticks)
+            if self.rng.random() > 0.8:
+                c = self.next_candle()
+                yield IndicatorCandle(
+                    ts=c.ts, open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume
+                )
+            
+            await asyncio.sleep(1.0)

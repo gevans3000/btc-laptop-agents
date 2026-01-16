@@ -24,7 +24,7 @@ app = typer.Typer(help="BTC Laptop Agents — 5-agent paper trading loop (5m)")
 HERE = Path(__file__).resolve()
 REPO_ROOT = HERE.parent.parent.parent
 
-def load_cfg(path: str = "config/default.json") -> dict:
+def load_cfg(path: str = "config/strategies/default.json") -> dict:
     """Load config with robust path resolution (CWD or REPO_ROOT)."""
     p = Path(path)
     if p.is_absolute():

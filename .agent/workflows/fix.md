@@ -11,7 +11,7 @@ description: Autonomous error diagnosis, solution application, and verification
 ## 1. Extract Recent Errors
 ```powershell
 Write-Host "=== EXTRACTING ERRORS ===" -ForegroundColor Cyan
-$errors = Get-Content logs/system.jsonl -Tail 200 -ErrorAction SilentlyContinue | Where-Object { $_ -match '"level":\s*"ERROR"' }
+$errors = Get-Content .workspace/logs/system.jsonl -Tail 200 -ErrorAction SilentlyContinue | Where-Object { $_ -match '"level":\s*"ERROR"' }
 if ($errors) {
     Write-Host "⚠ Found $($errors.Count) recent error(s)" -ForegroundColor Yellow
     $errors | Select-Object -Last 5 | ForEach-Object { Write-Host $_ -ForegroundColor Red }
@@ -65,7 +65,7 @@ if ($LASTEXITCODE -eq 0) {
 ## 7. Verify System Readiness
 ```powershell
 Write-Host "`n=== VERIFYING SYSTEM ===" -ForegroundColor Cyan
-python scripts/check_live_ready.py
+python -m laptop_agents doctor
 ```
 
 ## 8. Summary

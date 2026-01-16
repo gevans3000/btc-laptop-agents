@@ -11,7 +11,7 @@ class TestFundingGate(unittest.TestCase):
         gates = {"no_trade_funding_8h": 0.0005, "half_size_funding_8h": 0.0002, "extreme_funding_8h": 0.001}
         agent = DerivativesFlowsAgent(MockProvider(), gates)
 
-        state = State(instrument="BTCUSD", timeframe="1m")
+        state = State(instrument="BTCUSDT", timeframe="1m")
         state = agent.run(state)
 
         self.assertIn("HALT_funding_extreme", state.derivatives["flags"])
@@ -24,7 +24,7 @@ class TestFundingGate(unittest.TestCase):
         gates = {"no_trade_funding_8h": 0.0005, "half_size_funding_8h": 0.0002, "extreme_funding_8h": 0.001}
         agent = DerivativesFlowsAgent(MockProvider(), gates)
 
-        state = State(instrument="BTCUSD", timeframe="1m")
+        state = State(instrument="BTCUSDT", timeframe="1m")
         state = agent.run(state)
 
         self.assertEqual(state.derivatives["flags"], [])

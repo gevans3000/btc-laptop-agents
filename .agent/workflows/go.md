@@ -41,7 +41,7 @@ Write-Host "✓ Verification OK" -ForegroundColor Green
 ## 4. Unit Tests
 ```powershell
 $env:PYTHONPATH='src'
-python -m pytest tests/ -q --tb=short -p no:cacheprovider
+python -m pytest tests/ -q --tb=short -p no:cacheprovider --basetemp=./pytest_temp
 if ($LASTEXITCODE -ne 0) { 
     Write-Host "ABORT: Tests failed." -ForegroundColor Red
     exit 1 

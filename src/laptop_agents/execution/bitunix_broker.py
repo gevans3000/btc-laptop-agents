@@ -24,7 +24,7 @@ class BitunixBroker:
     def __init__(self, provider: BitunixFuturesProvider):
         self.provider = provider
         self.symbol = provider.symbol
-        self.is_inverse = self.symbol == "BTCUSD"
+        self.is_inverse = self.symbol == "BTCUSDT"
         self.last_pos: Optional[Dict[str, Any]] = None
         self._initialized = False
         self._instrument_info: Optional[Dict[str, Any]] = None

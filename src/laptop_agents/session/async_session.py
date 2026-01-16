@@ -180,27 +180,32 @@ class AsyncRunner:
         if self.strategy_config:
             min_history = self.strategy_config.get("engine", {}).get("min_history_bars", 100)
 
-        while retry_count < 5:
-            try:
-                logger.info(f"Seeding historical candles via REST (attempt {retry_count + 1}/5)...")
-                # Using max(100, min_history) logic from original
-                self.candles = load_bitunix_candles(self.symbol, self.interval, limit=max(100, min_history))
-                self.candles = normalize_candle_order(self.candles)
+        # 1.1 Seeding Logic (Mock vs REST)
+        if hasattr(self.provider, "history"):
+            logger.info(f"Seeding historical candles from provider (count={min_history})...")
+            self.candles = self.provider.history(min_history)
+        else:
+            while retry_count < 5:
+                try:
+                    logger.info(f"Seeding historical candles via REST (attempt {retry_count + 1}/5)...")
+                    # Using max(100, min_history) logic from original
+                    self.candles = load_bitunix_candles(self.symbol, self.interval, limit=max(100, min_history))
+                    self.candles = normalize_candle_order(self.candles)
+                    
+                    if len(self.candles) >= min_history:
+                        logger.info(f"Seed complete: {len(self.candles)} candles")
+                        break
+                    else:
+                        logger.warning(f"Incomplete seed: {len(self.candles)}/{min_history}. Retrying in 10s...")
+                except Exception as e:
+                    logger.warning(f"Seed attempt {retry_count + 1} failed: {e}")
                 
-                if len(self.candles) >= min_history:
-                    logger.info(f"Seed complete: {len(self.candles)} candles")
-                    break
-                else:
-                    logger.warning(f"Incomplete seed: {len(self.candles)}/{min_history}. Retrying in 10s...")
-            except Exception as e:
-                logger.warning(f"Seed attempt {retry_count + 1} failed: {e}")
-            
-            retry_count += 1
-            if retry_count < 5:
-                await asyncio.sleep(10)
+                retry_count += 1
+                if retry_count < 5:
+                    await asyncio.sleep(10)
         
-        if len(self.candles) < min_history:
-            raise FatalError(f"Failed to seed sufficient historical candles after 5 attempts ({len(self.candles)} < {min_history})")
+            if len(self.candles) < min_history:
+                raise FatalError(f"Failed to seed sufficient historical candles after 5 attempts ({len(self.candles)} < {min_history})")
 
         from laptop_agents.trading.helpers import detect_candle_gaps
         gaps = detect_candle_gaps(self.candles, self.interval)
@@ -360,7 +365,10 @@ Total Fees: ${total_fees:,.2f}
                             # If gap is more than 1.5x interval, we likely missed a candle
                             if (new_ts - last_ts) > interval_sec * 1.5:
                                 logger.warning(f"GAP_DETECTED: {new_ts - last_ts}s missing between {last_ts} and {new_ts}. Attempting backfill...")
-                                await self.provider.fetch_and_inject_gap(last_ts, new_ts)
+                                if hasattr(self.provider, "fetch_and_inject_gap"):
+                                    await self.provider.fetch_and_inject_gap(last_ts, new_ts)
+                                else:
+                                    logger.info("Provider does not support backfill, skipping.")
                     except (ValueError, TypeError, AttributeError) as ge:
                         logger.error(f"Error checking for gaps: {ge}")
 
@@ -806,10 +814,15 @@ async def run_async_session(
             provider=None
         )
         
+        # Determine Provider based on config/path
         if replay_path:
             from laptop_agents.backtest.replay_runner import ReplayProvider
             runner.provider = ReplayProvider(Path(replay_path))
             logger.info(f"Using REPLAY PROVIDER from {replay_path}")
+        elif strategy_config and strategy_config.get("source") == "mock":
+            from laptop_agents.data.providers.mock import MockProvider
+            runner.provider = MockProvider()
+            logger.info("Using MOCK PROVIDER (simulated market data)")
         
         # Handle OS signals
         def handle_sigterm(signum, frame):

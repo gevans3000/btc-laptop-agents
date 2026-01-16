@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -17,7 +17,7 @@ class StrategyConfig(BaseModel):
     risk: RiskConfig = Field(default_factory=RiskConfig)
 
 class SessionConfig(BaseModel):
-    symbol: str = "BTCUSD"
+    symbol: str = "BTCUSDT"
     interval: str = "1m"
     source: str = "mock"
     duration: int = 10

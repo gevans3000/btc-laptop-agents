@@ -77,7 +77,7 @@ class TestSafetyManual(unittest.TestCase):
         provider.place_order.assert_not_called()
 
     def test_inverse_pnl_calculation(self):
-        """Verify BTCUSD Inverse PnL: PnL(BTC) = Notional * (1/Entry - 1/Exit)"""
+        """Verify BTCUSDT Inverse PnL: PnL(BTC) = Notional * (1/Entry - 1/Exit)"""
         from laptop_agents.paper.broker import PaperBroker
         from dataclasses import dataclass
         
@@ -89,7 +89,7 @@ class TestSafetyManual(unittest.TestCase):
             low: float = 89000.0
             close: float = 90500.0
         
-        broker = PaperBroker(symbol="BTCUSD")
+        broker = PaperBroker(symbol="BTCUSDT")
         candle = MockCandle()
         
         # Simulate a LONG fill at market (90500)

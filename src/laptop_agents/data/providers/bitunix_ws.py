@@ -81,7 +81,7 @@ class BitunixWSProvider:
             start = time.time()
             async with httpx.AsyncClient(timeout=5.0) as client:
                 await exchange_rate_limiter.wait() # Use shared limiter
-                resp = await client.get("https://fapi.bitunix.com/api/v1/futures/market/tickers?symbols=BTCUSD")
+                resp = await client.get("https://fapi.bitunix.com/api/v1/futures/market/tickers?symbols=BTCUSDT")
                 server_date = resp.headers.get("Date")
                 if server_date:
                     dt = parsedate_to_datetime(server_date)

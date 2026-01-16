@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import logging
 from laptop_agents.core.registry import default_registry
 from laptop_agents.memory.local_store import LocalMemoryStore

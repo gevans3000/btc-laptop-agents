@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 from laptop_agents.agents.planner import PlannerAgent
 from laptop_agents.agents.researcher import ResearcherAgent
 from laptop_agents.agents.supervisor import Supervisor

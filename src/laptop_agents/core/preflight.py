@@ -37,7 +37,7 @@ def run_preflight_checks(args) -> bool:
     try:
         import urllib.request
         req = urllib.request.Request(
-            "https://fapi.bitunix.com/api/v1/futures/market/tickers?symbols=BTCUSD",
+            "https://fapi.bitunix.com/api/v1/futures/market/tickers?symbols=BTCUSDT",
             headers={"User-Agent": "btc-laptop-agents/0.1"}
         )
         urllib.request.urlopen(req, timeout=5)

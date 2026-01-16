@@ -19,7 +19,7 @@ from laptop_agents.backtest.engine import run_backtest_position_mode, set_contex
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", choices=["mock", "bitunix"], default="bitunix")
-    ap.add_argument("--symbol", default="BTCUSD")
+    ap.add_argument("--symbol", default="BTCUSDT")
     ap.add_argument("--limit", type=int, default=500)
     args = ap.parse_args()
 

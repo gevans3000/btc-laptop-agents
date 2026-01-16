@@ -59,7 +59,7 @@ class GracefulShutdown:
 def run_timed_session(
     duration_min: int = 10,
     poll_interval_sec: int = 60,
-    symbol: str = "BTCUSD",
+    symbol: str = "BTCUSDT",
     interval: str = "1m",
     source: str = "bitunix",
     limit: int = 200,

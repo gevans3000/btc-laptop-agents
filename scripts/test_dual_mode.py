@@ -16,7 +16,7 @@ class TestDualModeMath(unittest.TestCase):
     """
     Verify that the system correctly handles math for BOTH:
     1. Linear (USDT-M): BTCUSDT
-    2. Inverse (COIN-M): BTCUSD
+    2. Inverse (COIN-M): BTCUSDT
     """
 
     def test_linear_long_pnl(self):
@@ -61,9 +61,9 @@ class TestDualModeMath(unittest.TestCase):
         print(f"Linear SHORT PnL Verified: +$200.00")
 
     def test_inverse_long_pnl(self):
-        """BTCUSD Long: PnL(BTC) = NotionalUSD * (1/Entry - 1/Exit)"""
-        broker = PaperBroker(symbol="BTCUSD")
-        self.assertTrue(broker.is_inverse, "BTCUSD SHOULD be inverse")
+        """BTCUSDT Long: PnL(BTC) = NotionalUSD * (1/Entry - 1/Exit)"""
+        broker = PaperBroker(symbol="BTCUSDT")
+        self.assertTrue(broker.is_inverse, "BTCUSDT SHOULD be inverse")
 
         # Entry at 50k, Notional $50,000 (1 BTC worth?)
         # User input qty for inverse = COINS? Or USD?
@@ -97,8 +97,8 @@ class TestDualModeMath(unittest.TestCase):
         print(f"Inverse LONG PnL Verified: +0.5 BTC (at 2x price)")
 
     def test_inverse_short_pnl(self):
-         """BTCUSD Short: PnL(BTC) = NotionalUSD * (1/Exit - 1/Entry)"""
-         broker = PaperBroker(symbol="BTCUSD")
+         """BTCUSDT Short: PnL(BTC) = NotionalUSD * (1/Exit - 1/Entry)"""
+         broker = PaperBroker(symbol="BTCUSDT")
          
          # Entry at 50k, 1 BTC (Notional $50k)
          order = {
@@ -138,7 +138,7 @@ class TestBitunixDualMode(unittest.TestCase):
 
     def test_bitunix_inverse_pnl(self):
         provider = MagicMock()
-        provider.symbol = "BTCUSD" 
+        provider.symbol = "BTCUSDT" 
         broker = BitunixBroker(provider)
         self.assertTrue(broker.is_inverse)
         
@@ -213,7 +213,7 @@ class TestBitunixExitPnL(unittest.TestCase):
             close: float = 100000.0
 
         provider = MagicMock()
-        provider.symbol = "BTCUSD"
+        provider.symbol = "BTCUSDT"
         provider.get_pending_positions = MagicMock(return_value=[])
 
         broker = BitunixBroker(provider)
