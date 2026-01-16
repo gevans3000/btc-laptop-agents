@@ -58,7 +58,12 @@ Write-Host "Source:  $source"
 Write-Host "Logs:    $logFile"
  
 # Start process and capture PID
-$process = Start-Process -FilePath "powershell" -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", "& $pythonPath -m src.laptop_agents.run $commandArgs" -RedirectStandardOutput $logFile -RedirectStandardError $errFile -PassThru -NoNewWindow
+# Path to supervisor.py (in the same directory as this script)
+$supervisorPath = Join-Path -Path $PSScriptRoot -ChildPath "supervisor.py"
+
+Write-Host "Supervisor: $supervisorPath"
+
+$process = Start-Process -FilePath "powershell" -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", "& $pythonPath '$supervisorPath' $commandArgs" -RedirectStandardOutput $logFile -RedirectStandardError $errFile -PassThru -NoNewWindow
 
 # Write PID to file
 $process.Id | Out-File $pidFile -Force
