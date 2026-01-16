@@ -414,6 +414,10 @@ class PaperBroker:
 
         return {"type": "exit", "reason": reason, "price": px_slipped, "pnl": net_pnl, "r": r_mult, "bars_open": p.bars_open, "at": ts, "fees": exit_fees + p.entry_fees}
 
+    def save_state(self) -> None:
+        """Public alias for state persistence."""
+        self._save_state()
+
     def _save_state(self) -> None:
         if not self.state_path:
             return

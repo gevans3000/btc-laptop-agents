@@ -91,6 +91,12 @@ class AsyncRunner:
             state_path=state_path
         )
         
+        # Restore starting equity from broker (if it was loaded from state)
+        if self.broker.starting_equity != starting_balance:
+            logger.info(f"Restoring starting equity from broker state: ${self.broker.starting_equity:,.2f}")
+            self.starting_equity = self.broker.starting_equity
+            self.circuit_breaker.set_starting_equity(self.starting_equity)
+        
         # 2.3 Config Validation on Startup
         if self.strategy_config:
             try:
@@ -177,6 +183,7 @@ class AsyncRunner:
             asyncio.create_task(self.stale_data_task()),
             asyncio.create_task(self.funding_task()),
             asyncio.create_task(self.execution_task()),
+            asyncio.create_task(self.checkpoint_task()),
         ]
         
         try:
@@ -193,8 +200,8 @@ class AsyncRunner:
             
             try:
                 await asyncio.wait_for(asyncio.to_thread(self.broker.shutdown), timeout=5.0)
-            except asyncio.TimeoutError:
-                logger.error("Broker shutdown timed out after 5s")
+            except Exception as e:
+                logger.error(f"Broker shutdown failed: {e}")
             
             logger.info("AsyncRunner shutdown complete.")
             
@@ -259,7 +266,7 @@ Total Fees: ${total_fees:,.2f}
 """
                 logger.info(summary_text)
             except Exception as re:
-                logger.error(f"Failed to write final report/summary: {re}")
+                logger.error(f"CRITICAL: Failed to write final report/summary: {re}")
 
             if self.errors > 0:
                 write_alert(f"Session failed with {self.errors} errors")
@@ -272,6 +279,20 @@ Total Fees: ${total_fees:,.2f}
                     break
                     
                 if isinstance(item, Tick):
+                    # Task 2: Defensive Data Validation
+                    if item.last <= 0 or item.ask <= 0:
+                        logger.warning(f"INVALID_TICK: Received non-positive price {item.last} / {item.ask}. Skipping.")
+                        continue
+                        
+                    try:
+                        ts = int(item.ts)
+                        if ts < 1704067200000: # Before 2024
+                            logger.warning(f"INVALID_TIMESTAMP: Tick timestamp {ts} is too old. Skipping.")
+                            continue
+                    except (ValueError, TypeError):
+                        logger.warning(f"INVALID_TIMESTAMP: Tick timestamp {item.ts} is malformed. Skipping.")
+                        continue
+
                     self.latest_tick = item
                     self.last_data_time = time.time()
                     # Reset consecutive errors on successful data receipt
@@ -280,6 +301,21 @@ Total Fees: ${total_fees:,.2f}
                         self.consecutive_ws_errors = 0
                     
                 elif isinstance(item, Candle):
+                    # Validation for Candle
+                    if item.close <= 0 or item.open <= 0:
+                        logger.warning(f"INVALID_CANDLE: Received non-positive price. Skipping.")
+                        continue
+                    try:
+                        ts = int(item.ts)
+                        # Candle timestamps might be seconds or ms depending on source, 
+                        # but we check if it's before 2024 (1704067200)
+                        if ts < 1704067200:
+                            logger.warning(f"INVALID_TIMESTAMP: Candle timestamp {ts} is too old. Skipping.")
+                            continue
+                    except (ValueError, TypeError):
+                        logger.warning(f"INVALID_TIMESTAMP: Candle timestamp {item.ts} is malformed. Skipping.")
+                        continue
+
                     # 1.1 Implement Gap Backfill Logic
                     try:
                         new_ts = int(item.ts)
@@ -289,7 +325,6 @@ Total Fees: ${total_fees:,.2f}
                             # If gap is more than 1.5x interval, we likely missed a candle
                             if (new_ts - last_ts) > interval_sec * 1.5:
                                 logger.warning(f"GAP_DETECTED: {new_ts - last_ts}s missing between {last_ts} and {new_ts}. Attempting backfill...")
-                                # Call provider method (public now)
                                 await self.provider.fetch_and_inject_gap(last_ts, new_ts)
                     except (ValueError, TypeError, AttributeError) as ge:
                         logger.error(f"Error checking for gaps: {ge}")
@@ -311,24 +346,25 @@ Total Fees: ${total_fees:,.2f}
                         
         except asyncio.CancelledError:
             pass
-        except asyncio.CancelledError:
-            raise  # Don't count cancellation as an error
         except Exception as e:
-            logger.error(f"Error in market_data_task: {e}")
-            self.consecutive_ws_errors += 1
+            logger.error(f"FATAL: market_data_task failed: {e}")
             self.errors += 1
-            
-            if self.consecutive_ws_errors >= self.max_ws_errors:
-                logger.error(f"WS_FATAL: {self.max_ws_errors} consecutive errors. Triggering shutdown.")
-                self.shutdown_event.set()
-            else:
-                # Exponential backoff before next reconnect attempt
-                backoff = min(self.ws_error_backoff_sec * (2 ** (self.consecutive_ws_errors - 1)), 60.0)
-                logger.warning(f"WS error #{self.consecutive_ws_errors}. Backing off {backoff:.1f}s before retry...")
-                await asyncio.sleep(backoff)
-                # Recursively restart the task if not shutdown
-                if not self.shutdown_event.is_set():
-                    await self.market_data_task()
+            self.shutdown_event.set()
+
+    async def checkpoint_task(self):
+        """Periodically saves state to disk for crash recovery."""
+        try:
+            while not self.shutdown_event.is_set():
+                await asyncio.sleep(60)
+                logger.info("Pulse Checkpointing: Saving system state...")
+                try:
+                    self.state_manager.set_circuit_breaker_state(self.circuit_breaker.get_status())
+                    self.state_manager.save()
+                    self.broker.save_state()
+                except Exception as e:
+                    logger.error(f"Checkpoint failed: {e}")
+        except asyncio.CancelledError:
+            pass
 
     async def kill_switch_task(self):
         """Monitors for kill.txt file to trigger emergency shutdown."""
