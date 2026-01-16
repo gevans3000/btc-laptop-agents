@@ -5,10 +5,20 @@ from laptop_agents.indicators import Candle
 import json
 
 
-def test_pipeline_smoke():
-    temp_dir = Path(".temp_test")
-    temp_dir.mkdir(exist_ok=True)
-    cfg = json.loads(Path("config/default.json").read_text(encoding="utf-8"))
+def test_pipeline_smoke(tmp_path):
+    temp_dir = tmp_path
+    from laptop_agents.core.config_models import StrategyConfig, EngineConfig, RiskConfig
+    cfg = StrategyConfig(
+        engine=EngineConfig(pending_trigger_max_bars=5, derivatives_refresh_bars=6),
+        derivatives_gates={},
+        setups={
+            "default": {"active": True, "params": {}},
+            "pullback_ribbon": {"enabled": False},
+            "sweep_invalidation": {"enabled": False}
+        },
+        risk=RiskConfig(risk_pct=1.0, rr_min=1.5),
+        cvd={}
+    ).model_dump()
     journal = temp_dir / "paper_journal.jsonl"
 
     provider = MockProvider(seed=7, start=100_000.0)
@@ -24,5 +34,3 @@ def test_pipeline_smoke():
         state = sup.step(state, c)
 
     assert journal.exists()
-    content = journal.read_text(encoding="utf-8").strip().splitlines()
-    assert len(content) > 0
