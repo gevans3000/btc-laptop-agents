@@ -89,6 +89,7 @@ def main() -> int:
     ap.add_argument("--dashboard", action="store_true", help="Launch real-time web dashboard")
     ap.add_argument("--preflight", action="store_true", help="Run system readiness checks")
     ap.add_argument("--replay", type=str, default=None, help="Path to events.jsonl for deterministic replay")
+    ap.add_argument("--config", type=str, default=None, help="Explicit path to a JSON config file")
     args = ap.parse_args()
 
     # Normalize symbol to uppercase
@@ -96,26 +97,48 @@ def main() -> int:
 
     # Load strategy configuration
     import json
-    strategy_path = REPO_ROOT / "config" / "strategies" / f"{args.strategy}.json"
-    fallback_path = REPO_ROOT / "config" / "default.json"
+    strategy_config = {}
     
-    if strategy_path.exists():
-        with open(strategy_path) as f:
-            strategy_config = json.load(f)
-        logger.info(f"Loaded strategy: {args.strategy}")
-    elif fallback_path.exists():
-        with open(fallback_path) as f:
-            strategy_config = json.load(f)
-        logger.warning(f"Strategy '{args.strategy}' not found, using default.json")
+    # 2.1 Config First: Prioritize explicit --config, then --strategy
+    if args.config:
+        config_path = Path(args.config)
+        if config_path.exists():
+            with open(config_path) as f:
+                strategy_config = json.load(f)
+            logger.info(f"Loaded explicit config: {args.config}")
+        else:
+            raise FileNotFoundError(f"Config file not found: {args.config}")
     else:
-        strategy_config = {}
-        logger.warning("No strategy config found, using CLI defaults")
+        # Default strategy-based loading
+        strategy_path = REPO_ROOT / "config" / "strategies" / f"{args.strategy}.json"
+        fallback_path = REPO_ROOT / "config" / "default.json"
+        
+        if strategy_path.exists():
+            with open(strategy_path) as f:
+                strategy_config = json.load(f)
+            logger.info(f"Loaded strategy: {args.strategy}")
+        elif fallback_path.exists():
+            with open(fallback_path) as f:
+                strategy_config = json.load(f)
+            logger.warning(f"Strategy '{args.strategy}' not found, using default.json")
+        else:
+            logger.warning("No strategy config found, using CLI defaults")
 
-    # Override CLI defaults from strategy config
+    # Helper to check if an argument was explicitly provided (not just default)
+    def is_cli_set(flag: str) -> bool:
+        return any(arg == flag or arg.startswith(flag + "=") for arg in sys.argv)
+
+    # CLI Overrides (only if explicitly set by user)
     risk_cfg = strategy_config.get("risk", {})
-    if "risk_pct" in risk_cfg and args.risk_pct == 1.0:
+    if is_cli_set("--risk-pct"):
+        # USER_OVERRIDE: CLI takes precedence
+        pass 
+    elif "risk_pct" in risk_cfg:
         args.risk_pct = risk_cfg["risk_pct"]
-    if "rr_min" in risk_cfg and args.tp_r == 1.5:
+
+    if is_cli_set("--tp-r"):
+        pass
+    elif "rr_min" in risk_cfg:
         args.tp_r = risk_cfg["rr_min"]
 
     # Validate Configuration
