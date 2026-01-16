@@ -1,6 +1,10 @@
 import sys
 from pathlib import Path
-import tomllib if sys.version_info >= (3, 11) else None
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    tomllib = None
 
 def get_pyproject_version():
     path = Path("pyproject.toml")
