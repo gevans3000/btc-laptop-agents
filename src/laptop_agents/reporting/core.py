@@ -46,7 +46,7 @@ def summarize(journal_path: str) -> Tuple[Dict[str, Any], List[TradeRow]]:
 
         if t == "trade":
             plan = e.get("plan") or {}
-            setup = (((plan.get("setup") or {}).get("name")) or "UNKNOWN")
+            setup = ((plan.get("setup") or {}).get("name")) or "UNKNOWN"
             trades[tid] = {
                 "trade": e,
                 "setup": setup,
@@ -119,14 +119,18 @@ def summarize(journal_path: str) -> Tuple[Dict[str, Any], List[TradeRow]]:
     total_r = sum((x.r or 0) for x in closed)
     avg_r = (total_r / len(closed)) if closed else 0.0
     winrate = (len(wins) / len(closed)) if closed else 0.0
-    pf = (sum((x.r or 0) for x in wins) / abs(sum((x.r or 0) for x in losses))) if losses else float("inf")
+    pf = (
+        (sum((x.r or 0) for x in wins) / abs(sum((x.r or 0) for x in losses)))
+        if losses
+        else float("inf")
+    )
 
     # Max drawdown on cumulative R
     peak = 0.0
     eq = 0.0
     max_dd = 0.0
     for x in closed:
-        eq += (x.r or 0)
+        eq += x.r or 0
         peak = max(peak, eq)
         max_dd = min(max_dd, eq - peak)  # negative number
 
@@ -139,7 +143,14 @@ def summarize(journal_path: str) -> Tuple[Dict[str, Any], List[TradeRow]]:
         "total_r": total_r,
         "profit_factor_r": pf,
         "max_drawdown_r": max_dd,
-        "setups": {k: {"planned": setup_counts.get(k, 0), "avg_r": (sum(v)/len(v) if v else None), "n_closed": len(v)} for k, v in setup_r.items()},
+        "setups": {
+            k: {
+                "planned": setup_counts.get(k, 0),
+                "avg_r": (sum(v) / len(v) if v else None),
+                "n_closed": len(v),
+            }
+            for k, v in setup_r.items()
+        },
     }
     return summary, rows
 
@@ -164,13 +175,19 @@ def write_report(journal_path: str, out_dir: str = "data/reports") -> Dict[str, 
     lines.append(f"- Winrate: {summary['winrate']:.2%}")
     lines.append(f"- Avg R: {summary['avg_r']:.3f}")
     lines.append(f"- Total R: {summary['total_r']:.3f}")
-    lines.append(f"- Profit factor (R): {summary['profit_factor_r']:.3f}" if summary["profit_factor_r"] != float("inf") else "- Profit factor (R): inf")
+    lines.append(
+        f"- Profit factor (R): {summary['profit_factor_r']:.3f}"
+        if summary["profit_factor_r"] != float("inf")
+        else "- Profit factor (R): inf"
+    )
     lines.append(f"- Max drawdown (R): {summary['max_drawdown_r']:.3f}")
     lines.append("")
     lines.append("## Setup breakdown")
     if summary["setups"]:
         for k, v in summary["setups"].items():
-            lines.append(f"- **{k}**: planned={v['planned']} closed={v['n_closed']} avg_r={(v['avg_r'] if v['avg_r'] is not None else 'n/a')}")
+            lines.append(
+                f"- **{k}**: planned={v['planned']} closed={v['n_closed']} avg_r={(v['avg_r'] if v['avg_r'] is not None else 'n/a')}"
+            )
     else:
         lines.append("- (no closed trades yet)")
     lines.append("")
@@ -182,8 +199,34 @@ def write_report(journal_path: str, out_dir: str = "data/reports") -> Dict[str, 
     # csv
     with csv_path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["trade_id", "created_at", "setup", "direction", "entry", "exit_price", "r", "pnl", "bars_open", "reason"])
+        w.writerow(
+            [
+                "trade_id",
+                "created_at",
+                "setup",
+                "direction",
+                "entry",
+                "exit_price",
+                "r",
+                "pnl",
+                "bars_open",
+                "reason",
+            ]
+        )
         for r in rows:
-            w.writerow([r.trade_id, r.created_at, r.setup, r.direction, r.entry, r.exit_price, r.r, r.pnl, r.bars_open, r.reason])
+            w.writerow(
+                [
+                    r.trade_id,
+                    r.created_at,
+                    r.setup,
+                    r.direction,
+                    r.entry,
+                    r.exit_price,
+                    r.r,
+                    r.pnl,
+                    r.bars_open,
+                    r.reason,
+                ]
+            )
 
     return {"md": str(md_path), "csv": str(csv_path)}

@@ -1,2 +1,3 @@
-# This file is intentionally empty to make this directory a Python package.
-"""Reporting package for HTML dashboard generation."""
+from .core import summarize, write_report, TradeRow
+
+__all__ = ["summarize", "write_report", "TradeRow"]

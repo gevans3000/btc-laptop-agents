@@ -36,9 +36,8 @@ if (Test-Path .workspace/logs/heartbeat.json) {
 
 ## 4. Kill Switch Status
 ```powershell
-$ks = Get-Content config/KILL_SWITCH.txt -ErrorAction SilentlyContinue
-if ($ks -and $ks.Trim().ToUpper() -eq 'TRUE') {
-    Write-Host "⚠ KILL SWITCH IS ACTIVE" -ForegroundColor Red
+if ($env:LA_KILL_SWITCH -eq 'TRUE') {
+    Write-Host "⚠ KILL SWITCH IS ACTIVE (via Env)" -ForegroundColor Red
 } else {
     Write-Host "✓ Kill switch: OFF" -ForegroundColor Green
 }

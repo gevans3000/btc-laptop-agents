@@ -5,16 +5,19 @@ from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, validator
 import json
 
+
 class RiskConfig(BaseModel):
     risk_pct: float = Field(default=1.0, ge=0.1, le=10.0)
     stop_bps: float = Field(default=30.0, ge=5.0)
     tp_r: float = Field(default=1.5, ge=0.5)
     max_leverage: float = Field(default=1.0, ge=1.0, le=20.0)
 
+
 class StrategyConfig(BaseModel):
     name: str = "default"
     params: Dict[str, Any] = {}
     risk: RiskConfig = Field(default_factory=RiskConfig)
+
 
 class SessionConfig(BaseModel):
     symbol: str = "BTCUSDT"
@@ -24,21 +27,36 @@ class SessionConfig(BaseModel):
     execution_mode: str = "paper"
     fees_bps: float = 2.0
     slip_bps: float = 0.5
-    async_mode: bool = True
     dry_run: bool = False
-    
+    kill_switch: bool = False
+
+    @property
+    def artifact_dir(self) -> Path:
+        """Derived directory for all run-time artifacts."""
+        from laptop_agents.constants import REPO_ROOT
+
+        return REPO_ROOT / ".workspace"
+
     @validator("symbol")
     def normalize_symbol(cls, v):
+        """
+        Normalize trading symbol (e.g. BTC/USDT -> BTCUSDT).
+        Default is BTCUSDT if not specified via Env (LA_SYMBOL) or Args.
+        """
+        if not v:
+            # Pydantic default will handle this if v is None, but if empty string:
+            return "BTCUSDT"
         return v.upper().replace("/", "").replace("-", "")
+
 
 def load_session_config(
     config_path: Optional[Path] = None,
     strategy_name: Optional[str] = None,
-    overrides: Optional[Dict[str, Any]] = None
+    overrides: Optional[Dict[str, Any]] = None,
 ) -> SessionConfig:
     """Load and validate session configuration with priority: overrides > config_file > strategy > defaults."""
     data = {}
-    
+
     # 1. Base defaults or Strategy defaults
     if strategy_name:
         # Try to load from config/strategies/
@@ -47,24 +65,28 @@ def load_session_config(
         if strat_path.exists():
             with open(strat_path) as f:
                 data.update(json.load(f))
-                
+
     # 2. Config File
     if config_path and config_path.exists():
         with open(config_path) as f:
             data.update(json.load(f))
-            
+
     # 3. Environment Variables (LA_ prefix)
     for key in SessionConfig.__fields__.keys():
         env_val = os.environ.get(f"LA_{key.upper()}")
         if env_val:
             data[key] = env_val
-            
+
     # 4. Overrides (CLI flags)
     if overrides:
         data.update({k: v for k, v in overrides.items() if v is not None})
-        
+
+    # 5. Environment Kill Switch (Override everything for safety)
+    if os.environ.get("LA_KILL_SWITCH", "FALSE").upper() == "TRUE":
+        data["kill_switch"] = True
+
     config = SessionConfig(**data)
-    
+
     # 5. Fail Fast Validation
     if config.source == "bitunix" or config.execution_mode == "live":
         api_key = os.environ.get("BITUNIX_API_KEY")
@@ -75,8 +97,9 @@ def load_session_config(
                 "BITUNIX_API_KEY and BITUNIX_API_SECRET environment variables. "
                 "Please run 'la doctor --fix' to initialize .env and add your credentials."
             )
-            
+
     return config
+
 
 class RunResult(BaseModel):
     success: bool
