@@ -10,25 +10,18 @@ description: Comprehensive system status check for session start or check-in
 
 ## 1. Process Check
 ```powershell
-$procs = Get-Process python -ErrorAction SilentlyContinue
-if ($procs) {
-    Write-Host "✓ Python processes running: $($procs.Count)" -ForegroundColor Green
-    $procs | Format-Table Id, CPU, WS -AutoSize
-} else {
-    Write-Host "⚠ No Python processes detected." -ForegroundColor Yellow
-}
+python -m laptop_agents status
 ```
 
 ## 2. API Connectivity
 ```powershell
-$env:PYTHONPATH='src'
-python scripts/check_live_ready.py
+python -m laptop_agents doctor
 ```
 
 ## 3. Heartbeat Status
 ```powershell
-if (Test-Path logs/heartbeat.json) {
-    $hb = Get-Content logs/heartbeat.json -Raw | ConvertFrom-Json
+if (Test-Path .workspace/logs/heartbeat.json) {
+    $hb = Get-Content .workspace/logs/heartbeat.json -Raw | ConvertFrom-Json
     $hb_ts = if ($hb.ts) { $hb.ts } else { $hb.timestamp }
     $age = [math]::Round(((Get-Date) - [datetime]$hb_ts).TotalSeconds)
     if ($age -lt 120) {
@@ -53,7 +46,7 @@ if ($ks -and $ks.Trim().ToUpper() -eq 'TRUE') {
 
 ## 5. Recent Errors
 ```powershell
-$errors = Get-Content logs/system.jsonl -Tail 100 -ErrorAction SilentlyContinue | Where-Object { $_ -match '"level":\s*"ERROR"' }
+$errors = Get-Content .workspace/logs/system.jsonl -Tail 100 -ErrorAction SilentlyContinue | Where-Object { $_ -match '"level":\s*"ERROR"' }
 if ($errors) {
     Write-Host "⚠ Recent errors found: $($errors.Count)" -ForegroundColor Yellow
     $errors | Select-Object -Last 3
@@ -85,14 +78,13 @@ git --no-pager log -5 --oneline --decorate
 
 ## 8. Active Positions Summary
 ```powershell
-Write-Host "`n--- ACTIVE POSITIONS ---" -ForegroundColor Cyan
-if (Test-Path state/paper_broker_state.json) {
-    $state = Get-Content state/paper_broker_state.json -Raw | ConvertFrom-Json
-    if ($state.pos) {
-        Write-Host "Position: $($state.pos.side) $($state.pos.qty) @ $($state.pos.entry)" -ForegroundColor White
-        Write-Host "Equity: $($state.current_equity)" -ForegroundColor White
+if (Test-Path .workspace/latest/state.json) {
+    $state = Get-Content .workspace/latest/state.json -Raw | ConvertFrom-Json
+    if ($state.summary) {
+        Write-Host "Mode: $($state.summary.mode) Symbol: $($state.summary.symbol)" -ForegroundColor White
+        Write-Host "Net PnL: $($state.summary.net_pnl)" -ForegroundColor White
     } else {
-        Write-Host "No active position" -ForegroundColor Gray
+        Write-Host "No active session summary" -ForegroundColor Gray
     }
 } else {
     Write-Host "No state file found" -ForegroundColor Gray

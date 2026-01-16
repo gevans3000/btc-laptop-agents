@@ -21,7 +21,7 @@ ENV/
 *.log
 *.pid
 *.lock
-/logs/
+/.workspace/
 /data/
 /src/data/
 temp_journal.jsonl
@@ -36,9 +36,10 @@ src/laptop_agents/data/*.db
 src/laptop_agents/data/*.pid
 !src/laptop_agents/data/.gitkeep
 
-# Generated outputs
-runs/
-paper/
+# Legacy artifacts (Cleanup)
+/runs/
+/logs/
+/paper/
 !src/laptop_agents/paper/
 assistant_sync_pack.md
 cleanup_*.md

@@ -28,9 +28,9 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "✓ Lint rules OK" -ForegroundColor Green
 ```
 
-## 3. Verification Script
+## 3. Verification & Doctor
 ```powershell
-.\scripts\verify.ps1
+python -m laptop_agents doctor --fix
 if ($LASTEXITCODE -ne 0) { 
     Write-Host "ABORT: Verification failed." -ForegroundColor Red
     exit 1 

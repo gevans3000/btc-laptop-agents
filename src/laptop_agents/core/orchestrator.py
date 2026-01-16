@@ -32,15 +32,42 @@ from laptop_agents.core.validation import (
     validate_summary_html,
 )
 
-RUNS_DIR = REPO_ROOT / "runs"
+WORKSPACE_DIR = REPO_ROOT / ".workspace"
+RUNS_DIR = WORKSPACE_DIR / "runs"
 LATEST_DIR = RUNS_DIR / "latest"
-PAPER_DIR = REPO_ROOT / "paper"
+PAPER_DIR = WORKSPACE_DIR / "paper"
+LOGS_DIR = WORKSPACE_DIR / "logs"
+
+def prune_workspace(keep: int = 10) -> None:
+    """Keep only the N most recent run directories in .workspace/runs."""
+    if not RUNS_DIR.exists():
+        return
+    
+    # Get all subdirectories in RUNS_DIR except 'latest'
+    run_dirs = [
+        d for d in RUNS_DIR.iterdir() 
+        if d.is_dir() and d.name != "latest"
+    ]
+    
+    # Sort by modification time (most recent first)
+    run_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    
+    # If we have more than 'keep', delete the extras
+    if len(run_dirs) > keep:
+        for extra_dir in run_dirs[keep:]:
+            try:
+                shutil.rmtree(extra_dir)
+            except Exception as e:
+                logger.warning(f"Failed to prune old run directory {extra_dir}: {e}")
 
 def reset_latest_dir() -> None:
     RUNS_DIR.mkdir(exist_ok=True)
     if LATEST_DIR.exists():
         shutil.rmtree(LATEST_DIR)
     LATEST_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Auto-cleanup old runs
+    prune_workspace(keep=10)
 
 # Global set to track event IDs for idempotency
 EVENT_CACHE = set()
@@ -76,6 +103,7 @@ def append_event(obj: Dict[str, Any], paper: bool = False) -> None:
             f.flush()
             os.fsync(f.fileno())
     else:
+        LATEST_DIR.mkdir(parents=True, exist_ok=True)
         with (LATEST_DIR / "events.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(obj, ensure_ascii=False) + "\n")
             f.flush()
@@ -287,7 +315,7 @@ def run_orchestrated_mode(
         equity_history = []
         current_equity = starting_balance
         
-        checkpoint_path = REPO_ROOT / "logs" / "daily_checkpoint.json"
+        checkpoint_path = LOGS_DIR / "daily_checkpoint.json"
         if checkpoint_path.exists():
             try:
                 with checkpoint_path.open("r") as f:
@@ -328,7 +356,7 @@ def run_orchestrated_mode(
             equity_history.append({"ts": candle.ts, "equity": total_equity})
             
             if i % 10 == 0:
-                heartbeat_path = REPO_ROOT / "logs" / "heartbeat.json"
+                heartbeat_path = LOGS_DIR / "heartbeat.json"
                 heartbeat_path.parent.mkdir(exist_ok=True)
                 with heartbeat_path.open("w") as f:
                     json.dump({
@@ -379,7 +407,7 @@ def run_orchestrated_mode(
         append_event({"event": "OrchestratedModularFinished", "trades": len(trades), "ending_balance": ending_balance})
         
         try:
-            checkpoint_path = REPO_ROOT / "logs" / "daily_checkpoint.json"
+            checkpoint_path = LOGS_DIR / "daily_checkpoint.json"
             checkpoint_path.parent.mkdir(exist_ok=True)
             with checkpoint_path.open("w") as f:
                 json.dump({

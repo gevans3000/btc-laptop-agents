@@ -4,6 +4,7 @@ import os
 import re
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 SENSITIVE_PATTERNS = [
@@ -93,9 +94,66 @@ class AutonomousMemoryHandler(logging.Handler):
                 # Never allow a logging error to crash the application
                 pass
 
-def setup_logger(name: str = "btc_agents", log_dir: str = "logs"):
+# Find project root (3 levels up from this file)
+HERE = Path(__file__).resolve()
+REPO_ROOT = HERE.parent.parent.parent.parent
+DEFAULT_LOG_DIR = str(REPO_ROOT / ".workspace" / "logs")
+
+from rich.logging import RichHandler
+from rich.console import Console as RichConsole
+from rich.panel import Panel as RichPanel
+from rich.table import Table as RichTable
+from rich.theme import Theme
+
+class EventPanelHandler(logging.Handler):
+    """Custom handler for EVENT logs that prints them as colored panels/tables."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.console = RichConsole(theme=Theme({
+            "event.name": "bold cyan",
+            "event.key": "dim",
+            "event.value": "white"
+        }))
+
+    def emit(self, record):
+        if not record.msg.startswith("EVENT:"):
+            return
+        
+        try:
+            event_name = record.msg.replace("EVENT:", "").strip()
+            meta = {}
+            if hasattr(record, "meta") and isinstance(record.meta, dict):
+                meta = record.meta
+            elif record.args and isinstance(record.args, dict):
+                meta = record.args
+            
+            # Special formatting for important events
+            if event_name == "TradeExecuted" or "Order" in event_name:
+                table = RichTable(show_header=False, box=None, padding=(0, 1))
+                for k, v in meta.items():
+                    if k in ["timestamp", "event_id"]: continue
+                    table.add_row(f"[{k}]", str(v))
+                
+                panel = RichPanel(
+                    table,
+                    title=f"[bold yellow] {event_name} [/bold yellow]",
+                    border_style="green" if "Fill" in event_name or "Buy" in event_name else "yellow",
+                    expand=False
+                )
+                self.console.print(panel)
+            else:
+                # Compact one-liner for other events
+                meta_str = " ".join([f"[dim]{k}=[/dim]{v}" for k, v in meta.items() if k not in ["timestamp", "event_id"]])
+                self.console.print(f"🔹 [bold cyan]{event_name: <25}[/bold cyan] {meta_str}")
+        except Exception:
+            pass
+
+def setup_logger(name: str = "btc_agents", log_dir: str = None):
+    if log_dir is None:
+        log_dir = DEFAULT_LOG_DIR
+        
     if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+        os.makedirs(log_dir, exist_ok=True)
     
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
@@ -115,15 +173,29 @@ def setup_logger(name: str = "btc_agents", log_dir: str = "logs"):
     fh.addFilter(sensitive_filter)
     logger.addHandler(fh)
     
-    # Console Handler
-    ch = logging.StreamHandler()
+    # Console Handler (Rich)
     if os.environ.get("JSON_LOGS") == "1":
+        ch = logging.StreamHandler()
         ch.setFormatter(JsonFormatter())
+        ch.addFilter(sensitive_filter)
+        logger.addHandler(ch)
     else:
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        ch.setFormatter(formatter)
-    ch.addFilter(sensitive_filter)
-    logger.addHandler(ch)
+        # Use RichHandler for standard log levels
+        rh = RichHandler(
+            rich_tracebacks=True,
+            show_path=False,
+            keywords=["BUY", "SELL", "LONG", "SHORT", "ERROR", "CRITICAL"]
+        )
+        rh.addFilter(sensitive_filter)
+        # We set level for standard handler to NOT show EVENT logs if we use the panel handler
+        # But for now let's just add both and see. Actually, panels are better.
+        logger.addHandler(rh)
+
+        # Custom Event Handler
+        eh = EventPanelHandler()
+        eh.setLevel(logging.INFO)
+        eh.addFilter(sensitive_filter)
+        logger.addHandler(eh)
 
     # Autonomous Memory Handler
     mh = AutonomousMemoryHandler()
@@ -136,11 +208,14 @@ def setup_logger(name: str = "btc_agents", log_dir: str = "logs"):
 # Singleton-ish instance
 logger = setup_logger()
 
-def write_alert(message: str, alert_path: str = "logs/alert.txt"):
+def write_alert(message: str, alert_path: str = None):
     """Write a critical alert to a file and optional Webhook."""
     import os
     import httpx
     from datetime import datetime
+    
+    if alert_path is None:
+        alert_path = os.path.join(DEFAULT_LOG_DIR, "alert.txt")
     
     # 1. Write to file
     try:

@@ -18,7 +18,7 @@ def run_command(cmd_args: list[str]) -> subprocess.CompletedProcess:
 
 def test_selftest():
     print("1. Testing --mode selftest...")
-    result = run_command(["-m", "src.laptop_agents.run", "--mode", "selftest"])
+    result = run_command(["-m", "laptop_agents", "run", "--mode", "selftest"])
     
     if result.returncode != 0:
         print("[FAIL] Selftest returned non-zero exit code.")
@@ -37,7 +37,7 @@ def test_backtest_reproducibility():
     
     # Run small backtest
     result = run_command([
-        "-m", "src.laptop_agents.run", 
+        "-m", "laptop_agents", "run",
         "--mode", "backtest", 
         "--source", "mock", 
         "--backtest", "100"
@@ -48,7 +48,7 @@ def test_backtest_reproducibility():
         print("STDERR:", result.stderr)
         sys.exit(1)
         
-    runs_dir = REPO_ROOT / "runs" / "latest"
+    runs_dir = REPO_ROOT / ".workspace" / "runs" / "latest"
     required = ["summary.html", "trades.csv", "events.jsonl"]
     
     for filename in required:

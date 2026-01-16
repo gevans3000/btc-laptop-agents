@@ -8,11 +8,13 @@ from pathlib import Path
 app = Flask(__name__)
 
 # Paths
+# Paths
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-HEARTBEAT_PATH = REPO_ROOT / "logs" / "heartbeat.json"
-BROKER_STATE_PATH = REPO_ROOT / "paper" / "async_broker_state.json"
-EVENTS_PATH = REPO_ROOT / "paper" / "events.jsonl"
-LOG_PATH = REPO_ROOT / "logs" / "app.log"
+WORKSPACE_DIR = REPO_ROOT / ".workspace"
+HEARTBEAT_PATH = WORKSPACE_DIR / "logs" / "heartbeat.json"
+BROKER_STATE_PATH = WORKSPACE_DIR / "paper" / "async_broker_state.json"
+EVENTS_PATH = WORKSPACE_DIR / "paper" / "events.jsonl"
+LOG_PATH = WORKSPACE_DIR / "logs" / "system.jsonl"
 
 @app.route("/")
 def index():
