@@ -66,11 +66,15 @@ def status():
         "logs": logs
     })
 
-if __name__ == "__main__":
+def run_dashboard(port=5000):
+    """Run the dashboard server."""
     # Ensure templates folder exists
     template_dir = Path(__file__).parent / "templates"
     template_dir.mkdir(exist_ok=True)
     
-    port = int(os.environ.get("DASHBOARD_PORT", 5000))
+    port = int(os.environ.get("DASHBOARD_PORT", port))
     print(f"Starting Trading Dashboard on port {port}...")
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+if __name__ == "__main__":
+    run_dashboard()
