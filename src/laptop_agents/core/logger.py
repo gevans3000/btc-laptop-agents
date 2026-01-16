@@ -138,7 +138,7 @@ logger = setup_logger()
 def write_alert(message: str, alert_path: str = "logs/alert.txt"):
     """Write a critical alert to a file and optional Webhook."""
     import os
-    import requests
+    import httpx
     from datetime import datetime
     
     # 1. Write to file
@@ -155,12 +155,13 @@ def write_alert(message: str, alert_path: str = "logs/alert.txt"):
     if webhook_url:
         try:
             payload = {"content": f"🚨 **CRITICAL ALERT** 🚨\n{message}"}
-            # Simple retry
-            for _ in range(3):
-                r = requests.post(webhook_url, json=payload, timeout=5)
-                if r.status_code < 500:
-                    break
-                time.sleep(1)
+            # httpx.post with retry
+            with httpx.Client(timeout=5) as client:
+                for _ in range(3):
+                    r = client.post(webhook_url, json=payload)
+                    if r.status_code < 500:
+                        break
+                    time.sleep(1)
         except Exception as e:
              # Don't crash on alert failure
             print(f"Failed to send webhook: {e}")

@@ -145,6 +145,13 @@ def main() -> int:
     from laptop_agents.core.validation import validate_config
     validate_config(args, strategy_config)
     
+    # Ensure directories exist
+    RUNS_DIR.mkdir(exist_ok=True)
+    LATEST_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Determine mode
+    mode = args.mode if args.mode else ("backtest" if args.backtest > 0 else "single")
+
     # 1.2 SYSTEM_STARTUP: Log merged configuration (redacting secrets)
     from laptop_agents.core.orchestrator import append_event
     effective_config = {
@@ -158,13 +165,6 @@ def main() -> int:
         "mode": mode,
         "config": effective_config
     }, paper=True)
-
-    # Ensure directories exist
-    RUNS_DIR.mkdir(exist_ok=True)
-    LATEST_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Determine mode
-    mode = args.mode if args.mode else ("backtest" if args.backtest > 0 else "single")
 
     if args.preflight:
         from laptop_agents.core.preflight import run_preflight_checks
