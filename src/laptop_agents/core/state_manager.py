@@ -21,27 +21,47 @@ class StateManager:
         self._load()
     
     def _load(self) -> None:
-        if self.state_file.exists():
+        backup_path = self.state_file.with_suffix(".bak")
+        for try_path in [self.state_file, backup_path]:
+            if not try_path.exists():
+                continue
             try:
-                with open(self.state_file) as f:
+                with open(try_path) as f:
                     self._state = json.load(f)
-                logger.info(f"Loaded state from {self.state_file}")
+                logger.info(f"Loaded state from {try_path}")
+                return
             except Exception as e:
-                logger.error(f"Failed to load state: {e}")
-                self._state = {}
+                logger.error(f"Failed to load state from {try_path}: {e}")
+                if try_path == self.state_file:
+                    # Move corrupt file
+                    try:
+                        self.state_file.rename(self.state_file.with_suffix(f".corrupt.{int(time.time())}"))
+                    except Exception:
+                        pass
+        self._state = {}
     
     def save(self) -> None:
-        """Atomic save via temp file + rename."""
+        """Atomic save via temp file + rename + backup."""
         self._state["last_saved"] = time.time()
         temp = self.state_file.with_suffix(".tmp")
-        with open(temp, "w") as f:
-            json.dump(self._state, f, indent=2)
-        # Use replace for atomic swap on Windows
-        if self.state_file.exists():
-            # Windows might complain if the file is open, but we just closed it.
-            # However, PathInterface.replace might fail if target exists and is locked.
-            pass
-        temp.replace(self.state_file)
+        backup = self.state_file.with_suffix(".bak")
+        
+        try:
+            with open(temp, "w") as f:
+                json.dump(self._state, f, indent=2)
+            
+            # Step 2: Backup current (if exists and valid)
+            if self.state_file.exists():
+                try:
+                    import shutil
+                    shutil.copy2(self.state_file, backup)
+                except Exception:
+                    pass
+            
+            # Step 3: Atomic rename
+            temp.replace(self.state_file)
+        except Exception as e:
+            logger.error(f"Failed to save unified state: {e}")
     
     def get(self, key: str, default: Any = None) -> Any:
         return self._state.get(key, default)
