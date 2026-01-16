@@ -51,18 +51,11 @@ While the system is "autonomous" in the sense that it can run in the background,
     *   **Fix:** Add a parameter: `mvp_start_live.ps1 -Profile <name>`. (Implemented in `mvp_start_live.ps1`).
         *   Example usage: `.\scripts\mvp_start_live.ps1 -Profile scalp_1m_sweep -Symbol BTCUSDT`
 
-### Phase 3: Architectural Upgrades (True Autonomy)
-*   **Fix 3.1: Python-Based Supervisor**
-    *   **Issue:** PowerShell is a poor process supervisor.
-    *   **Fix:** Create `src/laptop_agents/supervisor.py`.
-        *   It launches the runner as a subprocess.
-        *   It monitors the return code.
-        *   If crash -> restarts (up to N times).
-        *   If clean exit -> stops.
-        *   `mvp_start_live.ps1` launches the *Supervisor*, not the Runner.
-*   **Fix 3.2: Self-Healing State**
-    *   **Issue:** Corrupt state files stop the bot.
-    *   **Fix:** startup routine should valid `state.json`. If corrupt, mv to `state.bak` and start fresh (or from last checkpoint), logging a critical warning.
+### Phase 3: Architectural Upgrades (True Autonomy) - COMPLETED
+*   **[x] Fix 3.1: Python-Based Supervisor**
+    *   **Fix:** Created `scripts/supervisor.py` and updated `mvp_start_live.ps1` to use it. The supervisor handles auto-restarts and heartbeat monitoring.
+*   **[x] Fix 3.2: Self-Healing State**
+    *   **Fix:** Updated `StateManager` and `PaperBroker` to handle corrupt JSON files by moving them to `.corrupt` and restoring from `.bak` backups where available.
 
 ## 4. Implementation Plan (Next Steps)
 
