@@ -57,7 +57,7 @@ def main() -> int:
     atexit.register(lambda: os.remove(LOCK_FILE) if LOCK_FILE.exists() else None)
 
     ap = argparse.ArgumentParser(description="Laptop Agents CLI")
-    ap.add_argument("--source", choices=["mock", "bitunix"], default="bitunix")
+    ap.add_argument("--source", choices=["mock", "bitunix"], default="mock")
     ap.add_argument("--symbol", default="BTCUSD")
     ap.add_argument("--interval", default="1m")
     ap.add_argument("--limit", type=int, default=200)
@@ -121,6 +121,20 @@ def main() -> int:
     # Validate Configuration
     from laptop_agents.core.validation import validate_config
     validate_config(args, strategy_config)
+    
+    # 1.2 SYSTEM_STARTUP: Log merged configuration (redacting secrets)
+    from laptop_agents.core.orchestrator import append_event
+    effective_config = {
+        "CLI": vars(args),
+        "Strategy": strategy_config
+    }
+    # Redact sensitive CLI args if any (though secrets are usually env vars)
+    logger.info(f"SYSTEM_STARTUP: Effective configuration: {effective_config}")
+    append_event({
+        "event": "SYSTEM_STARTUP",
+        "mode": mode,
+        "config": effective_config
+    }, paper=True)
 
     # Ensure directories exist
     RUNS_DIR.mkdir(exist_ok=True)

@@ -8,12 +8,12 @@ def validate_config(args: Any, strategy_config: Dict[str, Any]) -> None:
     Validate CLI arguments and strategy configuration.
     Raises ValueError if validation fails.
     """
-    # 1. Environment Variables Check for Live Modes
-    if args.mode in ["live", "live-session"]:
+    # 1. Environment Variables Check for Live Modes with Bitunix source
+    if args.mode in ["live", "live-session"] and getattr(args, 'source', 'mock') == 'bitunix':
         keys = ["BITUNIX_API_KEY", "BITUNIX_API_SECRET"]
         missing = [k for k in keys if not os.environ.get(k)]
         if missing:
-            raise ValueError(f"Missing required environment variables for live mode: {', '.join(missing)}")
+            raise ValueError(f"Missing required environment variables for live Bitunix mode: {', '.join(missing)}")
 
     # 2. Risk Parameter Validation
     risk_pct = getattr(args, 'risk_pct', None)

@@ -38,13 +38,37 @@ if (Test-Path $pidFile) {
     }
 }
 
+# Check for heartbeat liveness
+$heartbeatFile = Join-Path -Path $repoRoot -ChildPath "logs\heartbeat.json"
+$isHung = $false
+if ($liveRunning -and (Test-Path $heartbeatFile)) {
+    try {
+        $heartbeat = Get-Content $heartbeatFile | ConvertFrom-Json
+        $now = [DateTimeOffset]::Now.ToUnixTimeSeconds()
+        if (($now - $heartbeat.unix_ts) -gt 60) {
+            $isHung = $true
+        }
+    } catch {
+        # If we can't parse JSON, check file age as fallback
+        $lastWrite = (Get-Item $heartbeatFile).LastWriteTime
+        if (((Get-Date) - $lastWrite).TotalSeconds -gt 60) {
+            $isHung = $true
+        }
+    }
+}
+
 # Show status
 Write-Host "=== MVP STATUS ==="
 Write-Host ""
 
 if ($liveRunning) {
-    Write-Host "RUNNING (PID $livePid)" -ForegroundColor Green
-    Write-Host "To stop: .\scripts\mvp_stop_live.ps1"
+    if ($isHung) {
+        Write-Host "ZOMBIE / HUNG (PID $livePid - no heartbeat for >60s)" -ForegroundColor Yellow
+        Write-Host "To recover: .\scripts\mvp_stop_live.ps1 AND then start again"
+    } else {
+        Write-Host "RUNNING (PID $livePid)" -ForegroundColor Green
+        Write-Host "To stop: .\scripts\mvp_stop_live.ps1"
+    }
 } else {
     # Check if PID file exists but process is not running (STALE)
     if (Test-Path $pidFile) {
