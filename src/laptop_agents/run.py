@@ -5,6 +5,7 @@ import sys
 import os
 import atexit
 import psutil
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -16,7 +17,8 @@ REPO_ROOT = HERE.parent.parent.parent
 sys.path.append(str(REPO_ROOT / "src"))
 
 # Core Imports
-from laptop_agents.core.logger import logger
+from laptop_agents import __version__
+from laptop_agents.core.logger import logger, setup_logger
 from laptop_agents.core.orchestrator import (
     run_orchestrated_mode,
     run_legacy_orchestration,
@@ -34,39 +36,30 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 
 sys.excepthook = handle_exception
 
-def main() -> int:
+def run_cli(argv: list[str] = None) -> int:
     # 1.1 Single-Instance Locking
+    from laptop_agents.core.lock_manager import LockManager
     LOCK_FILE = REPO_ROOT / ".agent" / "lockfile.pid"
-    if LOCK_FILE.exists():
-        try:
-            with open(LOCK_FILE, "r") as f:
-                content = f.read().strip()
-                if content:
-                    old_pid = int(content)
-                    if psutil.pid_exists(old_pid):
-                        print(f"Already running with PID {old_pid}. Exiting.")
-                        return 1
-        except Exception as e:
-            print(f"Error checking lockfile: {e}")
+    lock = LockManager(LOCK_FILE)
     
-    # Write current PID
-    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(LOCK_FILE, "w") as f:
-        f.write(str(os.getpid()))
+    if not lock.acquire():
+        print(f"Already running. Check {LOCK_FILE}")
+        return 1
     
-    atexit.register(lambda: os.remove(LOCK_FILE) if LOCK_FILE.exists() else None)
+    atexit.register(lock.release)
 
     ap = argparse.ArgumentParser(description="Laptop Agents CLI")
-    ap.add_argument("--source", choices=["mock", "bitunix"], default="mock")
-    ap.add_argument("--symbol", default="BTCUSD")
-    ap.add_argument("--interval", default="1m")
-    ap.add_argument("--limit", type=int, default=200)
+    ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    ap.add_argument("--source", choices=["mock", "bitunix"], default=os.environ.get("LA_SOURCE", "mock"))
+    ap.add_argument("--symbol", default=os.environ.get("LA_SYMBOL", "BTCUSD"))
+    ap.add_argument("--interval", default=os.environ.get("LA_INTERVAL", "1m"))
+    ap.add_argument("--limit", type=int, default=int(os.environ.get("LA_LIMIT", "200")))
     ap.add_argument("--fees-bps", type=float, default=2.0)
     ap.add_argument("--slip-bps", type=float, default=0.5)
     ap.add_argument("--backtest", type=int, default=0)
     ap.add_argument("--backtest-mode", choices=["bar", "position"], default="position")
     ap.add_argument("--mode", choices=["single", "backtest", "live", "validate", "selftest", "orchestrated", "live-session"], default=None)
-    ap.add_argument("--duration", type=int, default=10, help="Session duration in minutes (for live-session mode)")
+    ap.add_argument("--duration", type=int, default=int(os.environ.get("LA_DURATION", "10")), help="Session duration in minutes (for live-session mode)")
     ap.add_argument("--once", action="store_true", default=False)
     ap.add_argument("--execution-mode", choices=["paper", "live"], default="paper")
     ap.add_argument("--risk-pct", type=float, default=1.0)
@@ -81,7 +74,7 @@ def main() -> int:
     ap.add_argument("--validate-max-candidates", type=int, default=200)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--show", action="store_true", help="Auto-open summary.html in browser after run")
-    ap.add_argument("--strategy", type=str, default="default", help="Strategy name from config/strategies/")
+    ap.add_argument("--strategy", type=str, default=os.environ.get("LA_STRATEGY", "default"), help="Strategy name from config/strategies/")
     ap.add_argument("--async", dest="async_mode", action="store_true", default=True, help="Use high-performance asyncio engine (default)")
     ap.add_argument("--sync", dest="async_mode", action="store_false", help="Use legacy synchronous polling engine")
     ap.add_argument("--stale-timeout", type=int, default=60, help="Seconds before stale data triggers shutdown")
@@ -90,61 +83,52 @@ def main() -> int:
     ap.add_argument("--preflight", action="store_true", help="Run system readiness checks")
     ap.add_argument("--replay", type=str, default=None, help="Path to events.jsonl for deterministic replay")
     ap.add_argument("--config", type=str, default=None, help="Explicit path to a JSON config file")
-    args = ap.parse_args()
+    ap.add_argument("--quiet", action="store_true", help="Minimize terminal output")
+    ap.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    args = ap.parse_args(argv)
+
+    # Configure Log Level
+    if args.quiet:
+        logger.setLevel(logging.ERROR)
+    elif args.verbose:
+        logger.setLevel(logging.DEBUG)
 
     # Normalize symbol to uppercase
     args.symbol = args.symbol.upper().replace("/", "").replace("-", "")
 
-    # Load strategy configuration
-    import json
-    strategy_config = {}
-    
-    # 2.1 Config First: Prioritize explicit --config, then --strategy
-    if args.config:
-        config_path = Path(args.config)
-        if config_path.exists():
-            with open(config_path) as f:
-                strategy_config = json.load(f)
-            logger.info(f"Loaded explicit config: {args.config}")
-        else:
-            raise FileNotFoundError(f"Config file not found: {args.config}")
-    else:
-        # Default strategy-based loading
-        strategy_path = REPO_ROOT / "config" / "strategies" / f"{args.strategy}.json"
-        fallback_path = REPO_ROOT / "config" / "default.json"
+    # Determine strategy
+    strategy_name = args.strategy
+
+    # Load validated configuration
+    from laptop_agents.core.config import load_session_config, RunResult
+    try:
+        session_config = load_session_config(
+            config_path=Path(args.config) if args.config else None,
+            strategy_name=strategy_name,
+            overrides=vars(args)
+        )
+        logger.info(f"Configuration validated: {session_config.model_dump_json(indent=2)}")
+    except Exception as e:
+        logger.error(f"CONFIG_VALIDATION_FAILED: {e}")
+        return 1
+
+    # Print Startup Banner
+    if not args.quiet:
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.table import Table
+        console = Console()
+        banner_table = Table.grid(padding=(0, 1))
+        banner_table.add_column(style="cyan")
+        banner_table.add_column(style="white")
+        banner_table.add_row("Version:", f"{__version__}")
+        banner_table.add_row("Symbol:", f"{session_config.symbol}")
+        banner_table.add_row("Source:", f"{session_config.source}")
+        banner_table.add_row("Mode:", f"{args.mode or 'auto'}")
+        banner_table.add_row("Strategy:", f"{strategy_name}")
         
-        if strategy_path.exists():
-            with open(strategy_path) as f:
-                strategy_config = json.load(f)
-            logger.info(f"Loaded strategy: {args.strategy}")
-        elif fallback_path.exists():
-            with open(fallback_path) as f:
-                strategy_config = json.load(f)
-            logger.warning(f"Strategy '{args.strategy}' not found, using default.json")
-        else:
-            logger.warning("No strategy config found, using CLI defaults")
+        console.print(Panel(banner_table, title="[bold blue]Laptop Agents Runner[/bold blue]", border_style="blue", expand=False))
 
-    # Helper to check if an argument was explicitly provided (not just default)
-    def is_cli_set(flag: str) -> bool:
-        return any(arg == flag or arg.startswith(flag + "=") for arg in sys.argv)
-
-    # CLI Overrides (only if explicitly set by user)
-    risk_cfg = strategy_config.get("risk", {})
-    if is_cli_set("--risk-pct"):
-        # USER_OVERRIDE: CLI takes precedence
-        pass 
-    elif "risk_pct" in risk_cfg:
-        args.risk_pct = risk_cfg["risk_pct"]
-
-    if is_cli_set("--tp-r"):
-        pass
-    elif "rr_min" in risk_cfg:
-        args.tp_r = risk_cfg["rr_min"]
-
-    # Validate Configuration
-    from laptop_agents.core.validation import validate_config
-    validate_config(args, strategy_config)
-    
     # Ensure directories exist
     RUNS_DIR.mkdir(exist_ok=True)
     LATEST_DIR.mkdir(parents=True, exist_ok=True)
@@ -152,18 +136,12 @@ def main() -> int:
     # Determine mode
     mode = args.mode if args.mode else ("backtest" if args.backtest > 0 else "single")
 
-    # 1.2 SYSTEM_STARTUP: Log merged configuration (redacting secrets)
+    # SYSTEM_STARTUP: Log merged configuration
     from laptop_agents.core.orchestrator import append_event
-    effective_config = {
-        "CLI": vars(args),
-        "Strategy": strategy_config
-    }
-    # Redact sensitive CLI args if any (though secrets are usually env vars)
-    logger.info(f"SYSTEM_STARTUP: Effective configuration: {effective_config}")
     append_event({
         "event": "SYSTEM_STARTUP",
         "mode": mode,
-        "config": effective_config
+        "config": session_config.model_dump()
     }, paper=True)
 
     if args.preflight:
@@ -185,23 +163,23 @@ def main() -> int:
                 import asyncio
                 from laptop_agents.session.async_session import run_async_session
                 # Run the async session
-                result = asyncio.run(run_async_session(
-                    duration_min=args.duration,
-                    symbol=args.symbol,
-                    interval=args.interval,
+                session_result = asyncio.run(run_async_session(
+                    duration_min=session_config.duration,
+                    symbol=session_config.symbol,
+                    interval=session_config.interval,
                     starting_balance=10000.0,
                     risk_pct=args.risk_pct,
                     stop_bps=args.stop_bps,
                     tp_r=args.tp_r,
-                    fees_bps=args.fees_bps,
-                    slip_bps=args.slip_bps,
-                    strategy_config=strategy_config,
+                    fees_bps=session_config.fees_bps,
+                    slip_bps=session_config.slip_bps,
+                    strategy_config=session_config.model_dump(), # Passing full config for now
                     stale_timeout=args.stale_timeout,
                     execution_latency_ms=args.execution_latency_ms,
-                    dry_run=args.dry_run,
+                    dry_run=session_config.dry_run,
                     replay_path=args.replay,
                 ))
-                ret = 0 if result.errors == 0 else 1
+                ret = 0 if session_result.errors == 0 else 1
             else:
                 from laptop_agents.session.timed_session import run_timed_session
                 result = run_timed_session(
@@ -259,10 +237,30 @@ def main() -> int:
                 validate_max_candidates=args.validate_max_candidates
             )
 
+        # Post-Run Validation & Summary
+        summary_path = LATEST_DIR / "summary.html"
+        events_path = LATEST_DIR / "events.jsonl"
+        
+        if not args.quiet:
+            from rich.console import Console
+            from rich.table import Table
+            console = Console()
+            console.print("\n[bold green]Session Summary[/bold green]")
+            summary_table = Table(show_header=False, box=None)
+            summary_table.add_row("Duration:", f"{args.duration}m")
+            summary_table.add_row("Artifacts:", f"{LATEST_DIR}")
+            summary_table.add_row("Summary:", "Found" if summary_path.exists() else "[red]Missing[/red]")
+            summary_table.add_row("Events:", "Found" if events_path.exists() else "[red]Missing[/red]")
+            console.print(summary_table)
+
+        # Final exit code logic
+        if not summary_path.exists() or not events_path.exists():
+            logger.error(f"Missing essential artifacts in {LATEST_DIR}")
+            return 1
+
         # Auto-open summary if requested
         if args.show:
             import webbrowser
-            summary_path = LATEST_DIR / "summary.html"
             if summary_path.exists():
                 webbrowser.open(f"file:///{summary_path.resolve()}")
 
@@ -274,4 +272,4 @@ def main() -> int:
         return 1
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_cli())

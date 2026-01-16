@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-la = "laptop_agents.cli:app"
+la = "laptop_agents.main:app"
 
 [tool.setuptools.package-dir]
 "" = "src"

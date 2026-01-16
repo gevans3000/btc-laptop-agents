@@ -107,9 +107,10 @@ def setup_logger(name: str = "btc_agents", log_dir: str = "logs"):
     # Create filter
     sensitive_filter = SensitiveDataFilter()
 
-    # JSON File Handler
+    # JSON File Handler (with rotation)
+    from logging.handlers import RotatingFileHandler
     json_path = os.path.join(log_dir, "system.jsonl")
-    fh = logging.FileHandler(json_path)
+    fh = RotatingFileHandler(json_path, maxBytes=10 * 1024 * 1024, backupCount=5)
     fh.setFormatter(JsonFormatter())
     fh.addFilter(sensitive_filter)
     logger.addHandler(fh)
