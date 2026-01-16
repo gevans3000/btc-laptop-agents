@@ -1,5 +1,9 @@
-#!/usr/bin/env pwsh
-# MVP Start Live - Starts live paper trading in background
+Param(
+    [string]$Profile = "default",
+    [string]$Symbol = "BTCUSDT",
+    [string]$Interval = "1m",
+    [switch]$Bitunix = $false
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -29,7 +33,8 @@ if (Test-Path $pidFile) {
             Write-Host "Live process is already running (PID $livePid)" -ForegroundColor Yellow
             Write-Host "Use .\scripts\mvp_stop_live.ps1 to stop it first"
             exit 1
-        } else {
+        }
+        else {
             # Stale PID file, remove it
             Remove-Item $pidFile -Force
         }
@@ -40,14 +45,20 @@ if (Test-Path $pidFile) {
 $logFile = Join-Path -Path $paperDir -ChildPath "live.out.txt"
 $errFile = Join-Path -Path $paperDir -ChildPath "live.err.txt"
 
-$command = "& '$PSScriptRoot\..\.venv\Scripts\python.exe' -m src.laptop_agents.run --mode live --source mock --symbol BTCUSDT --interval 1m --limit 200"
+$source = "mock"
+if ($Bitunix) { $source = "bitunix" }
+
+$commandArgs = "--mode live --source $source --symbol $Symbol --interval $Interval --strategy $Profile"
+$pythonPath = "'$PSScriptRoot\..\.venv\Scripts\python.exe'"
  
 Write-Host "Starting live paper trading..."
-Write-Host "Command: $command"
-Write-Host "Logs: $logFile, $errFile"
+Write-Host "Profile: $Profile"
+Write-Host "Symbol:  $Symbol"
+Write-Host "Source:  $source"
+Write-Host "Logs:    $logFile"
  
 # Start process and capture PID
-$process = Start-Process -FilePath "powershell" -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", "& '$PSScriptRoot\..\.venv\Scripts\python.exe' -m src.laptop_agents.run --mode live --source mock --symbol BTCUSDT --interval 1m --limit 200" -RedirectStandardOutput $logFile -RedirectStandardError $errFile -PassThru -NoNewWindow
+$process = Start-Process -FilePath "powershell" -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", "& $pythonPath -m src.laptop_agents.run $commandArgs" -RedirectStandardOutput $logFile -RedirectStandardError $errFile -PassThru -NoNewWindow
 
 # Write PID to file
 $process.Id | Out-File $pidFile -Force
@@ -62,7 +73,7 @@ Start-Sleep -Seconds 2
 # Verify it's still running
 $verifyProcess = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
 if ($verifyProcess -eq $null) {
-    Write-Host "Warning: Process $($process.Id) is not running" -ForegroundColor Yellow
+    Write-Host "Error: Process $($process.Id) failed to start. Check $errFile" -ForegroundColor Red
     Remove-Item $pidFile -Force
     exit 1
 }
