@@ -8,39 +8,14 @@ description: Comprehensive system status check for session start or check-in
 
 // turbo-all
 
-## 1. Process Check
+## 1. System Status (Process & Heartbeat)
 ```powershell
 python -m laptop_agents status
 ```
 
-## 2. API Connectivity
+## 2. API & Environment (Doctor)
 ```powershell
 python -m laptop_agents doctor
-```
-
-## 3. Heartbeat Status
-```powershell
-if (Test-Path .workspace/logs/heartbeat.json) {
-    $hb = Get-Content .workspace/logs/heartbeat.json -Raw | ConvertFrom-Json
-    $hb_ts = if ($hb.ts) { $hb.ts } else { $hb.timestamp }
-    $age = [math]::Round(((Get-Date) - [datetime]$hb_ts).TotalSeconds)
-    if ($age -lt 120) {
-        Write-Host "✓ Heartbeat: ${age}s ago" -ForegroundColor Green
-    } else {
-        Write-Host "⚠ Heartbeat STALE: ${age}s ago" -ForegroundColor Yellow
-    }
-} else {
-    Write-Host "✗ Heartbeat file not found." -ForegroundColor Red
-}
-```
-
-## 4. Kill Switch Status
-```powershell
-if ($env:LA_KILL_SWITCH -eq 'TRUE') {
-    Write-Host "⚠ KILL SWITCH IS ACTIVE (via Env)" -ForegroundColor Red
-} else {
-    Write-Host "✓ Kill switch: OFF" -ForegroundColor Green
-}
 ```
 
 ## 5. Recent Errors
