@@ -3,16 +3,15 @@ from unittest.mock import MagicMock
 from laptop_agents.resilience.circuit import CircuitBreaker, CircuitBreakerOpenError
 from laptop_agents.core import hard_limits
 from laptop_agents.execution.bitunix_broker import BitunixBroker
-from laptop_agents.resilience.errors import SafetyException
 import time
-import os
+
 
 def test_circuit_breaker_failures():
     cb = CircuitBreaker(max_failures=2, reset_timeout=1)
-    
+
     def failing_func():
         raise ValueError("Failed")
-        
+
     def success_func():
         return "Success"
 
@@ -39,6 +38,7 @@ def test_circuit_breaker_failures():
     assert cb.state == "CLOSED"
     assert cb.failures == 0
 
+
 def test_hard_limit_max_notional(monkeypatch):
     # Mock Provider
     provider = MagicMock()
@@ -46,55 +46,93 @@ def test_hard_limit_max_notional(monkeypatch):
     provider.fetch_instrument_info.return_value = {
         "tickSize": 0.1,
         "lotSize": 0.001,
-        "minQty": 0.001
+        "minQty": 0.001,
     }
-    
+
     # Monkeypatch to a tiny limit so the $10 order exceeds it
-    from laptop_agents.core import hard_limits
     monkeypatch.setattr(hard_limits, "MAX_POSITION_SIZE_USD", 5.0)
-    
+
     broker = BitunixBroker(provider)
-    
+
     # Mock Candle
     candle = MagicMock()
     candle.ts = "2024-01-01T00:00:00Z"
     candle.close = 50000.0
-    
+
     # Order (qty will be recalculated to ~$10 by broker)
     order = {
         "go": True,
         "side": "LONG",
         "qty": 0.1,
         "entry": 50000.0,
-        "equity": 10000.0
+        "equity": 10000.0,
     }
-    
+
     events = broker.on_candle(candle, order)
-    
+
     # Verify error is reported (Fixed $10 > $5 limit)
     assert any("REJECTED: Order notional" in err for err in events["errors"])
     provider.place_order.assert_not_called()
 
+
 def test_kill_switch_enforcement(monkeypatch):
-    # Mock Provider
+    # 1. Setup Mock Provider with valid instrument info
     provider = MagicMock()
     provider.symbol = "BTCUSDT"
+    provider.fetch_instrument_info.return_value = {
+        "tickSize": 0.1,
+        "lotSize": 0.001,
+        "minQty": 0.001,
+    }
     broker = BitunixBroker(provider)
-    
-    # Mock Candle
+
+    # 2. Mock Candle
     candle = MagicMock()
-    
-    # Mock os.path.exists to return True for the kill switch file
-    monkeypatch.setattr("os.path.exists", lambda p: p == "config/KILL_SWITCH.txt")
-    
-    # Mock builtins.open
-    from unittest.mock import mock_open
-    m = mock_open(read_data="TRUE")
-    monkeypatch.setattr("builtins.open", m)
-    
+    candle.close = 50000.0
+    candle.ts = "2024-01-01T00:00:00Z"
+
+    # 3. Set Kill Switch via Environment (Single Source of Truth)
+    monkeypatch.setenv("LA_KILL_SWITCH", "TRUE")
+
     order = {"go": True, "side": "LONG", "qty": 0.001}
-    
+
+    # 4. Execute
     events = broker.on_candle(candle, order)
-    
+
+    # 5. Verify
     assert "KILL_SWITCH_ACTIVE" in events["errors"]
     provider.place_order.assert_not_called()
+
+
+def test_kill_switch_off_enforcement(monkeypatch):
+    """Ensure trading proceeds when kill switch is OFF."""
+    provider = MagicMock()
+    provider.symbol = "BTCUSDT"
+    provider.fetch_instrument_info.return_value = {
+        "tickSize": 0.1,
+        "lotSize": 0.001,
+        "minQty": 0.001,
+    }
+    broker = BitunixBroker(provider)
+
+    candle = MagicMock()
+    candle.close = 50000.0
+    candle.ts = "2024-01-01T00:00:00Z"
+
+    # Kill switch OFF
+    monkeypatch.setenv("LA_KILL_SWITCH", "FALSE")
+    monkeypatch.setenv("SKIP_LIVE_CONFIRM", "TRUE")  # Avoid input()
+
+    order = {
+        "go": True,
+        "side": "LONG",
+        "qty": 0.001,
+        "entry": 50000.0,
+        "sl": 49000.0,
+        "tp": 52000.0,
+    }
+
+    broker.on_candle(candle, order)
+
+    # Verify order was placed
+    provider.place_order.assert_called_once()

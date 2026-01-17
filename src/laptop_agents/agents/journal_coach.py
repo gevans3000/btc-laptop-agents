@@ -8,6 +8,7 @@ from .state import State
 
 class JournalCoachAgent:
     """Agent 5 — Journal & Coach: log plan + fills + exits, extract rule notes."""
+
     name = "journal_coach"
 
     def __init__(self, journal_path: str = "data/paper_journal.jsonl") -> None:
@@ -31,29 +32,34 @@ class JournalCoachAgent:
                     "setup": state.setup,
                     "order": state.order,
                 }
-                state.trade_id = self.j.new_trade(
+                trade_id = self.j.new_trade(
                     instrument=state.instrument,
                     timeframe=state.timeframe,
                     direction=state.order.get("side", "FLAT"),
                     plan=plan,
                 )
-                self.j.add_update(state.trade_id, {"note": "plan_created", "plan_key": plan_key})
+                state.trade_id = trade_id
+                self.j.add_update(
+                    trade_id, {"note": "plan_created", "plan_key": plan_key}
+                )
 
         # Log cancels (then reset to allow new plans)
         if state.trade_id and cancels:
+            tid: str = state.trade_id
             for c in cancels:
-                self.j.add_update(state.trade_id, {"note": "canceled", "cancel": c})
+                self.j.add_update(tid, {"note": "canceled", "cancel": c})
             state.trade_id = None
             state.pending_trigger_bars = 0
             return state
 
         # Log fills/exits
         if state.trade_id:
+            tid = state.trade_id
             for f in fills:
-                self.j.add_update(state.trade_id, {"note": "fill", "fill": f})
+                self.j.add_update(tid, {"note": "fill", "fill": f})
             for x in exits:
                 coach_note = self._coach_note(x)
-                self.j.add_update(state.trade_id, {"note": "exit", "exit": x, "coach": coach_note})
+                self.j.add_update(tid, {"note": "exit", "exit": x, "coach": coach_note})
                 # trade closed -> reset for next opportunity
                 state.trade_id = None
                 state.pending_trigger_bars = 0

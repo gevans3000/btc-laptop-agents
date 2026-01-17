@@ -72,7 +72,7 @@ def load_session_config(
             data.update(json.load(f))
 
     # 3. Environment Variables (LA_ prefix)
-    for key in SessionConfig.__fields__.keys():
+    for key in SessionConfig.model_fields.keys():
         env_val = os.environ.get(f"LA_{key.upper()}")
         if env_val:
             data[key] = env_val

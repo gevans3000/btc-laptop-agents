@@ -4,15 +4,13 @@ HTML Dashboard Renderer - Extracted from run.py for compute optimization.
 This module contains the render_html function and its HTML template,
 which generates the summary.html dashboard for backtest/live results.
 """
+
 from __future__ import annotations
 
 import csv
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from laptop_agents.trading.helpers import Candle
+from typing import Any, Dict, List
 
 # These will be passed in or imported lazily
 _append_event = None
@@ -33,16 +31,16 @@ def _safe_append_event(data: dict):
 
 
 def render_html(
-    summary: Dict[str, Any], 
-    trades: List[Dict[str, Any]], 
-    error_message: str = "", 
-    candles: List = None,
-    latest_dir: Path = None,
-    append_event_fn = None
+    summary: Dict[str, Any],
+    trades: List[Dict[str, Any]],
+    error_message: str = "",
+    candles: List[Any] | None = None,
+    latest_dir: Path | None = None,
+    append_event_fn: Any = None,
 ) -> None:
     """
     Render an HTML summary dashboard for backtest/live trading results.
-    
+
     Args:
         summary: Dict with run metadata (run_id, symbol, interval, balances, etc.)
         trades: List of trade dictionaries
@@ -54,9 +52,11 @@ def render_html(
     # Use passed-in or module-level context
     LATEST_DIR = latest_dir or _LATEST_DIR
     append_event = append_event_fn or _append_event or (lambda x: None)
-    
+
     if LATEST_DIR is None:
-        raise ValueError("LATEST_DIR must be set via set_context() or passed to render_html()")
+        raise ValueError(
+            "LATEST_DIR must be set via set_context() or passed to render_html()"
+        )
 
     events_tail = ""
     ep = LATEST_DIR / "events.jsonl"
@@ -91,17 +91,19 @@ def render_html(
     if candles:
         candle_list = []
         for c in candles:
-            candle_list.append({
-                "t": str(c.ts),
-                "o": float(c.open),
-                "h": float(c.high),
-                "l": float(c.low),
-                "c": float(c.close)
-            })
+            candle_list.append(
+                {
+                    "t": str(c.ts),
+                    "o": float(c.open),
+                    "h": float(c.high),
+                    "l": float(c.low),
+                    "c": float(c.close),
+                }
+            )
         candle_json = json.dumps(candle_list)
-    
+
     trades_json = json.dumps(trades)
-    
+
     equity_json = "[]"
     equity_csv = LATEST_DIR / "equity.csv"
     if equity_csv.exists():
@@ -111,9 +113,9 @@ def render_html(
                 reader = csv.DictReader(f)
                 for row in reader:
                     # Support both old "t"/"v" and new "ts"/"equity" formats
-                    t = row.get("ts") or row.get("t")
-                    v = float(row.get("equity") or row.get("v") or 0.0)
-                    equity_data.append({"t": t, "v": v})
+                    ts_val = row.get("ts") or row.get("t")
+                    equity_val = float(row.get("equity") or row.get("v") or 0.0)
+                    equity_data.append({"t": ts_val, "v": equity_val})
             equity_json = json.dumps(equity_data)
         except Exception as e:
             append_event({"event": "EquityDataError", "message": str(e)})
@@ -128,7 +130,7 @@ def render_html(
                 stats = json.load(f)
                 win_rate_pct = stats.get("win_rate", 0.0) * 100
                 max_drawdown_pct = stats.get("max_drawdown", 0.0) * 100
-                
+
                 backtest_stats_section = f"""
     <div class="section">
         <h2>Backtest Statistics</h2>
@@ -169,7 +171,7 @@ def render_html(
         setup_name = setup.get("name", "NONE")
         setup_side = setup.get("side", "FLAT")
         setup_info = f"{setup_name} ({setup_side})"
-        
+
         live_stats_section = f"""
     <div class="section">
         <h2>Modular Agent State</h2>
@@ -186,6 +188,10 @@ def render_html(
                 <div class="card-label">Trade Count</div>
                 <div class="card-value">{summary.get('trades', 0)}</div>
             </div>
+            <div class="card">
+                <span class="stat-value">{summary.get('symbol', 'N/A')}</span>
+                <span class="stat-value">{summary.get('mode', 'N/A')}</span>
+            </div>
         </div>
     </div>
 """
@@ -196,9 +202,9 @@ def render_html(
         try:
             with validation_json_path.open("r", encoding="utf-8") as f:
                 validate_data = json.load(f)
-            
+
             # Top cards with best parameters
-            best_params = validate_data.get('best_params', {})
+            best_params = validate_data.get("best_params", {})
             best_params_card = ""
             if best_params:
                 best_params_card = f"""
@@ -211,10 +217,10 @@ def render_html(
         </div>
     </div>
 """
-            
+
             # Leaderboard table (top 10)
             leaderboard_rows = ""
-            for entry in validate_data.get('leaderboard', [])[:10]:
+            for entry in validate_data.get("leaderboard", [])[:10]:
                 leaderboard_rows += f"""
     <tr>
         <td>{entry.get('rank', 'N/A')}</td>
@@ -229,7 +235,7 @@ def render_html(
         <td>{entry.get('objective', 0):.2f}</td>
     </tr>
 """
-            
+
             # Main validation section
             validation_section = f"""
     <div class="section">
@@ -267,7 +273,7 @@ def render_html(
                 </div>
             </div>
         </div>
-        
+
         <h3 style="margin-top: 30px;">Leaderboard (Top 10)</h3>
         <table>
             <thead>
@@ -321,7 +327,7 @@ def render_html(
         </div>
     </div>
 """
-    
+
     # Open position details
     open_position_section = ""
     if summary.get("mode") == "live" and summary.get("position"):
@@ -368,7 +374,7 @@ def render_html(
         open_position_section=open_position_section,
         events_tail=events_tail,
     )
-    
+
     # Write to LATEST_DIR for validation/access
     try:
         (LATEST_DIR / "summary.html").write_text(html, encoding="utf-8")
@@ -391,12 +397,12 @@ def _generate_html_template(
     events_tail: str,
 ) -> str:
     """Generate the complete HTML template with all sections."""
-    
+
     return f"""<!doctype html>
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Run Summary - {summary.get('run_id','')[:8]}</title>
+  <title>Run Summary - {summary.get('run_id', '')[:8]}</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -432,8 +438,8 @@ def _generate_html_template(
       <h1 style="margin-bottom: 4px;">Run Summary</h1>
       <div style="color: #666; font-size: 14px;">Run ID: {summary.get('run_id')} | {summary.get('timestamp')}</div>
     </div>
-    <div class="status-badge status-{summary.get('mode','backtest')}">
-      {summary.get('mode','backtest').upper()} MODE
+    <div class="status-badge status-{summary.get('mode', 'backtest')}">
+      {summary.get('mode', 'backtest').upper()} MODE
     </div>
   </div>
 
@@ -445,10 +451,18 @@ def _generate_html_template(
       <div class="card"><div class="card-label">Interval</div><div class="card-value">{summary['interval']}</div></div>
       <div class="card"><div class="card-label">Source</div><div class="card-value">{summary['source']}</div></div>
       <div class="card"><div class="card-label">Starting</div><div class="card-value">${summary['starting_balance']:.2f}</div></div>
-      <div class="card"><div class="card-label">Ending</div><div class="card-value" style="color: {'#2f9e44' if summary['ending_balance'] >= summary['starting_balance'] else '#e03131'}">${summary['ending_balance']:.2f}</div></div>
-      <div class="card"><div class="card-label">Net PnL</div><div class="card-value" style="color: {'#2f9e44' if summary['net_pnl'] >= 0 else '#e03131'}">${summary['net_pnl']:.2f}</div></div>
+      <div class="card"><div class="card-label">Ending</div>
+        <div class="card-value" style="color: {'#2f9e44' if summary['ending_balance'] >= summary['starting_balance'] else '#e03131'}">
+          ${summary['ending_balance']:.2f}
+        </div>
+      </div>
+      <div class="card"><div class="card-label">Net PnL</div>
+        <div class="card-value" style="color: {'#2f9e44' if summary['net_pnl'] >= 0 else '#e03131'}">
+          ${summary['net_pnl']:.2f}
+        </div>
+      </div>
     </div>
-    
+
     <div id="main-chart" class="chart-container"></div>
   </div>
 

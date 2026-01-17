@@ -28,7 +28,11 @@ class OkxSwapProvider:
         import httpx  # lazy import
 
         url = f"{self.BASE}/api/v5/market/history-candles"
-        params = {"instId": self.inst_id, "bar": interval, "limit": limit}
+        params: Dict[str, Any] = {
+            "instId": self.inst_id,
+            "bar": interval,
+            "limit": limit,
+        }
 
         with httpx.Client(timeout=20) as c:
             r = c.get(url, params=params)
@@ -83,7 +87,7 @@ class OkxSwapProvider:
         # Funding rate
         try:
             url = f"{self.BASE}/api/v5/public/funding-rate"
-            params = {"instId": self.inst_id}
+            params: Dict[str, Any] = {"instId": self.inst_id}
             with httpx.Client(timeout=20) as c:
                 r = c.get(url, params=params)
                 r.raise_for_status()

@@ -43,14 +43,18 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 sys.excepthook = handle_exception
 
 
+def version_callback(value: bool):
+    if value:
+        console.print(f"la {__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
 def main(
     version: Optional[bool] = typer.Option(
         None,
         "--version",
-        callback=lambda v: (
-            (console.print(f"la {__version__}") or sys.exit(0)) if v else None
-        ),
+        callback=version_callback,
         is_eager=True,
         help="Show version and exit",
     )

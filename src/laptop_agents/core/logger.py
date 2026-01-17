@@ -5,44 +5,61 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
+
+from rich.logging import RichHandler
+from rich.console import Console as RichConsole
+from rich.panel import Panel as RichPanel
+from rich.table import Table as RichTable
+from rich.theme import Theme
 
 SENSITIVE_PATTERNS = [
     r'(?i)(api[_-]?key|secret|password|token|auth)(["\']?\s*[:=]\s*["\']?)[A-Za-z0-9+/=_-]{16,}',
-    r'(?i)(Bearer\s+)[A-Za-z0-9+/=_-]{20,}',
+    r"(?i)(Bearer\s+)[A-Za-z0-9+/=_-]{20,}",
 ]
+
 
 def scrub_secrets(text: str) -> str:
     """Replace sensitive values with ***."""
     if not isinstance(text, str):
         text = str(text)
     # Also scrub any values from .env
-    env_secrets = [v for k, v in os.environ.items() 
-                   if any(x in k.upper() for x in ['KEY', 'SECRET', 'TOKEN', 'PASSWORD'])
-                   and v and len(v) > 8]
+    env_secrets = [
+        v
+        for k, v in os.environ.items()
+        if any(x in k.upper() for x in ["KEY", "SECRET", "TOKEN", "PASSWORD"])
+        and v
+        and len(v) > 8
+    ]
     for secret in env_secrets:
-        text = text.replace(secret, '***')
-    
+        text = text.replace(secret, "***")
+
     # Process patterns
-    text = re.sub(SENSITIVE_PATTERNS[0], r'\1\2***', text)
-    text = re.sub(SENSITIVE_PATTERNS[1], r'\1***', text)
+    text = re.sub(SENSITIVE_PATTERNS[0], r"\1\2***", text)
+    text = re.sub(SENSITIVE_PATTERNS[1], r"\1***", text)
     # Specific catch for Bitunix-like keys (alphanumeric 32+)
-    text = re.sub(r'\b[a-zA-Z0-9]{32,}\b', '***', text)
+    text = re.sub(r"\b[a-zA-Z0-9]{32,}\b", "***", text)
     return text
 
 
 class SensitiveDataFilter(logging.Filter):
     """Filter that scrubs sensitive data from log records."""
+
     def filter(self, record):
         if record.msg and isinstance(record.msg, str):
             record.msg = scrub_secrets(record.msg)
         if record.args:
             if isinstance(record.args, dict):
-                record.args = {k: (scrub_secrets(v) if isinstance(v, str) else v) for k, v in record.args.items()}
+                record.args = {
+                    k: (scrub_secrets(v) if isinstance(v, str) else v)
+                    for k, v in record.args.items()
+                }
             elif isinstance(record.args, tuple):
-                record.args = tuple(scrub_secrets(arg) if isinstance(arg, str) else arg for arg in record.args)
+                record.args = tuple(
+                    scrub_secrets(arg) if isinstance(arg, str) else arg
+                    for arg in record.args
+                )
         return True
-
 
 
 class JsonFormatter(logging.Formatter):
@@ -56,37 +73,47 @@ class JsonFormatter(logging.Formatter):
         if hasattr(record, "meta") and isinstance(record.meta, dict):
             log_entry["meta"] = record.meta
         elif record.args and isinstance(record.args, dict):
-             # Support for logger.info("msg", {"extra": "data"}) style if meta not used
-             log_entry["meta"] = record.args
-             
+            # Support for logger.info("msg", {"extra": "data"}) style if meta not used
+            log_entry["meta"] = record.args
+
         return scrub_secrets(json.dumps(log_entry, separators=(",", ":")))
+
 
 class AutonomousMemoryHandler(logging.Handler):
     """Automatically captures errors into the Learning Debugger memory."""
+
     def emit(self, record):
         if record.levelno >= logging.ERROR:
             try:
                 # Import here to avoid circular imports and ensure it's available
                 import sys
                 import os
-                
+
                 # Find project root (3 levels up from this file)
                 current_file_path = os.path.abspath(__file__)
-                project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file_path))))
+                project_root = os.path.dirname(
+                    os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))
+                )
                 scripts_path = os.path.join(project_root, "scripts")
-                
+
                 if scripts_path not in sys.path:
                     sys.path.append(scripts_path)
-                
+
                 try:
                     import error_fingerprinter
+
                     error_msg = record.getMessage()
                     if record.exc_info:
                         import traceback
-                        error_msg += "\n" + "".join(traceback.format_exception(*record.exc_info))
-                    
+
+                        error_msg += "\n" + "".join(
+                            traceback.format_exception(*record.exc_info)
+                        )
+
                     # Silently capture the error
-                    error_fingerprinter.capture(error_msg, "NEEDS_DIAGNOSIS", "Auto-captured from logger")
+                    error_fingerprinter.capture(
+                        error_msg, "NEEDS_DIAGNOSIS", "Auto-captured from logger"
+                    )
                 except ImportError:
                     # If we can't find the scripts, skip silently
                     pass
@@ -94,31 +121,28 @@ class AutonomousMemoryHandler(logging.Handler):
                 # Never allow a logging error to crash the application
                 pass
 
+
 # Find project root (3 levels up from this file)
 HERE = Path(__file__).resolve()
 REPO_ROOT = HERE.parent.parent.parent.parent
 DEFAULT_LOG_DIR = str(REPO_ROOT / ".workspace" / "logs")
 
-from rich.logging import RichHandler
-from rich.console import Console as RichConsole
-from rich.panel import Panel as RichPanel
-from rich.table import Table as RichTable
-from rich.theme import Theme
 
 class EventPanelHandler(logging.Handler):
     """Custom handler for EVENT logs that prints them as colored panels/tables."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.console = RichConsole(theme=Theme({
-            "event.name": "bold cyan",
-            "event.key": "dim",
-            "event.value": "white"
-        }))
+        self.console = RichConsole(
+            theme=Theme(
+                {"event.name": "bold cyan", "event.key": "dim", "event.value": "white"}
+            )
+        )
 
     def emit(self, record):
         if not record.msg.startswith("EVENT:"):
             return
-        
+
         try:
             event_name = record.msg.replace("EVENT:", "").strip()
             meta = {}
@@ -126,38 +150,52 @@ class EventPanelHandler(logging.Handler):
                 meta = record.meta
             elif record.args and isinstance(record.args, dict):
                 meta = record.args
-            
+
             # Special formatting for important events
             if event_name == "TradeExecuted" or "Order" in event_name:
                 table = RichTable(show_header=False, box=None, padding=(0, 1))
                 for k, v in meta.items():
-                    if k in ["timestamp", "event_id"]: continue
+                    if k in ["timestamp", "event_id"]:
+                        continue
                     table.add_row(f"[{k}]", str(v))
-                
+
                 panel = RichPanel(
                     table,
                     title=f"[bold yellow] {event_name} [/bold yellow]",
-                    border_style="green" if "Fill" in event_name or "Buy" in event_name else "yellow",
-                    expand=False
+                    border_style=(
+                        "green"
+                        if "Fill" in event_name or "Buy" in event_name
+                        else "yellow"
+                    ),
+                    expand=False,
                 )
                 self.console.print(panel)
             else:
                 # Compact one-liner for other events
-                meta_str = " ".join([f"[dim]{k}=[/dim]{v}" for k, v in meta.items() if k not in ["timestamp", "event_id"]])
-                self.console.print(f"🔹 [bold cyan]{event_name: <25}[/bold cyan] {meta_str}")
+                meta_str = " ".join(
+                    [
+                        f"[dim]{k}=[/dim]{v}"
+                        for k, v in meta.items()
+                        if k not in ["timestamp", "event_id"]
+                    ]
+                )
+                self.console.print(
+                    f"🔹 [bold cyan]{event_name: <25}[/bold cyan] {meta_str}"
+                )
         except Exception:
             pass
 
-def setup_logger(name: str = "btc_agents", log_dir: str = None):
+
+def setup_logger(name: str = "btc_agents", log_dir: Optional[str] = None):
     if log_dir is None:
         log_dir = DEFAULT_LOG_DIR
-        
+
     if not os.path.exists(log_dir):
         os.makedirs(log_dir, exist_ok=True)
-    
+
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
-    
+
     # Avoid duplicate handlers
     if logger.handlers:
         return logger
@@ -167,12 +205,13 @@ def setup_logger(name: str = "btc_agents", log_dir: str = None):
 
     # JSON File Handler (with rotation)
     from logging.handlers import RotatingFileHandler
+
     json_path = os.path.join(log_dir, "system.jsonl")
     fh = RotatingFileHandler(json_path, maxBytes=10 * 1024 * 1024, backupCount=5)
     fh.setFormatter(JsonFormatter())
     fh.addFilter(sensitive_filter)
     logger.addHandler(fh)
-    
+
     # Console Handler (Rich)
     if os.environ.get("JSON_LOGS") == "1":
         ch = logging.StreamHandler()
@@ -184,7 +223,7 @@ def setup_logger(name: str = "btc_agents", log_dir: str = None):
         rh = RichHandler(
             rich_tracebacks=True,
             show_path=False,
-            keywords=["BUY", "SELL", "LONG", "SHORT", "ERROR", "CRITICAL"]
+            keywords=["BUY", "SELL", "LONG", "SHORT", "ERROR", "CRITICAL"],
         )
         rh.addFilter(sensitive_filter)
         # We set level for standard handler to NOT show EVENT logs if we use the panel handler
@@ -202,21 +241,23 @@ def setup_logger(name: str = "btc_agents", log_dir: str = None):
     mh.setLevel(logging.ERROR)
     mh.addFilter(sensitive_filter)
     logger.addHandler(mh)
-    
+
     return logger
+
 
 # Singleton-ish instance
 logger = setup_logger()
 
-def write_alert(message: str, alert_path: str = None):
+
+def write_alert(message: str, alert_path: Optional[str] = None):
     """Write a critical alert to a file and optional Webhook."""
     import os
     import httpx
     from datetime import datetime
-    
+
     if alert_path is None:
         alert_path = os.path.join(DEFAULT_LOG_DIR, "alert.txt")
-    
+
     # 1. Write to file
     try:
         os.makedirs(os.path.dirname(alert_path), exist_ok=True)
@@ -239,5 +280,5 @@ def write_alert(message: str, alert_path: str = None):
                         break
                     time.sleep(1)
         except Exception as e:
-             # Don't crash on alert failure
+            # Don't crash on alert failure
             print(f"Failed to send webhook: {e}")

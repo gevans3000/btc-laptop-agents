@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ class KrakenSpotProvider:
 
         last_err: Optional[str] = None
         for pair in candidates:
-            params = {"pair": pair, "interval": iv}
+            params: Dict[str, Any] = {"pair": pair, "interval": iv}
             try:
                 with httpx.Client(timeout=20) as c:
                     r = c.get(self.BASE, params=params)
@@ -77,7 +77,9 @@ class KrakenSpotProvider:
                 last_err = str(e)
                 continue
 
-        raise RuntimeError(f"Kraken OHLC failed for all pair candidates. Last error: {last_err}")
+        raise RuntimeError(
+            f"Kraken OHLC failed for all pair candidates. Last error: {last_err}"
+        )
 
 
 def _parse_interval_minutes(interval: str) -> int:
@@ -95,7 +97,16 @@ def _pair_candidates(instrument: str) -> List[str]:
     ins = instrument.strip().upper()
     # Kraken commonly uses XBT instead of BTC
     if ins in ("BTCUSDT", "XBTUSDT"):
-        return ["XBT/USDT", "XBTUSDT", "BTC/USDT", "BTCUSDT", "XBT/USD", "XBTUSD", "BTC/USD", "BTCUSDT"]
+        return [
+            "XBT/USDT",
+            "XBTUSDT",
+            "BTC/USDT",
+            "BTCUSDT",
+            "XBT/USD",
+            "XBTUSD",
+            "BTC/USD",
+            "BTCUSDT",
+        ]
     if ins in ("BTCUSDT", "XBTUSD"):
         return ["XBT/USD", "XBTUSD", "BTC/USD", "BTCUSDT"]
     if len(ins) == 6:

@@ -35,7 +35,7 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
 |------|---------|
 | `config/strategies/default.json` | Default strategy parameters |
 | `config/strategies/*.json` | Named strategy presets |
-| `config/KILL_SWITCH.txt` | Set to `TRUE` to halt all trading |
+| `LA_KILL_SWITCH=TRUE` | Env variable to halt all trading |
 | `config/symbol_overrides.json` | Symbol-specific overrides (optional) |
 
 All strategy configs follow this schema:
@@ -59,7 +59,7 @@ All strategy configs follow this schema:
 
 ## 2. System Specification
 
-BTC Laptop Agents is a local-first, privacy-focused trading system designed to run on a standard laptop. 
+BTC Laptop Agents is a local-first, privacy-focused trading system designed to run on a standard laptop.
 
 ### Core Principles
 1.  **Safety First**: Hard-coded risk limits cannot be overridden.
@@ -131,7 +131,7 @@ The supervisor monitors the trading process and restarts it if it crashes.
 - **Log**: `.workspace/logs/supervisor.log`.
 
 ### B. Failsafes
-- **Kill Switch**: Create `config/KILL_SWITCH.txt` with `TRUE` to halt all orders.
+- **Kill Switch**: Set `LA_KILL_SWITCH=TRUE` in environment to halt all orders.
 - **Daily Loss**: Hard-coded limit of $50 USD.
 - **Max Position**: $200,000 USD.
 

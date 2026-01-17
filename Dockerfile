@@ -3,17 +3,13 @@ FROM python:3.11-slim AS base
 
 WORKDIR /app
 
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy source
+# Copy source and definitions
+COPY pyproject.toml .
 COPY src/ src/
 COPY config/ config/
-COPY pyproject.toml .
 
-# Install package
-RUN pip install -e .
+# Install package and dependencies
+RUN pip install --no-cache-dir .
 
 # Create non-root user
 RUN useradd -m trader

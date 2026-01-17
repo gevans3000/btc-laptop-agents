@@ -87,7 +87,6 @@ All system artifacts are stored in `.workspace/` to keep the root clean:
 | `.workspace/paper/` | Paper trading state |
 | `.workspace/agent.pid` | Process management |
 | `config/strategies/` | Strategy configurations |
-| `config/KILL_SWITCH.txt` | Emergency stop (set to TRUE to halt) |
 
 ---
 
@@ -95,4 +94,4 @@ All system artifacts are stored in `.workspace/` to keep the root clean:
 
 - **Supervisor**: `la watch` ensures your trading session restarts within 10s of a crash.
 - **Hard Limits**: Enforced $50 max daily loss and $200k max position size.
-- **Kill Switch**: Create `config/KILL_SWITCH.txt` with `TRUE` to halt all trading instantly.
+- **Kill Switch**: Set environment variable `LA_KILL_SWITCH=TRUE` to halt all trading instantly.

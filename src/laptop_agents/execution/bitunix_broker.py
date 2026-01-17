@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from laptop_agents.core.logger import logger
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from ..data.providers.bitunix_futures import BitunixFuturesProvider
 from ..resilience.errors import SafetyException
 from ..core import hard_limits
@@ -24,7 +24,9 @@ class BitunixBroker:
     def __init__(self, provider: BitunixFuturesProvider):
         self.provider = provider
         self.symbol = provider.symbol
-        self.is_inverse = self.symbol == "BTCUSDT"
+        self.is_inverse = self.symbol.endswith("USD") and not self.symbol.endswith(
+            "USDT"
+        )
         self.last_pos: Optional[Dict[str, Any]] = None
         self._initialized = False
         self._instrument_info: Optional[Dict[str, Any]] = None
@@ -33,7 +35,7 @@ class BitunixBroker:
         self._entry_side: Optional[str] = None
         self._entry_qty: Optional[float] = None
         self._last_order_id: Optional[str] = None
-        self.order_timestamps = []
+        self.order_timestamps: List[float] = []
         self.starting_equity: Optional[float] = None
 
     @property
@@ -110,23 +112,24 @@ class BitunixBroker:
                     info = self._get_info()
 
                     raw_px = order.get("entry") or float(candle.close)
-                    px = self._round_step(float(raw_px), info["tickSize"])
-
-                    # DYNAMIC SIZING: Derived from order object
+                    px = self._round_step(float(raw_px), info.get("tickSize", 0.01))
                     qty = float(order.get("qty") or 0.0)
-                    qty = self._round_step(qty, info["lotSize"])
+                    qty = self._round_step(qty, info.get("lotSize", 0.001))
 
-                    # Pre-flight safety check
-                    if qty < info["minQty"]:
+                    min_qty = info.get("minQty", 0.0)
+                    if qty < min_qty:
                         logger.warning(
-                            f"Quantity {qty} below minQty {info['minQty']}. Increasing to min."
+                            f"Quantity {qty} below minQty {min_qty}. Increasing to min."
                         )
-                        qty = info["minQty"]
+                        qty = min_qty
 
                     # HARD LIMIT ENFORCEMENT
                     notional = qty * px
                     if notional > hard_limits.MAX_POSITION_SIZE_USD:
-                        msg = f"REJECTED: Order notional ${notional:.2f} exceeds hard limit ${hard_limits.MAX_POSITION_SIZE_USD}"
+                        msg = (
+                            f"REJECTED: Order notional ${notional:.2f} exceeds "
+                            f"hard limit ${hard_limits.MAX_POSITION_SIZE_USD}"
+                        )
                         logger.error(msg)
                         raise SafetyException(msg)
 
@@ -139,12 +142,12 @@ class BitunixBroker:
                         raise SafetyException(msg)
 
                     sl = (
-                        self._round_step(float(order["sl"]), info["tickSize"])
+                        self._round_step(float(order["sl"]), info.get("tickSize", 0.01))
                         if order.get("sl")
                         else None
                     )
                     tp = (
-                        self._round_step(float(order["tp"]), info["tickSize"])
+                        self._round_step(float(order["tp"]), info.get("tickSize", 0.01))
                         if order.get("tp")
                         else None
                     )
@@ -175,7 +178,7 @@ class BitunixBroker:
                             "Live submission confirmation bypassed (Env/Config)."
                         )
                     else:
-                        ans = input(f"CONFIRM SUBMISSION? [y/N]: ")
+                        ans = input("CONFIRM SUBMISSION? [y/N]: ")
                         if ans.lower() != "y":
                             logger.warning("Order cancelled by user.")
                             return events
@@ -316,7 +319,7 @@ class BitunixBroker:
                 px = float(candle.close)
                 pnl = 0.0
 
-                if self._entry_price and self._entry_price > 0:
+                if self._entry_price and self._entry_price > 0 and self._entry_qty:
                     if self.is_inverse:
                         # Notional = Qty(Coins) * Entry
                         notional = self._entry_qty * self._entry_price
@@ -414,7 +417,7 @@ class BitunixBroker:
                         break
 
             if pos:
-                qty = float(pos.get("qty") or pos.get("positionAmount"))
+                qty = float(pos.get("qty") or pos.get("positionAmount") or 0.0)
                 side = "SHORT" if qty > 0 else "LONG"
                 logger.warning(
                     f"Closing open position {qty} {self.symbol} during shutdown..."

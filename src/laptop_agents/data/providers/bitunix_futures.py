@@ -5,7 +5,7 @@ import json
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import httpx
 
@@ -21,7 +21,6 @@ from ...resilience import (
     CircuitBreaker,
     log_event,
     log_provider_error,
-    SimpleRateLimiter,
 )
 from ...core.rate_limiter import exchange_rate_limiter
 
@@ -53,13 +52,23 @@ def build_query_string(params: Optional[Dict[str, Any]]) -> str:
     return "".join([str(k) + str(v) for k, v in items])
 
 
-def sign_rest(*, nonce: str, timestamp_ms: int, api_key: str, secret_key: str, query_params: str, body: str) -> str:
+def sign_rest(
+    *,
+    nonce: str,
+    timestamp_ms: int,
+    api_key: str,
+    secret_key: str,
+    query_params: str,
+    body: str,
+) -> str:
     """Bitunix REST signature: digest=sha256(nonce+timestamp+apiKey+queryParams+body); sign=sha256(digest+secretKey)."""
     digest = _sha256_hex(nonce + str(timestamp_ms) + api_key + query_params + body)
     return _sha256_hex(digest + secret_key)
 
 
-def sign_ws(*, nonce: str, timestamp_ms: int, api_key: str, secret_key: str, params_string: str) -> str:
+def sign_ws(
+    *, nonce: str, timestamp_ms: int, api_key: str, secret_key: str, params_string: str
+) -> str:
     """Bitunix WS signature: digest=sha256(nonce+timestamp+apiKey+params); sign=sha256(digest+secretKey)."""
     digest = _sha256_hex(nonce + str(timestamp_ms) + api_key + params_string)
     return _sha256_hex(digest + secret_key)
@@ -100,7 +109,7 @@ class BitunixFuturesProvider:
         self.api_key = api_key
         self.secret_key = secret_key
         self._assert_allowed()
-        
+
         # Resilience components
         self.retry_policy = RetryPolicy(max_attempts=3, base_delay=0.1)
         self.circuit_breaker = CircuitBreaker(max_failures=3, reset_timeout=60)
@@ -108,14 +117,18 @@ class BitunixFuturesProvider:
 
     def _assert_allowed(self) -> None:
         if self.symbol not in self.allowed_symbols:
-            raise ValueError(f"Symbol '{self.symbol}' not allowed. Allowed: {sorted(self.allowed_symbols)}")
+            raise ValueError(
+                f"Symbol '{self.symbol}' not allowed. Allowed: {sorted(self.allowed_symbols)}"
+            )
 
     def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
         """Make HTTP GET request with resilience patterns. Switches to signed if keys exist."""
         if self.api_key and self.secret_key:
             return self._get_signed(path, params)
-        return self._call_exchange("bitunix", "GET", lambda: self._raw_get(path, params))
-    
+        return self._call_exchange(
+            "bitunix", "GET", lambda: self._raw_get(path, params)
+        )
+
     def _raw_get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
         """Raw HTTP GET request without resilience."""
         url = self.BASE_URL + path
@@ -130,9 +143,13 @@ class BitunixFuturesProvider:
 
     def _get_signed(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
         """Make authenticated HTTP GET request with resilience patterns."""
-        return self._call_exchange("bitunix", "GET_SIGNED", lambda: self._raw_get_signed(path, params))
+        return self._call_exchange(
+            "bitunix", "GET_SIGNED", lambda: self._raw_get_signed(path, params)
+        )
 
-    def _raw_get_signed(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+    def _raw_get_signed(
+        self, path: str, params: Optional[Dict[str, Any]] = None
+    ) -> Any:
         """Raw authenticated HTTP GET request."""
         if not self.api_key or not self.secret_key:
             raise RuntimeError("API key and secret key required for signed requests")
@@ -140,21 +157,21 @@ class BitunixFuturesProvider:
         uri = self.BASE_URL + path
         ts = _now_ms()
         nonce = str(int(time.time() * 1000000))  # Simple microsecond nonce
-        
+
         # Prepare params for signature
         final_params = params.copy() if params else {}
-        
+
         # Bitunix signature requirement:
         # digest = sha256(nonce + timestamp + apiKey + sorted_params_string + body)
         # sign = sha256(digest + secretKey)
         # NOTE: For GET requests, body is empty string
-        
+
         qs = build_query_string(final_params)
-        
+
         # Manually compute signature
         # digest = _sha256_hex(nonce + str(ts) + self.api_key + qs + "")
         # signature = _sha256_hex(digest + self.secret_key)
-        
+
         # Use helper
         signature = sign_rest(
             nonce=nonce,
@@ -162,7 +179,7 @@ class BitunixFuturesProvider:
             api_key=self.api_key,
             secret_key=self.secret_key,
             query_params=qs,
-            body=""
+            body="",
         )
 
         headers = {
@@ -179,14 +196,16 @@ class BitunixFuturesProvider:
             r = c.get(uri, params=final_params)
             r.raise_for_status()
             payload = r.json()
-            
+
         if isinstance(payload, dict) and payload.get("code") != 0:
             raise RuntimeError(f"Bitunix Signed API error: {payload}")
         return payload
 
     def _post_signed(self, path: str, body: Dict[str, Any]) -> Any:
         """Make authenticated HTTP POST request with resilience patterns."""
-        return self._call_exchange("bitunix", "POST_SIGNED", lambda: self._raw_post_signed(path, body))
+        return self._call_exchange(
+            "bitunix", "POST_SIGNED", lambda: self._raw_post_signed(path, body)
+        )
 
     def _raw_post_signed(self, path: str, body: Dict[str, Any]) -> Any:
         """Raw authenticated HTTP POST request."""
@@ -196,10 +215,10 @@ class BitunixFuturesProvider:
         uri = self.BASE_URL + path
         ts = _now_ms()
         nonce = str(int(time.time() * 1000000))
-        
+
         # Minify body for signature
         body_str = _minified_json(body)
-        
+
         # Use helper (queryParams is empty for POST normally in Bitunix docs)
         signature = sign_rest(
             nonce=nonce,
@@ -207,7 +226,7 @@ class BitunixFuturesProvider:
             api_key=self.api_key,
             secret_key=self.secret_key,
             query_params="",
-            body=body_str
+            body=body_str,
         )
 
         headers = {
@@ -223,37 +242,40 @@ class BitunixFuturesProvider:
             r = c.post(uri, content=body_str)
             r.raise_for_status()
             payload = r.json()
-            
+
         if isinstance(payload, dict) and payload.get("code") != 0:
             raise RuntimeError(f"Bitunix Signed POST error: {payload}")
         return payload
 
-    
-    def _call_exchange(self, exchange_name: str, operation: str, fn: callable) -> Any:
+    def _call_exchange(self, exchange_name: str, operation: str, fn: Callable) -> Any:
         """Wrapper function for exchange calls with resilience patterns."""
+
         def execute_with_resilience():
             try:
                 # Apply rate limit using shared limiter
                 self.rate_limiter.wait_sync()
-                
+
                 # Apply retry policy
                 @with_retry(self.retry_policy, operation)
                 def wrapped_fn():
                     return fn()
-                
+
                 result = wrapped_fn()
-                log_event("exchange_success", {
-                    "exchange": exchange_name,
-                    "operation": operation,
-                    "status": "success"
-                })
+                log_event(
+                    "exchange_success",
+                    {
+                        "exchange": exchange_name,
+                        "operation": operation,
+                        "status": "success",
+                    },
+                )
                 return result
-                
+
             except httpx.TimeoutException as e:
-                error = TransientProviderError(f"Timeout error: {e}")
+                error: ProviderError = TransientProviderError(f"Timeout error: {e}")
                 log_provider_error(exchange_name, operation, "TRANSIENT", str(e))
                 raise error
-                
+
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429:
                     error = RateLimitProviderError(f"Rate limit exceeded: {e}")
@@ -262,25 +284,29 @@ class BitunixFuturesProvider:
                     error = AuthProviderError(f"Authentication error: {e}")
                     log_provider_error(exchange_name, operation, "AUTH", str(e))
                 else:
-                    error = UnknownProviderError(f"HTTP error {e.response.status_code}: {e}")
+                    error = UnknownProviderError(
+                        f"HTTP error {e.response.status_code}: {e}"
+                    )
                     log_provider_error(exchange_name, operation, "UNKNOWN", str(e))
                 raise error
-                
+
             except RuntimeError as e:
                 error = UnknownProviderError(f"Runtime error: {e}")
                 log_provider_error(exchange_name, operation, "UNKNOWN", str(e))
                 raise error
-                
+
             except Exception as e:
                 error = UnknownProviderError(f"Unexpected error: {e}")
                 log_provider_error(exchange_name, operation, "UNKNOWN", str(e))
                 raise error
-        
+
         # Apply circuit breaker
         return self.circuit_breaker.guarded_call(execute_with_resilience)
 
     def trading_pairs(self) -> List[Dict[str, Any]]:
-        payload = self._get("/api/v1/futures/market/trading_pairs", params={"symbols": self.symbol})
+        payload = self._get(
+            "/api/v1/futures/market/trading_pairs", params={"symbols": self.symbol}
+        )
         return payload.get("data") or []
 
     def fetch_instrument_info(self, symbol: Optional[str] = None) -> Dict[str, Any]:
@@ -299,11 +325,15 @@ class BitunixFuturesProvider:
         return {"tickSize": 0.01, "lotSize": 0.001, "minQty": 0.001, "maxQty": 1000.0}
 
     def tickers(self) -> List[Dict[str, Any]]:
-        payload = self._get("/api/v1/futures/market/tickers", params={"symbols": self.symbol})
+        payload = self._get(
+            "/api/v1/futures/market/tickers", params={"symbols": self.symbol}
+        )
         return payload.get("data") or []
 
     def funding_rate(self) -> Optional[float]:
-        payload = self._get("/api/v1/futures/market/funding_rate", params={"symbol": self.symbol})
+        payload = self._get(
+            "/api/v1/futures/market/funding_rate", params={"symbol": self.symbol}
+        )
         data = payload.get("data") or []
         if not data:
             return None
@@ -314,10 +344,21 @@ class BitunixFuturesProvider:
         except Exception:
             return None
 
-    def klines(self, *, interval: str, limit: int = 200, start_ms: Optional[int] = None, end_ms: Optional[int] = None) -> List[Candle]:
+    def klines(
+        self,
+        *,
+        interval: str,
+        limit: int = 200,
+        start_ms: Optional[int] = None,
+        end_ms: Optional[int] = None,
+    ) -> List[Candle]:
         # docs: limit default 100 max 200
         limit = max(1, min(int(limit), 200))
-        params: Dict[str, Any] = {"symbol": self.symbol, "interval": interval, "limit": limit}
+        params: Dict[str, Any] = {
+            "symbol": self.symbol,
+            "interval": interval,
+            "limit": limit,
+        }
         if start_ms is not None:
             params["startTime"] = int(start_ms)
         if end_ms is not None:
@@ -337,12 +378,18 @@ class BitunixFuturesProvider:
                     high=float(row.get("high")),
                     low=float(row.get("low")),
                     close=float(row.get("close")),
-                    volume=float(row.get("baseVol")) if row.get("baseVol") is not None else 0.0,
+                    volume=(
+                        float(row.get("baseVol"))
+                        if row.get("baseVol") is not None
+                        else 0.0
+                    ),
                 )
             )
         return out
 
-    def klines_paged(self, *, interval: str, total: int, end_ms: Optional[int] = None) -> List[Candle]:
+    def klines_paged(
+        self, *, interval: str, total: int, end_ms: Optional[int] = None
+    ) -> List[Candle]:
         """Fetch up to 'total' most recent candles by paging backward using endTime.
         Uses public REST with max 200 per request.
         """
@@ -385,13 +432,17 @@ class BitunixFuturesProvider:
             "errors": [],
         }
 
-    def get_pending_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_pending_positions(
+        self, symbol: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Fetch current open positions."""
         params = {}
         if symbol:
             params["symbol"] = symbol
-            
-        payload = self._get_signed("/api/v1/futures/position/get_pending_positions", params=params)
+
+        payload = self._get_signed(
+            "/api/v1/futures/position/get_pending_positions", params=params
+        )
         return payload.get("data") or []
 
     def place_order(
@@ -420,12 +471,12 @@ class BitunixFuturesProvider:
                 raise ValueError("Price is required for LIMIT orders")
             body["price"] = str(price)
             body["effect"] = "GTC"
-            
+
         if tp_price is not None:
             body["tpPrice"] = str(tp_price)
             body["tpStopType"] = "MARK_PRICE"
             body["tpOrderType"] = "MARKET"
-            
+
         if sl_price is not None:
             body["slPrice"] = str(sl_price)
             body["slStopType"] = "MARK_PRICE"
@@ -435,7 +486,9 @@ class BitunixFuturesProvider:
 
     def get_order_status(self, order_id: str) -> Dict[str, Any]:
         """Check status of an order."""
-        payload = self._get_signed("/api/v1/futures/trade/get_order", params={"orderId": order_id})
+        payload = self._get_signed(
+            "/api/v1/futures/trade/get_order", params={"orderId": order_id}
+        )
         return payload.get("data") or {}
 
     def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -443,16 +496,17 @@ class BitunixFuturesProvider:
         params = {}
         if symbol:
             params["symbol"] = symbol
-        payload = self._get_signed("/api/v1/futures/trade/get_pending_orders", params=params)
+        payload = self._get_signed(
+            "/api/v1/futures/trade/get_pending_orders", params=params
+        )
         return payload.get("data", {}).get("orderList") or []
 
-    def cancel_order(self, order_id: str, symbol: Optional[str] = None) -> Dict[str, Any]:
+    def cancel_order(
+        self, order_id: str, symbol: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Cancel an open order."""
         sym = symbol or self.symbol
-        body = {
-            "symbol": sym,
-            "orderId": order_id
-        }
+        body = {"symbol": sym, "orderId": order_id}
         return self._post_signed("/api/v1/futures/trade/cancel_order", body=body)
 
     def cancel_all_orders(self, symbol: Optional[str] = None) -> Dict[str, Any]:

@@ -19,6 +19,7 @@ class State:
     setup: Dict[str, Any] = field(default_factory=dict)
     cvd_divergence: Dict[str, Any] = field(default_factory=dict)
     order: Dict[str, Any] = field(default_factory=dict)
+    trend: Dict[str, Any] = field(default_factory=dict)
 
     broker_events: Dict[str, Any] = field(default_factory=dict)
 

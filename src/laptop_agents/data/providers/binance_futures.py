@@ -28,7 +28,11 @@ class BinanceFuturesProvider:
         import httpx  # lazy import
 
         url = f"{self.BASE}/fapi/v1/klines"
-        params = {"symbol": self.symbol, "interval": interval, "limit": limit}
+        params: Dict[str, Any] = {
+            "symbol": self.symbol,
+            "interval": interval,
+            "limit": limit,
+        }
         with httpx.Client(timeout=20) as c:
             r = c.get(url, params=params)
             r.raise_for_status()
@@ -55,7 +59,7 @@ class BinanceFuturesProvider:
 
         # premiumIndex includes lastFundingRate
         url = f"{self.BASE}/fapi/v1/premiumIndex"
-        params = {"symbol": self.symbol}
+        params: Dict[str, Any] = {"symbol": self.symbol}
         with httpx.Client(timeout=20) as c:
             r = c.get(url, params=params)
             r.raise_for_status()
@@ -69,7 +73,7 @@ class BinanceFuturesProvider:
         import httpx  # lazy import
 
         url = f"{self.BASE}/fapi/v1/openInterest"
-        params = {"symbol": self.symbol}
+        params: Dict[str, Any] = {"symbol": self.symbol}
         with httpx.Client(timeout=20) as c:
             r = c.get(url, params=params)
             r.raise_for_status()
@@ -84,5 +88,5 @@ class BinanceFuturesProvider:
             "funding_8h": self.funding_8h(),
             "open_interest": self.open_interest(),
             "basis": None,
-            "liq_map": None
+            "liq_map": None,
         }

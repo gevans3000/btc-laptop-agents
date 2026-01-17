@@ -49,14 +49,16 @@ class PaperBroker:
         self.last_trade_time: float = 0.0
         self.min_trade_interval_sec: float = 60.0  # 1 minute minimum between trades
         self.pos: Optional[Position] = None
-        self.is_inverse = symbol == "BTCUSD"
+        self.is_inverse = self.symbol.endswith("USD") and not self.symbol.endswith(
+            "USDT"
+        )
         self.fees_bps = fees_bps
         self.slip_bps = slip_bps
         self.starting_equity = starting_equity
         self.current_equity = starting_equity
-        self.processed_order_ids = set()
-        self.order_timestamps = []
-        self.order_history = []
+        self.processed_order_ids: set[str] = set()
+        self.order_timestamps: List[float] = []
+        self.order_history: List[Dict[str, Any]] = []
         self.state_path = state_path
         self.working_orders: List[Dict[str, Any]] = []
         if self.state_path:
@@ -597,6 +599,8 @@ class PaperBroker:
                     pass
 
     def _load_state(self) -> None:
+        if not self.state_path:
+            return
         path = Path(self.state_path)
         backup_path = path.with_suffix(".bak")
 
