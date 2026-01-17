@@ -2,6 +2,7 @@
 Trading helpers extracted from run.py.
 Phase 1 refactoring.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -15,7 +16,9 @@ def calculate_fees(notional: float, fees_bps: float) -> float:
     return notional * (fees_bps / 10_000.0)
 
 
-def apply_slippage(price: float, is_entry: bool, is_long: bool, slip_bps: float) -> float:
+def apply_slippage(
+    price: float, is_entry: bool, is_long: bool, slip_bps: float
+) -> float:
     """Helper function to apply slippage."""
     slip_rate = slip_bps / 10_000.0
     if is_long:
@@ -27,6 +30,7 @@ def apply_slippage(price: float, is_entry: bool, is_long: bool, slip_bps: float)
 @dataclass
 class Candle:
     """OHLCV candle representation."""
+
     ts: str
     open: float
     high: float
@@ -38,11 +42,21 @@ class Candle:
 @dataclass
 class Tick:
     """Real-time market tick."""
+
     symbol: str
     bid: float
     ask: float
     last: float
     ts: str
+
+
+@dataclass
+class DataEvent:
+    """System or market data event (e.g. STALE_DATA)."""
+
+    event: str
+    ts: str
+    details: Optional[Dict[str, Any]] = None
 
 
 def sma(vals: List[float], window: int) -> Optional[float]:
@@ -59,11 +73,11 @@ def normalize_candle_order(candles: List[Candle]) -> List[Candle]:
     """
     if len(candles) < 2:
         return candles
-    
+
     # Parse timestamps for comparison
     first_ts = candles[0].ts
     last_ts = candles[-1].ts
-    
+
     # Try to detect order by comparing timestamps
     # If first > last, reverse the list
     try:
@@ -71,7 +85,7 @@ def normalize_candle_order(candles: List[Candle]) -> List[Candle]:
             return list(reversed(candles))
     except Exception:
         pass
-    
+
     return candles
 
 
@@ -97,18 +111,18 @@ def calculate_position_size(
     stop_distance = entry_price * (stop_bps / 10_000.0)
     if stop_distance <= 0:
         return None, None, None
-    
+
     risk_amount = equity * (risk_pct / 100.0)
     qty_raw = risk_amount / stop_distance
-    
+
     # Cap notional to max_leverage
     max_notional = equity * max_leverage
     max_qty = max_notional / entry_price if entry_price > 0 else 0.0
     qty = min(qty_raw, max_qty)
-    
+
     if qty <= 0:
         return None, None, None
-    
+
     # Calculate stop and tp prices based on direction
     if is_long:
         # LONG: stop below entry, tp above entry
@@ -118,7 +132,7 @@ def calculate_position_size(
         # SHORT: tp below entry, stop above entry
         stop_price = entry_price + stop_distance
         tp_price = entry_price - (stop_distance * tp_r)
-    
+
     # Add assertions to ensure correct ordering (only in backtest/validate modes)
     if is_long:
         if not (stop_price < entry_price < tp_price):
@@ -134,7 +148,7 @@ def calculate_position_size(
                 f"tp={tp_price:.2f}, entry={entry_price:.2f}, stop={stop_price:.2f}. "
                 f"Expected: tp < entry < stop"
             )
-    
+
     return qty, stop_price, tp_price
 
 
@@ -196,25 +210,27 @@ def detect_candle_gaps(candles: List[Candle], interval: str = "1m") -> List[dict
     """Detect gaps in candle sequence."""
     if len(candles) < 2:
         return []
-    
+
     interval_seconds = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}.get(interval, 60)
     gaps = []
-    
+
     for i in range(1, len(candles)):
         try:
-            prev_ts = int(candles[i-1].ts) if str(candles[i-1].ts).isdigit() else 0
+            prev_ts = int(candles[i - 1].ts) if str(candles[i - 1].ts).isdigit() else 0
             curr_ts = int(candles[i].ts) if str(candles[i].ts).isdigit() else 0
             if prev_ts > 0 and curr_ts > 0:
                 expected_gap = interval_seconds
                 actual_gap = curr_ts - prev_ts
                 if actual_gap > expected_gap * 1.5:  # Allow 50% tolerance
                     missing = (actual_gap // interval_seconds) - 1
-                    gaps.append({
-                        "prev_ts": prev_ts,
-                        "curr_ts": curr_ts,
-                        "missing_count": int(missing)
-                    })
+                    gaps.append(
+                        {
+                            "prev_ts": prev_ts,
+                            "curr_ts": curr_ts,
+                            "missing_count": int(missing),
+                        }
+                    )
         except (ValueError, TypeError):
             continue
-    
+
     return gaps

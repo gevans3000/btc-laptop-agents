@@ -6,13 +6,15 @@ class TestTrailingStop(unittest.TestCase):
     def test_trail_activates_on_profit(self):
         broker = PaperBroker(symbol="BTCUSDT")
         # Simulate position entry
+        from collections import deque
+
         broker.pos = Position(
             side="LONG",
-            entry=50000,
             qty=0.1,
             sl=49000,
             tp=52000,
             opened_at="2026-01-01T00:00:00Z",
+            lots=deque([{"qty": 0.1, "price": 50000, "fees": 0.0}]),
         )
 
         # Price moves up 1% (>0.5R) - should activate trail
@@ -27,13 +29,15 @@ class TestTrailingStop(unittest.TestCase):
 
     def test_trail_stop_moves_up(self):
         broker = PaperBroker(symbol="BTCUSDT")
+        from collections import deque
+
         broker.pos = Position(
             side="LONG",
-            entry=50000,
             qty=0.1,
             sl=49000,
             tp=52000,
             opened_at="2026-01-01T00:00:00Z",
+            lots=deque([{"qty": 0.1, "price": 50000, "fees": 0.0}]),
         )
         broker.pos.trail_active = True
         broker.pos.trail_stop = 50000

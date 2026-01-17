@@ -1,0 +1,3 @@
+max_position_per_symbol:
+  BTCUSDT: 10.0
+  BTCUSD: 10.0

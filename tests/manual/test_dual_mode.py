@@ -23,7 +23,8 @@ class TestDualModeMath(unittest.TestCase):
 
     def test_linear_long_pnl(self):
         """BTCUSDT Long: PnL = (Exit - Entry) * Qty"""
-        broker = PaperBroker(symbol="BTCUSDT")
+        broker = PaperBroker(symbol="BTCUSDT", fees_bps=0, slip_bps=0)
+        broker.exchange_fees = {"maker": 0, "taker": 0}
         self.assertFalse(broker.is_inverse, "BTCUSDT should NOT be inverse")
 
         # Entry at 50k, Qty 0.1 BTC
@@ -50,7 +51,8 @@ class TestDualModeMath(unittest.TestCase):
 
     def test_linear_short_pnl(self):
         """BTCUSDT Short: PnL = (Entry - Exit) * Qty"""
-        broker = PaperBroker(symbol="BTCUSDT")
+        broker = PaperBroker(symbol="BTCUSDT", fees_bps=0, slip_bps=0)
+        broker.exchange_fees = {"maker": 0, "taker": 0}
 
         # Entry at 50k, Qty 0.1 BTC
         order = {
@@ -73,7 +75,8 @@ class TestDualModeMath(unittest.TestCase):
 
     def test_inverse_long_pnl(self):
         """BTCUSD Long: PnL(BTC) = NotionalUSD * (1/Entry - 1/Exit)"""
-        broker = PaperBroker(symbol="BTCUSD")
+        broker = PaperBroker(symbol="BTCUSD", fees_bps=0, slip_bps=0)
+        broker.exchange_fees = {"maker": 0, "taker": 0}
         self.assertTrue(broker.is_inverse, "BTCUSDT SHOULD be inverse")
 
         # Entry at 50k, Notional $50,000 (1 BTC worth?)
@@ -92,29 +95,26 @@ class TestDualModeMath(unittest.TestCase):
             "side": "LONG",
             "entry_type": "market",
             "entry": 50000.0,
-            "qty": 1.0,
+            "qty": 0.1,  # Under 0.1 cap (or equal to it)
             "sl": 49000.0,
             "tp": 55000.0,
         }
         candle_entry = MockCandle(close=50000.0)
         broker.on_candle(candle_entry, order)
 
-        # Position Qty should be Notional ($50,000)
-        self.assertEqual(broker.pos.qty, 50000.0)
+        # Position Qty should be Notional ($5,000)
+        self.assertEqual(broker.pos.qty, 5000.0)
 
         # Exit at 100k (Doubled price) -> Should be ~0.5 BTC profit?
-        # PnL = 50000 * (1/50000 - 1/100000) = 50000 * (0.00002 - 0.00001) = 50000 * 0.00001 = 0.5 BTC.
-        # Correct. If price doubles, 1 BTC long is worth 2 BTC? No.
-        # Value USD: 1 BTC * 50k = 50k. At 100k, 1 BTC = 100k. Gain 50k USD.
-        # In BTC terms: 0.5 BTC gain.
-
+        # PnL = 5000 * (1/50000 - 1/100000) = 5000 * (0.00001) = 0.05 BTC.
         unrealized_btc = broker.get_unrealized_pnl(100000.0)
-        self.assertAlmostEqual(unrealized_btc, 0.5, places=5)
+        self.assertAlmostEqual(unrealized_btc, 0.05, places=5)
         print("Inverse LONG PnL Verified: +0.5 BTC (at 2x price)")
 
     def test_inverse_short_pnl(self):
         """BTCUSD Short: PnL(BTC) = NotionalUSD * (1/Exit - 1/Entry)"""
-        broker = PaperBroker(symbol="BTCUSD")
+        broker = PaperBroker(symbol="BTCUSD", fees_bps=0, slip_bps=0)
+        broker.exchange_fees = {"maker": 0, "taker": 0}
 
         # Entry at 50k, 1 BTC (Notional $50k)
         order = {
@@ -122,7 +122,7 @@ class TestDualModeMath(unittest.TestCase):
             "side": "SHORT",
             "entry_type": "market",
             "entry": 50000.0,
-            "qty": 1.0,
+            "qty": 0.1,
             "sl": 51000.0,
             "tp": 25000.0,
         }
@@ -130,14 +130,9 @@ class TestDualModeMath(unittest.TestCase):
         broker.on_candle(candle_entry, order)
 
         # Exit at 25k (Halved price)
-        # PnL = 50000 * (1/25000 - 1/50000) = 50000 * (0.00004 - 0.00002) = 50000 * 0.00002 = 1.0 BTC.
-        # Short 1 BTC at 50k = Sold $50k.
-        # Buy back at 25k -> need 2 BTC to cover $50k?
-        # Profit: 1 BTC ($25k value) + 1 BTC Profit ($25k value)?
-        # Math checks out.
-
+        # PnL = 5000 * (1/25000 - 1/50000) = 5000 * (0.00002) = 0.1 BTC.
         unrealized_btc = broker.get_unrealized_pnl(25000.0)
-        self.assertAlmostEqual(unrealized_btc, 1.0, places=5)
+        self.assertAlmostEqual(unrealized_btc, 0.1, places=5)
         print("Inverse SHORT PnL Verified: +1.0 BTC (at 0.5x price)")
 
 

@@ -18,7 +18,7 @@ from tenacity import (
 import os
 from pathlib import Path
 from laptop_agents.core.logger import logger
-from laptop_agents.trading.helpers import Candle, Tick
+from laptop_agents.trading.helpers import Candle, Tick, DataEvent
 from laptop_agents.core.rate_limiter import exchange_rate_limiter
 
 
@@ -63,13 +63,12 @@ class BitunixWSProvider:
         self._running = False
         self.connected = False
         self.last_message_time: float = 0.0
-        self.heartbeat_timeout_sec: float = (
-            30.0  # Plan said 10, but let's use 30 for safety on dev machines
-        )
-        self.subscriptions: set[str] = set()
-        self.time_offset: float = 0.0  # ms
         self.last_kline_ts: Optional[int] = None
         self.interval: str = "1m"
+        self.reconnect_attempt_count = 0
+        self.last_known_ticker: Optional[Tick] = None
+        self.last_known_kline: Optional[Candle] = None
+        self.heartbeat_timeout_sec: float = 15.0  # Reduced to 15s for faster detection
 
     async def connect(self):
         """Establish WebSocket connection."""
@@ -250,6 +249,7 @@ class BitunixWSProvider:
                                 close=validated.close,
                                 volume=validated.baseVol or 0.0,
                             )
+                            self.last_known_kline = candle
                             try:
                                 if self.queue.full():
                                     self.queue.get_nowait()
@@ -282,6 +282,7 @@ class BitunixWSProvider:
                                 last=validated_ticker.lastPrice,
                                 ts=validated_ticker.time,
                             )
+                            self.last_known_ticker = tick
                             try:
                                 if self.queue.full():
                                     self.queue.get_nowait()
@@ -387,6 +388,21 @@ class BitunixWSProvider:
                         await self.ws_ticker.close()
                     except Exception:
                         pass
+
+                # Inject StaleDataEvent as per plan
+                try:
+                    event = DataEvent(
+                        event="ORDER_BOOK_STALE",
+                        ts=str(int(time.time() * 1000)),
+                        details={
+                            "timeout": self.heartbeat_timeout_sec,
+                            "last_msg": self.last_message_time,
+                        },
+                    )
+                    self.queue.put_nowait(event)
+                except Exception:
+                    pass
+
                 break
 
     @retry(
@@ -397,7 +413,8 @@ class BitunixWSProvider:
         ),
         before_sleep=lambda retry_state: logger.warning(
             f"Bitunix WS connection lost. Reconnect in "
-            f"{retry_state.next_action.sleep if retry_state.next_action else 0:.1f}s..."
+            f"{retry_state.next_action.sleep if retry_state.next_action else 0:.1f}s... "
+            f"(Attempt {retry_state.attempt_number})"
         ),
     )
     async def listen(self) -> AsyncGenerator[Union[Candle, Tick], None]:

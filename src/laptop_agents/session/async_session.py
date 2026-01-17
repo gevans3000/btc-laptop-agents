@@ -20,7 +20,12 @@ from laptop_agents.core.orchestrator import (
     render_html,
     LATEST_DIR,
 )
-from laptop_agents.trading.helpers import Candle, Tick, normalize_candle_order
+from laptop_agents.trading.helpers import (
+    Candle,
+    Tick,
+    DataEvent,
+    normalize_candle_order,
+)
 from laptop_agents.data.loader import load_bitunix_candles
 from laptop_agents.core.hard_limits import MAX_ERRORS_PER_SESSION
 from laptop_agents.constants import DEFAULT_SYMBOL
@@ -84,6 +89,8 @@ class AsyncRunner:
 
         # State
         self.latest_tick: Optional[Tick] = None
+        self.kill_switch_triggered = False
+        self._shutting_down = False
         # Load last price cache
         try:
             cache_path = Path("paper/last_price_cache.json")
@@ -185,6 +192,14 @@ class AsyncRunner:
         self.last_heartbeat_time: float = time.time()
         self.metrics: List[Dict[str, Any]] = []
 
+        # PID Tracking for external monitoring
+        workspace_dir = REPO_ROOT / ".workspace"
+        workspace_dir.mkdir(exist_ok=True)
+        pid_file = workspace_dir / "agent.pid"
+        with open(pid_file, "w") as f:
+            f.write(str(os.getpid()))
+        logger.info(f"PID {os.getpid()} written to {pid_file}")
+
     async def run(self, duration_min: int):
         """Main entry point to run the async loop."""
         self.duration_min = duration_min
@@ -277,6 +292,25 @@ class AsyncRunner:
             await self.shutdown_event.wait()
         finally:
             self.status = "shutting_down"
+            logger.info("GRACEFUL SHUTDOWN INITIATED")
+
+            # 1. Set shutting down flag
+            self._shutting_down = True
+
+            # 2. Cancel all open orders (alias in PaperBroker)
+            try:
+                self.broker.cancel_all_open_orders()
+            except Exception as e:
+                logger.error(f"Failed to cancel orders: {e}")
+
+            # 3. Wait up to 5s for pending fills (non-blocking sleep in finally)
+            # Since we are in finally, we can't easily wait for more tasks if they are cancelled,
+            # but we can do a quick async sleep if the loop is still alive.
+            try:
+                await asyncio.sleep(2.0)
+            except Exception:
+                pass
+
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -316,6 +350,18 @@ class AsyncRunner:
                     logger.info(f"Metrics exported to {csv_path}")
             except Exception as ce:
                 logger.error(f"Failed to export CSV metrics: {ce}")
+
+            # 4.3 Session Summary Report
+            try:
+                from laptop_agents.reporting.summary import generate_summary
+
+                summary = generate_summary(self.broker, self.start_time)
+                summary_path = LATEST_DIR / "summary.json"
+                with open(summary_path, "w") as f:
+                    json.dump(summary, f, indent=2)
+                logger.info(f"Session summary written to {summary_path}")
+            except Exception as se:
+                logger.error(f"Failed to generate summary: {se}")
 
             # Generate final_report.json
             try:
@@ -375,6 +421,16 @@ Total Fees: ${total_fees:,.2f}
             async for item in self.provider.listen():
                 if self.shutdown_event.is_set():
                     break
+
+                if isinstance(item, DataEvent):
+                    logger.warning(
+                        f"RECEIVED_DATA_EVENT: {item.event} | {item.details}"
+                    )
+                    if item.event == "ORDER_BOOK_STALE":
+                        write_alert("MARKET_DATA_STALE_EVENT")
+                        # Trigger shutdown as per plan Step 1.2
+                        self.shutdown_event.set()
+                        break
 
                 if isinstance(item, Tick):
                     # Task 2: Defensive Data Validation
@@ -506,13 +562,22 @@ Total Fees: ${total_fees:,.2f}
         """Monitors for kill.txt file to trigger emergency shutdown."""
         try:
             while not self.shutdown_event.is_set():
-                if self.kill_file.exists():
-                    logger.warning("KILL SWITCH ACTIVATED: kill.txt detected")
+                if self.kill_file.exists() or os.getenv("LA_KILL_SWITCH") == "TRUE":
+                    reason = (
+                        "kill.txt detected"
+                        if self.kill_file.exists()
+                        else "LA_KILL_SWITCH=TRUE"
+                    )
+                    logger.warning(f"KILL SWITCH ACTIVATED: {reason}")
                     self.shutdown_event.set()
-                    try:
-                        self.kill_file.unlink()  # Remove file after processing
-                    except Exception:
-                        pass
+                    if self.kill_file.exists():
+                        try:
+                            self.kill_file.unlink()  # Remove file after processing
+                        except Exception:
+                            pass
+                    # Special exit code for kill switch as requested in plan (though we are in async task)
+                    # We'll set a flag to exit with 99 in the main block
+                    self.kill_switch_triggered = True
                     break
                 await asyncio.sleep(0.5)
         except asyncio.CancelledError:
@@ -582,6 +647,20 @@ Total Fees: ${total_fees:,.2f}
         if self.circuit_breaker.is_tripped():
             logger.warning("SIGNAL BLOCKED: Circuit breaker is tripped.")
             return
+
+        # 4.2 Warmup Period (No-Trade Zone)
+        warmup_bars = 50
+        if self.strategy_config:
+            warmup_bars = self.strategy_config.get("warmup_bars", 50)
+
+        if len(self.candles) < warmup_bars:
+            if self.iterations % 10 == 0:
+                logger.info(
+                    f"WARMUP_IN_PROGRESS: {len(self.candles)}/{warmup_bars} bars"
+                )
+            return
+        elif len(self.candles) == warmup_bars:
+            logger.info("WARMUP_COMPLETE: Strategy active.")
 
         try:
             # Generate signal

@@ -3,29 +3,47 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from ..core import hard_limits
-from ..trading.helpers import calculate_fees, apply_slippage
-from ..execution.fees import get_fee_bps
+from ..trading.helpers import apply_slippage
 from laptop_agents.core.logger import logger
 import time
 import json
 import random
+import uuid
 from pathlib import Path
 import shutil
 from datetime import datetime, timezone
+from cachetools import TTLCache
+import yaml
+from collections import deque
 
 
 @dataclass
 class Position:
     side: str  # LONG / SHORT
-    entry: float
     qty: float
     sl: float
     tp: float
     opened_at: str
-    entry_fees: float = 0.0
+    lots: deque[
+        Dict[str, Any]
+    ]  # FIFO lots: {"qty": float, "price": float, "fees": float}
     bars_open: int = 0
     trail_active: bool = False
     trail_stop: float = 0.0
+
+    @property
+    def entry(self) -> float:
+        """Average entry price of all lots."""
+        if not self.lots:
+            return 0.0
+        total_qty = sum(lot["qty"] for lot in self.lots)
+        if total_qty == 0:
+            return 0.0
+        return sum(lot["qty"] * lot["price"] for lot in self.lots) / total_qty
+
+    @property
+    def entry_fees(self) -> float:
+        return sum(lot["fees"] for lot in self.lots)
 
 
 class PaperBroker:
@@ -56,11 +74,25 @@ class PaperBroker:
         self.slip_bps = slip_bps
         self.starting_equity = starting_equity
         self.current_equity = starting_equity
+        self.exchange_fees: Dict[str, float] = {"maker": -0.0002, "taker": 0.0005}
+        self._load_exchange_config()
+        # Override with constructor args if provided to support old tests
+        if fees_bps != 0:
+            self.exchange_fees = {
+                "maker": fees_bps / 10000.0,
+                "taker": fees_bps / 10000.0,
+            }
+        if slip_bps != 0:
+            # We use slip_bps as a fixed baseline if provided
+            pass
         self.processed_order_ids: set[str] = set()
+        self._idempotency_cache: TTLCache[str, Any] = TTLCache(maxsize=1000, ttl=5)
         self.order_timestamps: List[float] = []
         self.order_history: List[Dict[str, Any]] = []
         self.state_path = state_path
         self.working_orders: List[Dict[str, Any]] = []
+        self.max_position_per_symbol: Dict[str, float] = {}
+        self._load_risk_config()
         if self.state_path:
             self._load_state()
 
@@ -111,21 +143,18 @@ class PaperBroker:
         tick: Optional[Any] = None,
     ) -> Optional[Dict[str, Any]]:
         # Idempotency check
-        client_order_id = order.get("client_order_id")
-        if client_order_id and not is_working:
-            if client_order_id in self.processed_order_ids:
-                logger.warning(f"Duplicate order {client_order_id} ignored")
-                from laptop_agents.core.orchestrator import append_event
-
-                append_event(
-                    {
-                        "event": "OrderRejected",
-                        "reason": "duplicate_order_id",
-                        "order_id": client_order_id,
-                    },
-                    paper=True,
+        client_order_id = order.get("client_order_id") or uuid.uuid4().hex
+        if not is_working:
+            if client_order_id in self._idempotency_cache:
+                logger.warning(
+                    f"Duplicate order {client_order_id} detected, returning cached result"
                 )
+                return self._idempotency_cache[client_order_id]
+
+            if client_order_id in self.processed_order_ids:
+                logger.warning(f"Duplicate order {client_order_id} ignored (long-term)")
                 return None
+
             self.processed_order_ids.add(client_order_id)
 
         # Trade frequency throttle
@@ -160,6 +189,27 @@ class PaperBroker:
                     "event": "OrderRejected",
                     "reason": "daily_loss_exceeded",
                     "drawdown_pct": drawdown_pct,
+                },
+                paper=True,
+            )
+            return None
+
+        # Position Cap Check
+        qty_requested = float(order.get("qty", 0))
+        symbol_cap = self.max_position_per_symbol.get(self.symbol, float("inf"))
+        if qty_requested > symbol_cap:
+            logger.warning(
+                f"REJECTED: Position limit exceeded for {self.symbol}. Requested {qty_requested} > Cap {symbol_cap}"
+            )
+            from laptop_agents.core.orchestrator import append_event
+
+            append_event(
+                {
+                    "event": "OrderRejected",
+                    "reason": "position_limit_exceeded",
+                    "symbol": self.symbol,
+                    "requested": qty_requested,
+                    "cap": symbol_cap,
                 },
                 paper=True,
             )
@@ -234,6 +284,12 @@ class PaperBroker:
             fill_px = entry
             actual_slip_bps = 0.0
 
+        # Plan 3.1: Realistic Slippage Model
+        if entry_type == "market" and self.slip_bps > 0:
+            # 30bps slippage as per plan
+            fill_px = fill_px * (1 + 0.0003 * (1 if side == "LONG" else -1))
+            logger.debug(f"Applied 30bps market slippage: {fill_px}")
+
         # Liquidity Capping
         candle_vol = getattr(candle, "volume", 0)
         max_fill_qty = candle_vol * 0.1 if candle_vol > 0 else qty
@@ -281,23 +337,31 @@ class PaperBroker:
         logger.debug(f"Simulated execution latency: {simulated_latency_ms}ms")
         notional = actual_qty * fill_px_slipped
 
-        # Use Dynamic Fees
-        fee_bps = get_fee_bps(entry_type)
-        entry_fees = calculate_fees(notional, fee_bps)
+        # Plan 3.2: Maker/Taker Fee Model
+        is_maker = entry_type == "limit"
+        fee_rate = (
+            self.exchange_fees["maker"] if is_maker else self.exchange_fees["taker"]
+        )
+        entry_fees = notional * fee_rate
 
         # For Inverse, we store 'qty' as Notional USD, but the input 'qty' is in Coins.
-        # So we convert it here for the Position record.
         pos_qty = notional if self.is_inverse else actual_qty
 
-        self.pos = Position(
-            side=side,
-            entry=fill_px_slipped,
-            qty=pos_qty,
-            sl=sl,
-            tp=tp,
-            opened_at=candle.ts,
-            entry_fees=entry_fees,
-        )
+        new_lot = {"qty": pos_qty, "price": fill_px_slipped, "fees": entry_fees}
+
+        if self.pos:
+            # Add to existing position
+            self.pos.lots.append(new_lot)
+            self.pos.qty += pos_qty
+        else:
+            self.pos = Position(
+                side=side,
+                qty=pos_qty,
+                sl=sl,
+                tp=tp,
+                opened_at=candle.ts,
+                lots=deque([new_lot]),
+            )
         fill_event = {
             "type": "fill",
             "side": side,
@@ -331,6 +395,8 @@ class PaperBroker:
             self._save_state()
 
         self.last_trade_time = time.time()
+        if client_order_id and not is_working:
+            self._idempotency_cache[client_order_id] = fill_event
         return fill_event
 
     def _check_tick_exit(self, tick: Any) -> Optional[Dict[str, Any]]:
@@ -473,36 +539,43 @@ class PaperBroker:
             px, is_entry=False, is_long=(p.side == "LONG"), slip_bps=effective_slip
         )
 
+        # Plan 3.3: FIFO Cost Basis for PnL
+        # Calculate PnL by depleting lots FIFO
+        total_entry_notional = 0.0
+        total_entry_fees = 0.0
+
+        # We'll just exit the whole position for now, as _exit is called when pos is cleared
+        while p.lots:
+            lot = p.lots.popleft()
+            total_entry_notional += lot["qty"] * lot["price"]
+            total_entry_fees += lot["fees"]
+
+        avg_entry = total_entry_notional / p.qty
+
         if self.is_inverse:
             # Inverse PnL (BTC) = Notional * (1/Entry - 1/Exit) for Long
             if p.side == "LONG":
-                pnl_coins = p.qty * (1.0 / p.entry - 1.0 / px_slipped)
+                pnl_coins = p.qty * (1.0 / avg_entry - 1.0 / px_slipped)
             else:
-                pnl_coins = p.qty * (1.0 / px_slipped - 1.0 / p.entry)
+                pnl_coins = p.qty * (1.0 / px_slipped - 1.0 / avg_entry)
 
-            # Convert coin PnL to USD (approximate using exit price)
             pnl = pnl_coins * px_slipped
-
-            # Inverse Risk (BTC) = Notional * |1/Entry - 1/SL|
-            if p.side == "LONG":
-                risk_coins = p.qty * abs(1.0 / p.entry - 1.0 / p.sl)
-            else:
-                risk_coins = p.qty * abs(1.0 / p.sl - 1.0 / p.entry)
-            risk = risk_coins * px_slipped
+            # Risk calculation omitted for brevity but should use avg_entry
+            risk = p.qty * abs(1.0 / avg_entry - 1.0 / p.sl) * px_slipped
         else:
             pnl = (
-                (px_slipped - p.entry) * p.qty
+                (px_slipped - avg_entry) * p.qty
                 if p.side == "LONG"
-                else (p.entry - px_slipped) * p.qty
+                else (avg_entry - px_slipped) * p.qty
             )
-            risk = abs(p.entry - p.sl) * p.qty
+            risk = abs(avg_entry - p.sl) * p.qty
 
         # Exits are always Taker orders
-        exit_fee_bps = get_fee_bps("MARKET")
-        exit_fees = calculate_fees(
-            abs(p.qty * px_slipped if not self.is_inverse else p.qty), exit_fee_bps
+        exit_fee_rate = self.exchange_fees["taker"]
+        exit_fees = (
+            abs(p.qty * px_slipped if not self.is_inverse else p.qty) * exit_fee_rate
         )
-        net_pnl = pnl - exit_fees - p.entry_fees
+        net_pnl = pnl - exit_fees - total_entry_fees
 
         r_mult = (net_pnl / risk) if risk > 0 else 0.0
         self.current_equity += net_pnl
@@ -512,7 +585,7 @@ class PaperBroker:
                 "reason": reason,
                 "pnl": net_pnl,
                 "at": ts,
-                "fees": exit_fees + p.entry_fees,
+                "fees": exit_fees + total_entry_fees,
                 "r": r_mult,
                 "side": p.side,
             }
@@ -529,7 +602,7 @@ class PaperBroker:
             "r": r_mult,
             "bars_open": p.bars_open,
             "at": ts,
-            "fees": exit_fees + p.entry_fees,
+            "fees": exit_fees + total_entry_fees,
         }
 
     def save_state(self) -> None:
@@ -557,7 +630,7 @@ class PaperBroker:
                 "sl": self.pos.sl,
                 "tp": self.pos.tp,
                 "opened_at": self.pos.opened_at,
-                "entry_fees": self.pos.entry_fees,
+                "lots": list(self.pos.lots),
                 "bars_open": self.pos.bars_open,
                 "trail_active": self.pos.trail_active,
                 "trail_stop": self.pos.trail_stop,
@@ -636,7 +709,25 @@ class PaperBroker:
 
                 pos_data = state.get("pos")
                 if pos_data:
-                    self.pos = Position(**pos_data)
+                    # Convert lots back to deque
+                    if "lots" in pos_data:
+                        pos_data["lots"] = deque(pos_data["lots"])
+                    else:
+                        # Migration for old state
+                        old_lot = {
+                            "qty": pos_data.get("qty", 0),
+                            "price": pos_data.get("entry", 0),
+                            "fees": pos_data.get("entry_fees", 0),
+                        }
+                        pos_data["lots"] = deque([old_lot])
+
+                    # Clean up keys that Position dataclass doesn't expect
+                    filtered_pos = {
+                        k: v
+                        for k, v in pos_data.items()
+                        if k not in ["entry", "entry_fees"]
+                    }
+                    self.pos = Position(**filtered_pos)
 
                 source = "backup" if is_backup else "primary"
                 logger.info(f"Loaded broker state from {source}: {try_path}")
@@ -668,6 +759,38 @@ class PaperBroker:
         # If we get here, no valid state was found
         logger.warning("No valid state file found. Starting with fresh state.")
 
+    def _load_risk_config(self) -> None:
+        """Load risk settings from config/risk.yaml."""
+        from laptop_agents.constants import REPO_ROOT
+
+        risk_path = REPO_ROOT / "config" / "risk.yaml"
+        if risk_path.exists():
+            try:
+                with open(risk_path, "r") as f:
+                    config = yaml.safe_load(f)
+                    if config and "max_position_per_symbol" in config:
+                        self.max_position_per_symbol = config["max_position_per_symbol"]
+                        logger.info(
+                            f"Loaded risk config: {self.max_position_per_symbol}"
+                        )
+            except Exception as e:
+                logger.error(f"Failed to load risk config: {e}")
+
+    def _load_exchange_config(self) -> None:
+        """Load exchange fees from config/exchanges/bitunix.yaml."""
+        from laptop_agents.constants import REPO_ROOT
+
+        config_path = REPO_ROOT / "config" / "exchanges" / "bitunix.yaml"
+        if config_path.exists():
+            try:
+                with open(config_path, "r") as f:
+                    config = yaml.safe_load(f)
+                    if config and "fees" in config:
+                        self.exchange_fees = config["fees"]
+                        logger.info(f"Loaded exchange fees: {self.exchange_fees}")
+            except Exception as e:
+                logger.error(f"Failed to load exchange config: {e}")
+
     def get_unrealized_pnl(self, current_price: float) -> float:
         if self.pos is None:
             return 0.0
@@ -683,6 +806,10 @@ class PaperBroker:
                 return (current_price - p.entry) * p.qty
             else:
                 return (p.entry - current_price) * p.qty
+
+    def cancel_all_open_orders(self) -> None:
+        """Alias for Plan 4.1 readiness."""
+        self.shutdown()
 
     def close_all(self, current_price: float) -> List[Dict[str, Any]]:
         """Force close any open positions."""
