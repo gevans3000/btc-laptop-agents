@@ -1,0 +1,105 @@
+﻿{
+    "timestamp":  "2026-01-17T14:48:06.1955974-05:00",
+    "discovery":  {
+                      "Path":  "C:\\Users\\lovel\\trading\\btc-laptop-agents\\src\\laptop_agents\\main.py",
+                      "Type":  "Python",
+                      "Method":  "Inferred from test.ps1 partial"
+                  },
+    "system_info":  {
+                        "IsAdmin":  false,
+                        "Architecture":  "AMD64",
+                        "CWD":  "C:\\Users\\lovel\\trading\\btc-laptop-agents",
+                        "Hostname":  "GEORGE108B",
+                        "OS":  "Microsoft Windows 11 Pro",
+                        "Python":  "Python 3.12.7",
+                        "Timezone":  "Eastern Standard Time",
+                        "PowerShell":  "5.1.26100.7462",
+                        "User":  "lovel"
+                    },
+    "results":  [
+                    {
+                        "pId":  1,
+                        "Name":  "Permission Check",
+                        "Result":  "PASS",
+                        "DurationMs":  13,
+                        "Details":  "Running as User (Standard Mode)",
+                        "Artifacts":  [
+
+                                      ],
+                        "Timestamp":  "2026-01-17T14:46:59.0182920-05:00"
+                    },
+                    {
+                        "pId":  2,
+                        "Name":  "Python Check",
+                        "Result":  "PASS",
+                        "DurationMs":  339,
+                        "Details":  "Python and Pip valid",
+                        "Artifacts":  [
+
+                                      ],
+                        "Timestamp":  "2026-01-17T14:46:59.3675552-05:00"
+                    },
+                    {
+                        "pId":  3,
+                        "Name":  "Network Connectivity",
+                        "Result":  "PASS",
+                        "DurationMs":  42,
+                        "Details":  "Internet Reachable",
+                        "Artifacts":  [
+
+                                      ],
+                        "Timestamp":  "2026-01-17T14:46:59.4127542-05:00"
+                    },
+                    {
+                        "pId":  4,
+                        "Name":  "CLI Response (--help)",
+                        "Result":  "PASS",
+                        "DurationMs":  1018,
+                        "Details":  "Help command success",
+                        "Artifacts":  [
+
+                                      ],
+                        "Timestamp":  "2026-01-17T14:47:00.4348764-05:00"
+                    },
+                    {
+                        "pId":  5,
+                        "Name":  "Stability Loop 1/1",
+                        "Result":  "PASS",
+                        "DurationMs":  63551,
+                        "Details":  "System.Object[]",
+                        "Artifacts":  [
+
+                                      ],
+                        "Timestamp":  "2026-01-17T14:48:03.9928128-05:00"
+                    },
+                    {
+                        "pId":  6,
+                        "Name":  "Path With Spaces",
+                        "Result":  "PASS",
+                        "DurationMs":  6,
+                        "Details":  "FileSystem handles spaces OK",
+                        "Artifacts":  [
+
+                                      ],
+                        "Timestamp":  "2026-01-17T14:48:06.0114680-05:00"
+                    },
+                    {
+                        "pId":  7,
+                        "Name":  "Resource Check",
+                        "Result":  "PASS",
+                        "DurationMs":  178,
+                        "Details":  "Memory Free: 35.43GB",
+                        "Artifacts":  [
+
+                                      ],
+                        "Timestamp":  "2026-01-17T14:48:06.1928976-05:00"
+                    }
+                ],
+    "summary":  {
+                    "failed":  0,
+                    "skipped":  0,
+                    "total":  7,
+                    "passed":  7
+                },
+    "run_id":  "20260117-144658"
+}

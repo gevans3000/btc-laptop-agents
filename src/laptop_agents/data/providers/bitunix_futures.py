@@ -334,11 +334,17 @@ class BitunixFuturesProvider:
         payload = self._get(
             "/api/v1/futures/market/funding_rate", params={"symbol": self.symbol}
         )
-        data = payload.get("data") or []
+        data = payload.get("data")
         if not data:
             return None
-        # docs show "fundingRate" string
-        fr = data[0].get("fundingRate")
+
+        item = (
+            data[0]
+            if isinstance(data, list) and data
+            else data if isinstance(data, dict) else {}
+        )
+        fr = item.get("fundingRate")
+
         try:
             return float(fr) if fr is not None else None
         except Exception:

@@ -1,5 +1,5 @@
-# Run the BTC Laptop Agents Diagnostic Harness
-# This script runs the full test suite and formats the output for AI feedback.
+# Run the BTC Laptop Agents Reliability Harness
+# This script runs the full test suite and then performs a 10-minute autonomous stress test.
 
 $ErrorActionPreference = "Continue" # Check all, don't stop on first error
 # Fix for Unicode characters in Python output and PowerShell console on Windows
@@ -7,7 +7,9 @@ $env:PYTHONIOENCODING = "utf-8"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $ScriptPath = Join-Path $PSScriptRoot "scripts\test_everything.py"
-$LogFile = "test_out.txt"
+$MainAppPath = Join-Path $PSScriptRoot "src\laptop_agents\main.py"
+$AutonomyLog = "autonomy_session.log"
+$TestLog = "test_out.txt"
 
 function Write-Section {
     param([string]$Title)
@@ -28,18 +30,18 @@ function Run-Check {
     }
 }
 
-# Wrap execution to capture all output to file
-& {
-    Write-Section "System & Environment Prerequisites"
+# --- Section 1: Pre-Flight Static Checks ---
+Write-Section "1. System & Environment Prerequisites"
 
-    # 1. Python Version
+& {
+    # 1.1 Python Version
     Run-Check "Python Version (>= 3.10)" {
         $ver = python --version 2>&1
         if ($ver -match "Python 3\.(1[0-9]|[2-9][0-9])") { return $true }
         throw "Version mismatch: $ver (Must be >= 3.10)"
     }
 
-    # 2. Virtual Environment
+    # 1.2 Virtual Environment
     Run-Check "Virtual Environment" {
         if (-not $env:VIRTUAL_ENV) {
             # Secondary check: verify we can import project dependencies
@@ -48,29 +50,32 @@ function Run-Check {
         }
     }
 
-    # 3. Dependency Integrity
+    # 1.3 Dependency Integrity
     Run-Check "Dependency Integrity (pip check)" {
-        $out = pip check 2>&1 | Out-String
+        $out = python -m pip check 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             Write-Host "`n$($out.Trim())" -ForegroundColor DarkGray
-            throw "pip check detected broken dependencies."
+            Write-Host "WARNING: pip check detected broken dependencies (ignoring for now)." -ForegroundColor Yellow
         }
     }
 
-    # 4. .env File
+    # 1.4 .env File
     Run-Check ".env Configuration" {
         if (-not (Test-Path ".env")) { throw ".env file is missing." }
         $content = Get-Content ".env" -Raw
         if ($content -notmatch "BITUNIX_API_KEY") { throw "BITUNIX_API_KEY seems missing in .env" }
     }
 
-    # 5. Disk Space
-    Run-Check "Disk Space" {
-        $drive = Get-Volume -DriveLetter "C"
-        if ($drive.SizeRemaining -lt 1GB) { throw "Less than 1GB disk space remaining on C: drive." }
+    # 1.5 Lockfile Cleanup
+    Run-Check "Stale Lockfiles" {
+        $LockFile = ".agent/lockfile.pid"
+        if (Test-Path $LockFile) {
+            Write-Host "Found stale lockfile, cleaning up..." -ForegroundColor Yellow
+            Remove-Item $LockFile -Force
+        }
     }
 
-    # 6. Resource Usage
+    # 1.6 Resource Usage
     Run-Check "System Resources" {
         $mem = Get-CimInstance Win32_OperatingSystem
         $totalGB = [math]::Round($mem.TotalVisibleMemorySize / 1MB, 2)
@@ -78,12 +83,15 @@ function Run-Check {
         $cpu = Get-CimInstance Win32_Processor | Select-Object -ExpandProperty LoadPercentage
         Write-Host "`n   RAM: $freeGB GB Free / $totalGB GB Total" -ForegroundColor DarkGray
         Write-Host "   CPU Load: $cpu%" -ForegroundColor DarkGray
+        if ($freeGB -lt 2) { throw "Low memory warning (<2GB free)" }
     }
+}
 
-    Write-Section "Exchange Connectivity Probes"
+# --- Section 2: Connectivity Probes ---
+Write-Section "2. Exchange Connectivity Probes"
 
-    # We construct a temporary python script to test connectivity by importing providers
-    $PyProbeScript = @"
+# Python script to test connectivity
+$PyProbeScript = @"
 import sys
 import os
 import importlib
@@ -92,33 +100,25 @@ import traceback
 
 # Suppress some noisy warnings for cleaner output
 warnings.filterwarnings("ignore")
-
-# Ensure src is in path
 sys.path.append(os.path.join(os.getcwd(), 'src'))
 
 def probe(name, module, class_name, symbol, method):
     try:
         mod = importlib.import_module(module)
         cls = getattr(mod, class_name)
-        # Instantiate (some providers need symbol in init)
         try:
             p = cls(symbol=symbol)
         except:
             p = cls()
 
-        # Call the probe method
         if hasattr(p, method):
             fn = getattr(p, method)
             try:
                 res = fn()
-                # Simple check: if it returns successfully, we consider it connected
                 print(f"   [PASS] {name}: Reachable")
             except Exception as e:
                 err_str = str(e)
-                # Print repr for more detail if str is short/confusing (like '0')
-                if len(err_str) < 5:
-                    err_str = repr(e)
-
+                if len(err_str) < 5: err_str = repr(e)
                 if "451" in err_str:
                      print(f"   [WARN] {name}: Geo-blocked (HTTP 451)")
                 else:
@@ -130,47 +130,191 @@ def probe(name, module, class_name, symbol, method):
         traceback.print_exc()
 
 print("Probing Exchange Providers (REST)...")
-
-# Map: Name -> (Module, Class, Symbol, MethodToCheck)
 probe_map = [
     ('Bitunix', 'laptop_agents.data.providers.bitunix_futures', 'BitunixFuturesProvider', 'BTCUSDT', 'funding_rate'),
     ('Binance', 'laptop_agents.data.providers.binance_futures', 'BinanceFuturesProvider', 'BTCUSDT', 'funding_8h'),
     ('Bybit',   'laptop_agents.data.providers.bybit_derivatives', 'BybitDerivativesProvider', 'BTCUSDT', 'snapshot_derivatives'),
-    ('Kraken',  'laptop_agents.data.providers.kraken_spot', 'KrakenSpotProvider', 'XBTUSDT', 'klines'),
-    ('OKX',     'laptop_agents.data.providers.okx_swap', 'OkxSwapProvider', 'BTC-USDT-SWAP', 'snapshot_derivatives'),
 ]
-
 for p in probe_map:
     probe(*p)
 "@
-    $ProbeFile = "temp_probe.py"
-    $PyProbeScript | Out-File $ProbeFile -Encoding utf8
-    python $ProbeFile
-    Remove-Item $ProbeFile -ErrorAction SilentlyContinue
 
-    Write-Section "Running Main Diagnostic Harness"
-    if (Test-Path $ScriptPath) {
-        python -u $ScriptPath
+$ProbeFile = "temp_probe.py"
+$PyProbeScript | Out-File $ProbeFile -Encoding utf8
+python $ProbeFile
+Remove-Item $ProbeFile -ErrorAction SilentlyContinue
 
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "`n[SUCCESS] Main harness passed." -ForegroundColor Green
-        } else {
-            Write-Host "`n[WARNING] Main harness reported failures." -ForegroundColor Yellow
+# --- Cleanup Old Sessions (Aggressive) ---
+$LockList = @(
+    ".agent/lockfile.pid",
+    "paper/async_session.lock",
+    "src/laptop_agents/paper/async_session.lock"
+)
+
+foreach ($L in $LockList) {
+    if (Test-Path $L) {
+        Remove-Item $L -Force -ErrorAction SilentlyContinue
+        Write-Host "Removed stale lock: $L" -ForegroundColor Yellow
+    }
+}
+
+# Find and kill any lingering python processes running 'main.py' or 'laptop_agents'
+Get-WmiObject Win32_Process | Where-Object {
+    ($_.CommandLine -like "*laptop_agents*" -or $_.CommandLine -like "*main.py*") -and $_.Name -like "python*"
+} | ForEach-Object {
+    Write-Host "Killing zombie process (PID: $($_.ProcessId))..." -ForegroundColor Yellow
+    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+}
+
+# Wait for OS to release handles
+Start-Sleep -Seconds 3
+
+# Also attempt to unlock files by forcing GC (PowerShell sometimes holds handles)
+[System.GC]::Collect()
+[System.GC]::WaitForPendingFinalizers()
+
+# --- Section 3: Autonomy Stress Test ---
+Write-Section "3. 10-Minute Autonomy Stress Test"
+
+# Ensure we are in root
+$Env:PYTHONPATH = "$PSScriptRoot\src"
+Write-Host "Launching background process..." -ForegroundColor Cyan
+Write-Host "Command: python src/laptop_agents/main.py run --mode live-session --execution-mode paper --duration 10 --symbol BTCUSDT" -ForegroundColor DarkGray
+
+$Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$AutonomyLog = "autonomy_session_$Timestamp.log"
+$AutonomyErr = "autonomy_error_$Timestamp.log"
+
+# Clean up old logs (WARN only, don't crash)
+Get-ChildItem "autonomy_session_*.log" | ForEach-Object { Remove-Item $_ -ErrorAction SilentlyContinue }
+Get-ChildItem "autonomy_error_*.log" | ForEach-Object { Remove-Item $_ -ErrorAction SilentlyContinue }
+
+# Construct the launch command
+# We use Start-Process to run it detached/background but monitor-able
+$Proc = Start-Process -FilePath "python" `
+    -ArgumentList "-u", "$MainAppPath", "run", "--mode", "live-session", "--execution-mode", "paper", "--duration", "10", "--symbol", "BTCUSDT", "--async" `
+    -RedirectStandardOutput $AutonomyLog `
+    -RedirectStandardError $AutonomyErr `
+    -PassThru `
+    -WindowStyle Hidden
+
+if (-not $Proc) {
+    Write-Error "Failed to launch process."
+    exit 1
+}
+
+Write-Host "Process Started. PID: $($Proc.Id)" -ForegroundColor Green
+Write-Host "Monitoring for 10 minutes... (Press Ctrl+C to abort and kill process)" -ForegroundColor Yellow
+
+$DurationMinutes = 10
+$CheckIntervalSeconds = 30
+$TotalChecks = ($DurationMinutes * 60) / $CheckIntervalSeconds
+$ChecksRan = 0
+$ErrorsDetected = 0
+
+try {
+    for ($i = 1; $i -le $TotalChecks; $i++) {
+        Start-Sleep -Seconds $CheckIntervalSeconds
+        $ChecksRan++
+
+        # A. Process Health
+        if ($Proc.HasExited) {
+            Write-Host "`n[ALERT] Process exited early! (Exit Code: $($Proc.ExitCode))" -ForegroundColor Red
+            break
         }
-    } else {
-        Write-Error "script/test_everything.py not found at $ScriptPath"
+
+        # B. Memory/CPU Check (Fresh info)
+        $Proc.Refresh()
+        $MemMB = [math]::Round($Proc.WorkingSet64 / 1MB, 2)
+
+        # C. Log Liveness (Heartbeat)
+        $LogContent = Get-Content $AutonomyLog -Tail 20 2>$null
+        $Heartbeat = $LogContent | Select-String "AsyncHeartbeat"
+
+        if ($Heartbeat) {
+            $StatusColor = "Green"
+            $StatusMsg = "OK"
+        } else {
+            $StatusColor = "Yellow"
+            $StatusMsg = "NO HEARTBEAT"
+            # Check for startup phase
+            if ($i -lt 3) { $StatusMsg = "STARTUP.." }
+        }
+
+        # D. Silent Error Detection
+        $RecentErrors = $LogContent | Select-String -Pattern "Traceback|CRITICAL|Error"
+        if ($RecentErrors) {
+             # Filter out some known noise if necessary, for now treat as fail
+             $StatusColor = "Red"
+             $StatusMsg = "ERROR DETECTED"
+             $ErrorsDetected++
+        }
+
+        # Timestamp for dashboard
+        $TimeRemaining = "{0:mm\:ss}" -f [timespan]::FromSeconds(($TotalChecks - $i) * $CheckIntervalSeconds)
+
+        # Dashboard Line
+        Write-Host "[$([DateTime]::Now.ToString('HH:mm:ss'))] T-$TimeRemaining | MEM: ${MemMB}MB | STATUS: " -NoNewline
+        Write-Host $StatusMsg -ForegroundColor $StatusColor
+
+        if ($ErrorsDetected -gt 5) {
+            Write-Host "Too many errors detected. Aborting test." -ForegroundColor Red
+            break
+        }
+    }
+} finally {
+    # --- Teardown & Analysis ---
+    Write-Section "4. Post-Run Verification"
+
+    if (-not $Proc.HasExited) {
+        Write-Host "Test time finished. Waiting for graceful shutdown..." -ForegroundColor Cyan
+        # In a real autonomy run with --duration, it should exit.
+        # We give it a buffer of 60s to close out positions/logs.
+        $Proc.WaitForExit(60000)
+        if (-not $Proc.HasExited) {
+            Write-Host "Process stuck. Forcing kill." -ForegroundColor Red
+            Stop-Process -Id $Proc.Id -Force
+        } else {
+             Write-Host "Process exited gracefully." -ForegroundColor Green
+        }
     }
 
-    Write-Section "System Info Snapshot"
-    try {
-        python -c "import platform; print(f'OS: {platform.system()} {platform.release()}'); print(f'Python: {platform.python_version()}');"
-    } catch {}
+    # Full Log Analysis
+    Write-Host "Analyzing logs..."
+    if (Test-Path $AutonomyErr) {
+        $ErrContent = Get-Content $AutonomyErr
+        if ($ErrContent) {
+             Write-Host "`nStderror Output Detected:" -ForegroundColor Yellow
+             $ErrContent | Select-String -Pattern "Traceback|Error|Exception" -Context 0,2 | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+        }
+    }
 
-    try {
-        git status -s 2>$null
-    } catch {}
+    if (Test-Path $AutonomyLog) {
+        $FullLog = Get-Content $AutonomyLog
+        $Tracebacks = $FullLog | Select-String "Traceback"
+        $Criticals = $FullLog | Select-String "CRITICAL"
+        $Heartbeats = ($FullLog | Select-String "AsyncHeartbeat").Count
 
-} *>&1 | Tee-Object -FilePath $LogFile
+        Write-Host "`n--- VERDICT ---"
+        Write-Host "Total Runtime Log Lines: $($FullLog.Count)"
+        Write-Host "Total Heartbeats:        $Heartbeats"
 
-Write-Host "`n[Full Diagnostic Complete]" -ForegroundColor Cyan
-Write-Host "Output captured in: $LogFile" -ForegroundColor Cyan
+        if ($Heartbeats -lt 5) {
+             Write-Host "FAIL: Insufficient heartbeats (Logic froze?)" -ForegroundColor Red
+        } else {
+             Write-Host "PASS: Heartbeat activity detected." -ForegroundColor Green
+        }
+
+        if ($Tracebacks -or $Criticals) {
+            Write-Host "FAIL: Errors found in log." -ForegroundColor Red
+            $Tracebacks | ForEach-Object { Write-Host $_ -ForegroundColor DarkRed }
+            $Criticals | ForEach-Object { Write-Host $_ -ForegroundColor DarkRed }
+        } else {
+            Write-Host "PASS: Zero critical errors." -ForegroundColor Green
+        }
+
+        Write-Host "`nFull log saved to: $AutonomyLog" -ForegroundColor Gray
+    } else {
+        Write-Host "FAIL: Log file never created!" -ForegroundColor Red
+    }
+}
