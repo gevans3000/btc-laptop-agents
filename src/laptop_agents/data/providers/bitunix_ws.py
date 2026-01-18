@@ -59,7 +59,9 @@ class BitunixWSProvider:
 
         self.ws_kline: Optional[Any] = None
         self.ws_ticker: Optional[Any] = None
-        self.queue: asyncio.Queue[Union[Candle, Tick]] = asyncio.Queue(maxsize=500)
+        self.queue: asyncio.Queue[Union[Candle, Tick, DataEvent]] = asyncio.Queue(
+            maxsize=500
+        )
         self._running = False
         self.connected = False
         self.last_message_time: float = 0.0
@@ -69,6 +71,8 @@ class BitunixWSProvider:
         self.last_known_ticker: Optional[Tick] = None
         self.last_known_kline: Optional[Candle] = None
         self.heartbeat_timeout_sec: float = 15.0  # Reduced to 15s for faster detection
+        self.subscriptions: set[str] = set()
+        self.time_offset: float = 0.0
 
     async def connect(self):
         """Establish WebSocket connection."""
@@ -417,7 +421,7 @@ class BitunixWSProvider:
             f"(Attempt {retry_state.attempt_number})"
         ),
     )
-    async def listen(self) -> AsyncGenerator[Union[Candle, Tick], None]:
+    async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
         """
         Primary entry point. Yields Candle or Tick objects with auto-reconnect.
         """

@@ -1,10 +1,13 @@
 import sys
 from typing import Optional
 import typer
+from dotenv import load_dotenv
 from rich.console import Console
 
-from laptop_agents import __version__
-from laptop_agents.commands import lifecycle, system, session
+load_dotenv()
+
+from laptop_agents import __version__  # noqa: E402
+from laptop_agents.commands import lifecycle, system, session  # noqa: E402
 
 console = Console()
 app = typer.Typer(help="Laptop Agents Unified CLI")

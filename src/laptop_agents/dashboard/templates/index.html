@@ -3,182 +3,278 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Autonomous Trading Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <title>Laptop Agents | Autonomous Engine</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
-            --bg: #0a0a0c;
-            --card-bg: rgba(255, 255, 255, 0.03);
-            --border: rgba(255, 255, 255, 0.08);
-            --primary: #52a1ff;
-            --success: #00dfa2;
-            --danger: #ff4d4d;
-            --text: #e0e0e0;
-            --text-dim: #888;
+            /* Premium Fintech Palette */
+            --bg-color: #050507;
+            --surface-color: #0e0e12;
+            --surface-border: #1a1a24;
+
+            --accent-primary: #3b82f6; /* Electric Blue */
+            --accent-glow: rgba(59, 130, 246, 0.2);
+
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.15);
+
+            --danger: #ef4444;
+            --danger-glow: rgba(239, 68, 68, 0.15);
+
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --text-tertiary: #4b5563;
         }
 
         body {
-            font-family: 'Inter', sans-serif;
-            background: var(--bg);
-            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.05) 0%, transparent 20%),
+                radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 20%);
+            color: var(--text-primary);
             margin: 0;
-            padding: 20px;
+            padding: 24px;
+            min-height: 100vh;
             display: flex;
             flex-direction: column;
-            gap: 20px;
-            min-height: 100vh;
+            gap: 24px;
+            box-sizing: border-box;
         }
 
+        /* --- Header --- */
         header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px solid var(--border);
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--surface-border);
         }
 
-        .status-badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            background: rgba(0, 223, 162, 0.1);
-            color: var(--success);
-            border: 1px solid rgba(0, 223, 162, 0.2);
-        }
-
-        .status-badge.stale {
-            background: rgba(255, 77, 77, 0.1);
-            color: var(--danger);
-            border: 1px solid rgba(255, 77, 77, 0.2);
-        }
-
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-        }
-
-        .card {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-            backdrop-filter: blur(10px);
-        }
-
-        .card h2 {
-            margin-top: 0;
-            font-size: 1rem;
-            color: var(--text-dim);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .value {
-            font-size: 1.8rem;
+        h1 {
+            font-size: 1.5rem;
             font-weight: 700;
-            margin: 10px 0;
+            margin: 0;
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--text-tertiary);
+            box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+            transition: all 0.3s ease;
+        }
+
+        .status-dot.active {
+            background-color: var(--success);
+            box-shadow: 0 0 10px var(--success-glow);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+            70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .meta-info {
             font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
         }
 
-        .sub-value {
-            font-size: 0.9rem;
-            color: var(--text-dim);
+        /* --- Grid Layout --- */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 24px;
         }
 
-        .log-container {
+        /* --- Cards --- */
+        .card {
+            background: var(--surface-color);
+            border: 1px solid var(--surface-border);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card:hover {
+            border-color: rgba(255,255,255,0.1);
+        }
+
+        .card-header {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        .big-number {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.8rem;
-            height: 300px;
-            overflow-y: auto;
-            background: #000;
-            padding: 15px;
-            border-radius: 8px;
-            line-height: 1.5;
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
         }
 
-        .log-entry { margin-bottom: 5px; }
-        .log-entry.info { color: #52a1ff; }
-        .log-entry.warn { color: #f9d949; }
-        .log-entry.error { color: #ff4d4d; }
-
-        .orders-table {
-            width: 100%;
-            border-collapse: collapse;
+        .sub-text {
+            margin-top: 8px;
             font-size: 0.9rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
 
-        .orders-table th {
-            text-align: left;
-            color: var(--text-dim);
-            padding-bottom: 10px;
-            font-weight: 400;
-        }
-
-        .orders-table td {
-            padding: 8px 0;
-            border-bottom: 1px solid var(--border);
-        }
-
+        /* Specific Card Styles */
         .trend-up { color: var(--success); }
         .trend-down { color: var(--danger); }
 
-        #equityChart {
-            height: 200px !important;
+        .col-span-2 { grid-column: span 2; }
+        .col-span-3 { grid-column: span 3; }
+
+        /* --- Chart Area --- */
+        .chart-container {
+            position: relative;
+            height: 240px;
+            width: 100%;
         }
+
+        /* --- Tables & Logs --- */
+        .table-container {
+            overflow-y: auto;
+            max-height: 300px;
+            scrollbar-width: thin;
+            scrollbar-color: var(--surface-border) var(--surface-color);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        th {
+            text-align: left;
+            color: var(--text-secondary);
+            font-weight: 500;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--surface-border);
+            position: sticky;
+            top: 0;
+            background: var(--surface-color);
+        }
+
+        td {
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            color: var(--text-primary);
+        }
+
+        .log-entry {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.02);
+            color: var(--text-secondary);
+        }
+        .log-entry span { margin-right: 8px; opacity: 0.5; }
+
+        /* Stats Grid within System Card */
+        .stats-row {
+            display: flex;
+            justify-content: space-between;
+            margin-top: auto;
+        }
+        .stat-item {
+            text-align: center;
+        }
+        .stat-label { font-size: 0.7rem; color: var(--text-tertiary); margin-bottom: 4px; }
+        .stat-curr { font-family: 'JetBrains Mono'; font-weight: 700; }
+
     </style>
 </head>
 <body>
     <header>
-        <div style="display: flex; align-items: center; gap: 15px;">
-            <h1 style="margin: 0; font-size: 1.2rem;">Bitunix Autonomous Engine</h1>
-            <div id="statusBadge" class="status-badge">CONNECTED</div>
+        <h1>
+            <div id="connectionDot" class="status-dot"></div>
+            Laptop Agents <span style="opacity: 0.5; font-weight: 300;">| Autonomy Engine</span>
+        </h1>
+        <div class="meta-info">
+            <span id="symbolDisplay">BTCUSDT</span> •
+            <span id="clockDisplay">--:--:--</span>
         </div>
-        <div id="clock" style="color: var(--text-dim); font-size: 0.9rem; font-family: 'JetBrains Mono';">--:--:--</div>
     </header>
 
-    <div class="grid">
+    <div class="dashboard-grid">
+        <!-- Equity Card -->
         <div class="card">
-            <h2>EQUITY</h2>
-            <div id="equityValue" class="value">$0.00</div>
-            <div id="pnlValue" class="sub-value">PnL: $0.00 (0.00%)</div>
+            <div class="card-header">Total Equity</div>
+            <div id="equityValue" class="big-number">$0.00</div>
+            <div id="pnlContainer" class="sub-text">
+                <span id="pnlValue">$0.00</span>
+                <span id="pnlPercent">(0.00%)</span>
+            </div>
         </div>
+
+        <!-- Position Card -->
         <div class="card">
-            <h2>POSITION</h2>
-            <div id="posValue" class="value">FLAT</div>
-            <div id="posDetail" class="sub-value">--</div>
+            <div class="card-header">Current Position</div>
+            <div id="positionValue" class="big-number">FLAT</div>
+            <div id="positionDetails" class="sub-text">No active exposure</div>
         </div>
+
+        <!-- System Health Card -->
         <div class="card">
-            <h2>SYSTEM</h2>
-            <div style="display: flex; gap: 20px;">
-                <div>
-                    <div style="color: var(--text-dim); font-size: 0.8rem;">RAM</div>
-                    <div id="ramValue" style="font-weight: bold;">-- MB</div>
+            <div class="card-header">System Health</div>
+            <div class="stats-row">
+                <div class="stat-item">
+                    <div class="stat-label">RAM</div>
+                    <div id="ramValue" class="stat-curr">--</div>
                 </div>
-                <div>
-                    <div style="color: var(--text-dim); font-size: 0.8rem;">CPU</div>
-                    <div id="cpuValue" style="font-weight: bold;">-- %</div>
+                <div class="stat-item">
+                    <div class="stat-label">CPU</div>
+                    <div id="cpuValue" class="stat-curr">--</div>
                 </div>
-                <div>
-                    <div style="color: var(--text-dim); font-size: 0.8rem;">HEARTBEAT</div>
-                    <div id="hbAge" style="font-weight: bold;">--s</div>
+                <div class="stat-item">
+                    <div class="stat-label">HEARTBEAT</div>
+                    <div id="heartbeatValue" class="stat-curr">--</div>
                 </div>
             </div>
         </div>
+
+        <!-- Chart Card (Spans 2 cols on wide, full on mobile) -->
+        <div class="card col-span-2" style="grid-column: span 1;">
+            <div class="card-header">Equity Curve (Last 60 ticks)</div>
+            <div class="chart-container">
+                <canvas id="equityChart"></canvas>
+            </div>
+        </div>
+
     </div>
 
-    <div class="grid" style="grid-template-columns: 2fr 1fr;">
-        <div class="card">
-            <h2>RECENT LOGS</h2>
-            <div id="logContainer" class="log-container"></div>
+    <div class="dashboard-grid" style="margin-top: 0; grid-template-columns: 2fr 1fr;">
+        <!-- Logs -->
+        <div class="card table-container" style="height: 350px;">
+            <div class="card-header">System Events</div>
+            <div id="logFeed"></div>
         </div>
-        <div class="card">
-            <h2>ACTIVE ORDERS</h2>
-            <table class="orders-table">
+
+        <!-- Orders -->
+        <div class="card table-container" style="height: 350px;">
+            <div class="card-header">Working Orders</div>
+            <table>
                 <thead>
                     <tr>
                         <th>Side</th>
@@ -186,93 +282,180 @@
                         <th>Qty</th>
                     </tr>
                 </thead>
-                <tbody id="orderList">
+                <tbody id="orderTableBody">
+                    <!-- Orders go here -->
                 </tbody>
             </table>
         </div>
     </div>
 
     <script>
-        const state = {
-            equityHistory: [],
-            maxHistoryPoints: 60
-        };
+        // --- Chart Configuration ---
+        const ctx = document.getElementById('equityChart').getContext('2d');
+        const gradient = ctx.createLinearGradient(0, 0, 0, 240);
+        gradient.addColorStop(0, 'rgba(59, 130, 246, 0.2)');
+        gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
 
-        function update() {
+        const equityChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array(60).fill(''),
+                datasets: [{
+                    label: 'Equity',
+                    data: Array(60).fill(null),
+                    borderColor: '#3b82f6',
+                    backgroundColor: gradient,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                interaction: { intersect: false, mode: 'index' },
+                scales: {
+                    x: { display: false },
+                    y: {
+                        display: true,
+                        grid: { color: '#1a1a24' },
+                        ticks: { color: '#4b5563', font: { family: 'JetBrains Mono' } }
+                    }
+                }
+            }
+        });
+
+        // --- State ---
+        const CHART_HISTORY_SIZE = 60;
+        let chartDataBuffer = [];
+
+        function updateDashboard() {
             fetch('/api/status')
                 .then(res => res.json())
                 .then(data => {
-                    // Update Clock
-                    document.getElementById('clock').innerText = new Date(data.server_time * 1000).toLocaleTimeString();
-
-                    // Heartbeat
-                    const hb = data.heartbeat || {};
-                    const hbAge = data.server_time - (hb.last_updated_ts || 0);
-                    document.getElementById('hbAge').innerText = hbAge.toFixed(1) + 's';
-                    
-                    const badge = document.getElementById('statusBadge');
-                    if (hbAge > 10) {
-                        badge.innerText = 'STALE';
-                        badge.className = 'status-badge stale';
-                    } else {
-                        badge.innerText = 'CONNECTED';
-                        badge.className = 'status-badge';
-                    }
-
-                    // Equity
-                    const eq = hb.equity || 0;
-                    document.getElementById('equityValue').innerText = '$' + eq.toLocaleString(undefined, {minimumFractionDigits: 2});
-                    
-                    const broker = data.broker || {};
-                    const startEq = broker.starting_equity || eq;
-                    const pnl = eq - startEq;
-                    const pnlPct = (pnl / startEq) * 100;
-                    const pnlEl = document.getElementById('pnlValue');
-                    pnlEl.innerText = `PnL: $${pnl.toLocaleString(undefined, {minimumFractionDigits: 2})} (${pnlPct.toFixed(2)}%)`;
-                    pnlEl.className = 'sub-value ' + (pnl >= 0 ? 'trend-up' : 'trend-down');
-
-                    // Position
-                    const pos = broker.pos || null;
-                    const posEl = document.getElementById('posValue');
-                    const posDetail = document.getElementById('posDetail');
-                    if (pos) {
-                        posEl.innerText = pos.side;
-                        posEl.className = 'value ' + (pos.side === 'LONG' ? 'trend-up' : 'trend-down');
-                        posDetail.innerText = `@ ${pos.entry.toLocaleString()} | Qty: ${pos.qty}`;
-                    } else {
-                        posEl.innerText = 'FLAT';
-                        posEl.className = 'value';
-                        posDetail.innerText = '--';
-                    }
-
-                    // System
-                    document.getElementById('ramValue').innerText = (hb.ram_mb || 0).toFixed(0) + ' MB';
-                    document.getElementById('cpuValue').innerText = (hb.cpu_pct || 0).toFixed(1) + ' %';
-
-                    // Orders
-                    const orders = broker.working_orders || [];
-                    const orderList = document.getElementById('orderList');
-                    orderList.innerHTML = orders.map(o => `
-                        <tr>
-                            <td class="${o.side === 'LONG' ? 'trend-up' : 'trend-down'}">${o.side}</td>
-                            <td>${o.entry.toLocaleString()}</td>
-                            <td>${o.qty}</td>
-                        </tr>
-                    `).join('');
-
-                    // Logs
-                    const logContainer = document.getElementById('logContainer');
-                    const currentLogs = (data.logs || []).join('');
-                    if (logContainer.innerText !== currentLogs) {
-                        logContainer.innerText = currentLogs;
-                        logContainer.scrollTop = logContainer.scrollHeight;
-                    }
+                    renderHeader(data);
+                    renderCards(data);
+                    renderChart(data);
+                    renderLogs(data);
+                    renderOrders(data);
                 })
-                .catch(err => console.error('Dashboard Update Failed:', err));
+                .catch(err => {
+                    console.error("Dashboard update failed:", err);
+                    document.getElementById('connectionDot').classList.remove('active');
+                    document.getElementById('connectionDot').style.backgroundColor = 'var(--danger)';
+                });
         }
 
-        setInterval(update, 2000);
-        update();
+        function renderHeader(data) {
+            // Heartbeat Logic
+            const lastUpdated = data.heartbeat?.last_updated_ts || 0;
+            const now = data.server_time;
+            const lag = now - lastUpdated;
+
+            const dot = document.getElementById('connectionDot');
+            if (lag < 15) {
+                dot.classList.add('active');
+                dot.style.backgroundColor = 'var(--success)';
+            } else {
+                dot.classList.remove('active');
+                dot.style.backgroundColor = 'var(--danger)';
+            }
+
+            document.getElementById('clockDisplay').innerText = new Date(now * 1000).toLocaleTimeString();
+            document.getElementById('symbolDisplay').innerText = data.broker?.symbol || 'BTCUSDT';
+        }
+
+        function renderCards(data) {
+            const hb = data.heartbeat || {};
+            const broker = data.broker || {};
+
+            // Equity
+            const currentEq = hb.equity || broker.current_equity || 0;
+            const startEq = broker.starting_equity || currentEq; // Avoid div/0 visual glitch at very start
+            const pnl = currentEq - startEq;
+            const pnlPct = startEq > 0 ? (pnl / startEq) * 100 : 0;
+
+            document.getElementById('equityValue').innerText = '$' + currentEq.toLocaleString(undefined, {minimumFractionDigits: 2});
+
+            const pnlEl = document.getElementById('pnlContainer');
+            const pnlColor = pnl >= 0 ? 'var(--success)' : 'var(--danger)';
+            pnlEl.innerHTML = `
+                <span style="color: ${pnlColor}">$${pnl.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                <span style="color: ${pnlColor}; opacity: 0.8">(${pnlPct.toFixed(2)}%)</span>
+            `;
+
+            // Position
+            const pos = broker.pos;
+            const posVal = document.getElementById('positionValue');
+            const posDet = document.getElementById('positionDetails');
+
+            if (pos && (pos.side === 'LONG' || pos.side === 'SHORT')) {
+                posVal.innerText = pos.side;
+                posVal.style.color = pos.side === 'LONG' ? 'var(--success)' : 'var(--danger)';
+                posDet.innerText = `${pos.qty} @ ${pos.entry.toFixed(2)}`;
+            } else {
+                posVal.innerText = 'FLAT';
+                posVal.style.color = 'var(--text-primary)';
+                posDet.innerText = 'No active exposure';
+            }
+
+            // System Stats
+            document.getElementById('ramValue').innerText = (hb.ram_mb || 0).toFixed(0) + 'MB';
+            document.getElementById('cpuValue').innerText = (hb.cpu_pct || 0).toFixed(0) + '%';
+
+            const lag = data.server_time - (hb.last_updated_ts || 0);
+            document.getElementById('heartbeatValue').innerText = lag.toFixed(1) + 's';
+        }
+
+        function renderChart(data) {
+            // Push new equity to buffer
+            const eq = data.heartbeat?.equity;
+            if (eq) {
+                // If this is a new value (prevent plotting same value multiple times per second)
+                // Actually, simplistic approach: just shift in every update (2s)
+
+                // Add to standard chart data
+                const dataset = equityChart.data.datasets[0].data;
+                dataset.push(eq);
+                if (dataset.length > CHART_HISTORY_SIZE) dataset.shift();
+
+                equityChart.update('none'); // 'none' for smooth animation
+            }
+        }
+
+        function renderLogs(data) {
+            const logs = data.logs || [];
+            // Just raw dump for now, split by lines if needed
+            const container = document.getElementById('logFeed');
+            container.innerHTML = logs.map(l => `<div class="log-entry">${l}</div>`).join('');
+            // Scroll to bottom
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function renderOrders(data) {
+            const orders = data.broker?.working_orders || [];
+            const tbody = document.getElementById('orderTableBody');
+
+            if (orders.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-tertiary); padding: 20px;">No working orders</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = orders.map(o => `
+                <tr>
+                    <td style="color: ${o.side === 'LONG' ? 'var(--success)' : 'var(--danger)'}">${o.side}</td>
+                    <td>${o.entry.toLocaleString()}</td>
+                    <td>${o.qty}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Start Loop
+        setInterval(updateDashboard, 2000);
+        updateDashboard(); // Initial call
     </script>
 </body>
 </html>

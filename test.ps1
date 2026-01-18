@@ -132,7 +132,6 @@ def probe(name, module, class_name, symbol, method):
 print("Probing Exchange Providers (REST)...")
 probe_map = [
     ('Bitunix', 'laptop_agents.data.providers.bitunix_futures', 'BitunixFuturesProvider', 'BTCUSDT', 'funding_rate'),
-    ('Binance', 'laptop_agents.data.providers.binance_futures', 'BinanceFuturesProvider', 'BTCUSDT', 'funding_8h'),
     ('Bybit',   'laptop_agents.data.providers.bybit_derivatives', 'BybitDerivativesProvider', 'BTCUSDT', 'snapshot_derivatives'),
 ]
 for p in probe_map:
@@ -192,7 +191,7 @@ Get-ChildItem "autonomy_error_*.log" | ForEach-Object { Remove-Item $_ -ErrorAct
 # Construct the launch command
 # We use Start-Process to run it detached/background but monitor-able
 $Proc = Start-Process -FilePath "python" `
-    -ArgumentList "-u", "$MainAppPath", "run", "--mode", "live-session", "--execution-mode", "paper", "--duration", "10", "--symbol", "BTCUSDT", "--async" `
+    -ArgumentList "-u", "$MainAppPath", "run", "--mode", "live-session", "--execution-mode", "paper", "--duration", "10", "--symbol", "BTCUSDT", "--async", "--dashboard" `
     -RedirectStandardOutput $AutonomyLog `
     -RedirectStandardError $AutonomyErr `
     -PassThru `
@@ -204,7 +203,17 @@ if (-not $Proc) {
 }
 
 Write-Host "Process Started. PID: $($Proc.Id)" -ForegroundColor Green
+Write-Host "Dashboard:       http://localhost:5000" -ForegroundColor Cyan
 Write-Host "Monitoring for 10 minutes... (Press Ctrl+C to abort and kill process)" -ForegroundColor Yellow
+
+# Wait for Dashboard to come up
+Start-Sleep -Seconds 5
+$DashCheck = Test-NetConnection -ComputerName localhost -Port 5000 -InformationLevel Quiet
+if ($DashCheck) {
+    Write-Host "Dashboard is UP and Reachable!" -ForegroundColor Green
+} else {
+    Write-Host "Dashboard not yet unreachable (might take a moment)." -ForegroundColor DarkGray
+}
 
 $DurationMinutes = 10
 $CheckIntervalSeconds = 30

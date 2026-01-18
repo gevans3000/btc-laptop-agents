@@ -6,9 +6,10 @@ description: One command to verify, commit, and ship code changes autonomously
 
 > **Goal**: Fully autonomous code verification, commit, and deployment in a single command.
 
-// turbo-all
+// turbo
 
 ## 1. Syntax Check
+// turbo
 ```powershell
 python -m compileall src scripts -q
 if ($LASTEXITCODE -ne 0) {
@@ -19,6 +20,7 @@ Write-Host "✓ Syntax OK" -ForegroundColor Green
 ```
 
 ## 2. Learned Lint Rules
+// turbo
 ```powershell
 python scripts/check_lint_rules.py
 if ($LASTEXITCODE -ne 0) {
@@ -29,6 +31,7 @@ Write-Host "✓ Lint rules OK" -ForegroundColor Green
 ```
 
 ## 3. Verification & Doctor
+// turbo
 ```powershell
 python -m laptop_agents doctor --fix
 if ($LASTEXITCODE -ne 0) {
@@ -39,6 +42,7 @@ Write-Host "✓ Verification OK" -ForegroundColor Green
 ```
 
 ## 4. Type Safety (mypy)
+// turbo
 ```powershell
 $env:PYTHONPATH='src'
 python -m mypy src/laptop_agents --ignore-missing-imports
@@ -50,6 +54,7 @@ Write-Host "✓ Type safety OK" -ForegroundColor Green
 ```
 
 ## 5. Unit Tests
+// turbo
 ```powershell
 $env:PYTHONPATH='src'
 python -m pytest tests/ -q --tb=short -p no:cacheprovider --basetemp=./pytest_temp
@@ -61,6 +66,7 @@ Write-Host "✓ All tests passed" -ForegroundColor Green
 ```
 
 ## 6. Documentation Links
+// turbo
 ```powershell
 python scripts/check_docs_links.py
 if ($LASTEXITCODE -ne 0) {
@@ -69,6 +75,7 @@ if ($LASTEXITCODE -ne 0) {
 ```
 
 ## 7. Generate Commit Message
+// turbo
 ```powershell
 # Get changed files and generate semantic commit message
 $changedFiles = git --no-pager diff --name-only --cached
@@ -102,6 +109,7 @@ if ($scope) { Write-Host "Detected scope: $scope" -ForegroundColor Cyan }
 ```
 
 ## 8. Stage and Commit
+// turbo
 ```powershell
 git add .
 git --no-pager status
@@ -128,6 +136,7 @@ Write-Host "✓ Pushed to origin/main" -ForegroundColor Green
 ```
 
 ## 10. Success Summary
+// turbo
 ```powershell
 Write-Host "`n=== DEPLOYMENT COMPLETE ===" -ForegroundColor Green
 git --no-pager log -1 --oneline
