@@ -33,8 +33,8 @@ function Show-Menu {
     Write-Host "3. [*] Edit Strategy Config" -ForegroundColor Yellow
     Write-Host "   -> Opens config/strategies/scalp_1m_sweep.json"
     Write-Host ""
-    Write-Host "4. [=] View Last Test Report" -ForegroundColor White
-    Write-Host "   -> Opens the last generated report"
+    Write-Host "4. [=] View Last Trading Report (Visual)" -ForegroundColor White
+    Write-Host "   -> Opens the latest chart in your browser"
     Write-Host ""
     Write-Host "5. [?] Backtest (Mock Data)" -ForegroundColor Cyan
     Write-Host "   -> Simulates 1000 candles (Random Walk)"
@@ -73,13 +73,19 @@ while ($running) {
             }
         }
         "4" {
-            $reportPath = "testall-report.txt"
-            if (Test-Path $reportPath) {
-                Get-Content $reportPath | More
+            $tradingReport = ".workspace/runs/latest/summary.html"
+            $testReport = "testall-report.txt"
+
+            if (Test-Path $tradingReport) {
+                Write-Host "`nOpening visual trading report in browser..." -ForegroundColor Green
+                Start-Process $tradingReport
+            } elseif (Test-Path $testReport) {
+                Write-Host "`nNo visual report found. Opening technical test log..." -ForegroundColor Yellow
+                Get-Content $testReport | More
             } else {
-                Write-Host "No report found. Run a test first." -ForegroundColor Red
+                Write-Host "`nNo reports found. Run a backtest (Option 5 or 6) first!" -ForegroundColor Red
             }
-            Read-Host "Press Enter to return..."
+            Read-Host "`nPress Enter to return..."
         }
         "5" {
             Write-Host "`nRunning Mock Backtest..." -ForegroundColor Cyan
