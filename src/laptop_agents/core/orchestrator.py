@@ -28,6 +28,10 @@ from laptop_agents.core.validation import (
     validate_trades_csv,
     validate_summary_html,
 )
+from laptop_agents.core.config_schema import (
+    validate_runtime_config,
+    load_and_validate_risk_config,
+)
 
 WORKSPACE_DIR = REPO_ROOT / ".workspace"
 RUNS_DIR = WORKSPACE_DIR / "runs"
@@ -251,6 +255,16 @@ def run_orchestrated_mode(
 ) -> tuple[bool, str]:
     """Run orchestrated mode - using modular agents in a single pass."""
 
+    # 1. Config Validation (Fail Fast)
+    try:
+        # Default starting balance is hardcoded later as 10000.0, validating logic args
+        validate_runtime_config(risk_pct, stop_bps, 10000.0)
+        # Validate static config files
+        load_and_validate_risk_config()
+    except Exception as e:
+        logger.error(f"CONFIG VALIDATION ERROR: {e}")
+        return False, f"Config validation failed: {e}"
+
     run_id = str(uuid.uuid4())
     run_dir = RUNS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -269,9 +283,13 @@ def run_orchestrated_mode(
     )
 
     from laptop_agents.resilience.trading_circuit_breaker import TradingCircuitBreaker
+    from laptop_agents.resilience.error_circuit_breaker import ErrorCircuitBreaker
 
     circuit_breaker = TradingCircuitBreaker(
         max_daily_drawdown_pct=5.0, max_consecutive_losses=5
+    )
+    error_circuit_breaker = ErrorCircuitBreaker(
+        failure_threshold=5, recovery_timeout=120, time_window=60
     )
 
     try:
@@ -393,6 +411,15 @@ def run_orchestrated_mode(
         circuit_breaker.set_starting_equity(starting_balance)
 
         for i, candle in enumerate(candles):
+            # 0. Kill Switch Check
+            if os.environ.get("LA_KILL_SWITCH", "FALSE").upper() == "TRUE":
+                logger.warning("KILL SWITCH ACTIVATED! Aborting run immediately.")
+                append_event({"event": "KillSwitchActivated", "action": "abort_run"})
+                if hasattr(supervisor.broker, "shutdown"):
+                    supervisor.broker.shutdown()
+                return False, "Run aborted by LA_KILL_SWITCH"
+
+            # 1. Trading Circuit Breaker (Financial)
             if circuit_breaker.is_tripped():
                 append_event(
                     {
@@ -402,8 +429,27 @@ def run_orchestrated_mode(
                 )
                 break
 
+            # 2. Error Circuit Breaker (Operational)
+            if not error_circuit_breaker.allow_request():
+                append_event(
+                    {"event": "ErrorCircuitBreakerOpen", "status": "skipping_step"}
+                )
+                time.sleep(1)  # Prevent hot loop
+                continue
+
             skip_broker = execution_mode == "live" and i < len(candles) - 1
-            state = supervisor.step(state, candle, skip_broker=skip_broker)
+
+            try:
+                state = supervisor.step(state, candle, skip_broker=skip_broker)
+                error_circuit_breaker.record_success()
+            except Exception as step_error:
+                logger.error(f"Supervisor Step Failed at index {i}: {step_error}")
+                error_circuit_breaker.record_failure()
+                # If critical failure, we might want to stop, but CB handles throttling
+                if error_circuit_breaker.state == "OPEN":
+                    if hasattr(supervisor.broker, "shutdown"):
+                        supervisor.broker.shutdown()  # Safety halt
+                continue  # Skip rest of loop for this candle
 
             trade_pnl = None
             is_inverse = getattr(supervisor.broker, "is_inverse", False)
@@ -432,6 +478,8 @@ def run_orchestrated_mode(
                             "candle_idx": i,
                             "equity": total_equity,
                             "symbol": symbol,
+                            "error_cb_state": error_circuit_breaker.state,
+                            "trading_cb_state": circuit_breaker.get_status(),
                         },
                         f,
                     )

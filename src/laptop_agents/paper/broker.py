@@ -4,17 +4,17 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from ..core import hard_limits
 from ..trading.helpers import apply_slippage
+from laptop_agents.core.orchestrator import append_event
 from laptop_agents.core.logger import logger
 import time
-import json
 import random
 import uuid
 from pathlib import Path
-import shutil
 from datetime import datetime, timezone
 from cachetools import TTLCache
 import yaml
 from collections import deque
+from ..storage.position_store import PositionStore
 
 
 @dataclass
@@ -82,18 +82,24 @@ class PaperBroker:
                 "maker": fees_bps / 10000.0,
                 "taker": fees_bps / 10000.0,
             }
-        if slip_bps != 0:
-            # We use slip_bps as a fixed baseline if provided
-            pass
         self.processed_order_ids: set[str] = set()
         self._idempotency_cache: TTLCache[str, Any] = TTLCache(maxsize=1000, ttl=5)
         self.order_timestamps: List[float] = []
         self.order_history: List[Dict[str, Any]] = []
-        self.state_path = state_path
+
+        self.store: Optional[PositionStore] = None
+        if state_path:
+            # Enforce .db extension for SQLite store
+            db_path = Path(state_path).with_suffix(".db")
+            self.state_path = str(db_path)
+            self.store = PositionStore(self.state_path)
+        else:
+            self.state_path = None
+
         self.working_orders: List[Dict[str, Any]] = []
         self.max_position_per_symbol: Dict[str, float] = {}
         self._load_risk_config()
-        if self.state_path:
+        if self.store:
             self._load_state()
 
     def on_candle(
@@ -167,8 +173,6 @@ class PaperBroker:
             logger.warning(
                 f"REJECTED: Rate limit {hard_limits.MAX_ORDERS_PER_MINUTE} orders/min exceeded"
             )
-            from laptop_agents.core.orchestrator import append_event
-
             append_event(
                 {"event": "OrderRejected", "reason": "rate_limit_exceeded"}, paper=True
             )
@@ -182,8 +186,6 @@ class PaperBroker:
             logger.warning(
                 f"REJECTED: Daily loss {drawdown_pct:.2f}% > {hard_limits.MAX_DAILY_LOSS_PCT}%"
             )
-            from laptop_agents.core.orchestrator import append_event
-
             append_event(
                 {
                     "event": "OrderRejected",
@@ -201,8 +203,6 @@ class PaperBroker:
             logger.warning(
                 f"REJECTED: Position limit exceeded for {self.symbol}. Requested {qty_requested} > Cap {symbol_cap}"
             )
-            from laptop_agents.core.orchestrator import append_event
-
             append_event(
                 {
                     "event": "OrderRejected",
@@ -228,8 +228,6 @@ class PaperBroker:
             logger.warning(
                 f"PAPER REJECTED: Notional ${notional_est:.2f} > hard limit ${hard_limits.MAX_POSITION_SIZE_USD}"
             )
-            from laptop_agents.core.orchestrator import append_event
-
             append_event(
                 {
                     "event": "OrderRejected",
@@ -245,8 +243,6 @@ class PaperBroker:
             logger.warning(
                 f"PAPER REJECTED: Leverage {leverage_est:.1f}x > hard limit {hard_limits.MAX_LEVERAGE}x"
             )
-            from laptop_agents.core.orchestrator import append_event
-
             append_event(
                 {
                     "event": "OrderRejected",
@@ -430,8 +426,6 @@ class PaperBroker:
         if self.pos is not None:
             if self.pos.bars_open > 50:
                 logger.warning(f"STALE POSITION: Open for {self.pos.bars_open} bars")
-                from laptop_agents.core.orchestrator import append_event
-
                 append_event(
                     {
                         "event": "StalePosition",
@@ -452,8 +446,6 @@ class PaperBroker:
             ):
                 p.trail_active = True
                 p.trail_stop = float(candle.close) - abs(p.entry - p.sl) * atr_mult
-                from laptop_agents.core.orchestrator import append_event
-
                 append_event(
                     {
                         "event": "TrailActivated",
@@ -470,8 +462,6 @@ class PaperBroker:
             ):
                 p.trail_active = True
                 p.trail_stop = float(candle.close) + abs(p.entry - p.sl) * atr_mult
-                from laptop_agents.core.orchestrator import append_event
-
                 append_event(
                     {
                         "event": "TrailActivated",
@@ -610,8 +600,9 @@ class PaperBroker:
         self._save_state()
 
     def _save_state(self) -> None:
-        if not self.state_path:
+        if not self.store:
             return
+
         state = {
             "symbol": self.symbol,
             "starting_equity": self.starting_equity,
@@ -620,7 +611,7 @@ class PaperBroker:
             "order_history": self.order_history,
             "working_orders": self.working_orders,
             "pos": None,
-            "saved_at": time.time(),  # For debugging
+            "saved_at": time.time(),
         }
         if self.pos:
             state["pos"] = {
@@ -636,128 +627,63 @@ class PaperBroker:
                 "trail_stop": self.pos.trail_stop,
             }
 
-        main_path = Path(self.state_path)
-        temp_path = main_path.with_suffix(".tmp")
-        backup_path = main_path.with_suffix(".bak")
-
-        try:
-            # Step 1: Write to temp file
-            with open(temp_path, "w") as f:
-                json.dump(state, f, indent=2)
-
-            # Step 2: Validate temp file is valid JSON
-            with open(temp_path, "r") as f:
-                json.load(f)  # Will raise if corrupt
-
-            # Step 3: Backup existing state (if exists and valid)
-            if main_path.exists():
-                try:
-                    with open(main_path, "r") as f:
-                        json.load(f)  # Validate before backing up
-
-                    shutil.copy2(main_path, backup_path)
-                except (json.JSONDecodeError, Exception):
-                    pass  # Don't backup corrupt files
-
-            # Step 4: Atomic rename temp -> main
-            temp_path.replace(main_path)
-
-        except Exception as e:
-            logger.error(f"Failed to save state: {e}")
-            # Clean up temp file if it exists
-            if temp_path.exists():
-                try:
-                    temp_path.unlink()
-                except Exception:
-                    pass
+        self.store.save_state(self.symbol, state)
 
     def _load_state(self) -> None:
-        if not self.state_path:
+        if not self.store:
             return
-        path = Path(self.state_path)
-        backup_path = path.with_suffix(".bak")
 
-        # Try main file first, then backup
-        for try_path, is_backup in [(path, False), (backup_path, True)]:
-            if not try_path.exists():
-                continue
+        state = self.store.load_state(self.symbol)
+        if not state:
+            logger.info("No existing state found in DB. Starting fresh.")
+            return
 
-            try:
-                with open(try_path) as f:
-                    state = json.load(f)
+        try:
+            self.starting_equity = state.get("starting_equity", self.starting_equity)
+            self.current_equity = state.get("current_equity", self.current_equity)
+            self.processed_order_ids = set(state.get("processed_order_ids", []))
+            self.order_history = state.get("order_history", [])
+            self.working_orders = state.get("working_orders", [])
 
-                self.starting_equity = state.get(
-                    "starting_equity", self.starting_equity
+            # Expire stale working orders (> 24 hours old)
+            now = time.time()
+            original_count = len(self.working_orders)
+            self.working_orders = [
+                o
+                for o in self.working_orders
+                if now - o.get("created_at", now) < 86400  # 24 hours
+            ]
+            if original_count != len(self.working_orders):
+                logger.info(
+                    f"Expired {original_count - len(self.working_orders)} stale working orders"
                 )
-                self.current_equity = state.get("current_equity", self.current_equity)
-                self.processed_order_ids = set(state.get("processed_order_ids", []))
-                self.order_history = state.get("order_history", [])
-                self.working_orders = state.get("working_orders", [])
 
-                # Expire stale working orders (> 24 hours old)
-                now = time.time()
-                original_count = len(self.working_orders)
-                self.working_orders = [
-                    o
-                    for o in self.working_orders
-                    if now - o.get("created_at", now) < 86400  # 24 hours
-                ]
-                if original_count != len(self.working_orders):
-                    logger.info(
-                        f"Expired {original_count - len(self.working_orders)} stale working orders"
-                    )
-
-                pos_data = state.get("pos")
-                if pos_data:
-                    # Convert lots back to deque
-                    if "lots" in pos_data:
-                        pos_data["lots"] = deque(pos_data["lots"])
-                    else:
-                        # Migration for old state
-                        old_lot = {
-                            "qty": pos_data.get("qty", 0),
-                            "price": pos_data.get("entry", 0),
-                            "fees": pos_data.get("entry_fees", 0),
-                        }
-                        pos_data["lots"] = deque([old_lot])
-
-                    # Clean up keys that Position dataclass doesn't expect
-                    filtered_pos = {
-                        k: v
-                        for k, v in pos_data.items()
-                        if k not in ["entry", "entry_fees"]
+            pos_data = state.get("pos")
+            if pos_data:
+                # Convert lots back to deque
+                if "lots" in pos_data:
+                    pos_data["lots"] = deque(pos_data["lots"])
+                else:
+                    # Migration for old state
+                    old_lot = {
+                        "qty": pos_data.get("qty", 0),
+                        "price": pos_data.get("entry", 0),
+                        "fees": pos_data.get("entry_fees", 0),
                     }
-                    self.pos = Position(**filtered_pos)
+                    pos_data["lots"] = deque([old_lot])
 
-                source = "backup" if is_backup else "primary"
-                logger.info(f"Loaded broker state from {source}: {try_path}")
+                # Clean up keys that Position dataclass doesn't expect
+                filtered_pos = {
+                    k: v
+                    for k, v in pos_data.items()
+                    if k not in ["entry", "entry_fees"]
+                }
+                self.pos = Position(**filtered_pos)
 
-                # If we loaded from backup, immediately save to restore primary
-                if is_backup:
-                    logger.warning(
-                        "Loaded from BACKUP. Primary was corrupt. Restoring primary file..."
-                    )
-                    self._save_state()
+            logger.info(f"Loaded broker state from DB: {self.state_path}")
 
-                return  # Success - exit the loop
-
-            except json.JSONDecodeError as e:
-                logger.error(f"State file corrupt ({try_path}): {e}")
-                # Rename corrupt file for debugging
-                corrupt_path = try_path.with_suffix(f".corrupt.{int(time.time())}")
-                try:
-                    try_path.rename(corrupt_path)
-                    logger.warning(f"Renamed corrupt file to {corrupt_path}")
-                except Exception:
-                    pass
-                continue  # Try next file
-
-            except Exception as e:
-                logger.error(f"Failed to load broker state from {try_path}: {e}")
-                continue
-
-        # If we get here, no valid state was found
-        logger.warning("No valid state file found. Starting with fresh state.")
+        except Exception as e:
+            logger.error(f"Failed to load broker state: {e}")
 
     def _load_risk_config(self) -> None:
         """Load risk settings from config/risk.yaml."""
@@ -845,8 +771,6 @@ class PaperBroker:
         logger.info(
             f"FUNDING APPLIED: Rate {rate*100:.4f}% | Cost: ${cost:,.2f} | Equity: ${self.current_equity:,.2f}"
         )
-        from laptop_agents.core.orchestrator import append_event
-
         append_event(
             {
                 "event": "FundingApplied",

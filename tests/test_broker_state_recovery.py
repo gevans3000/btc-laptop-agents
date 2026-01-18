@@ -1,18 +1,21 @@
-import pytest
-import json
-import os
 from pathlib import Path
-from laptop_agents.paper.broker import PaperBroker, Position
+from laptop_agents.paper.broker import PaperBroker
+from laptop_agents.storage.position_store import PositionStore
+
 
 def test_broker_state_recovery():
-    state_file = Path("test_state_broker.json")
-    if state_file.exists(): state_file.unlink()
-    corrupt_suffix = ".corrupt"
-    corrupt_file = Path(str(state_file) + corrupt_suffix)
-    if corrupt_file.exists(): corrupt_file.unlink()
-    
+    state_file = Path("test_state_broker.db")
+    if state_file.exists():
+        state_file.unlink()
+    # Also clean up WAL/SHM files if any
+    for p in state_file.parent.glob(state_file.name + "*"):
+        try:
+            p.unlink()
+        except Exception:
+            pass
+
     try:
-        # 1. Write a valid state file with open position
+        # 1. Write a valid state via PositionStore
         initial_state = {
             "symbol": "BTCUSDT",
             "starting_equity": 10000.0,
@@ -30,43 +33,46 @@ def test_broker_state_recovery():
                 "entry_fees": 1.0,
                 "bars_open": 5,
                 "trail_active": False,
-                "trail_stop": 0.0
-            }
+                "trail_stop": 0.0,
+            },
         }
-        
-        with open(state_file, "w") as f:
-            json.dump(initial_state, f)
-        
+
+        store = PositionStore(str(state_file))
+        store.save_state("BTCUSDT", initial_state)
+        store.close()
+
         # 2. Initialize PaperBroker
         broker = PaperBroker(symbol="BTCUSDT", state_path=str(state_file))
-        
+
         # 3. Assert state is recovered
         assert broker.current_equity == 9500.0
         assert broker.pos is not None
         assert broker.pos.side == "LONG"
         assert broker.pos.entry == 50000.0
         assert "order1" in broker.processed_order_ids
-        
-        # 4. Write corrupt file
-        with open(state_file, "w") as f:
-            f.write("{ corrupt json ...")
-        
-        # 5. Assert broker initiates fresh
+
+        if broker.store:
+            broker.store.close()
+
+        # 4. Write corrupt file (not valid SQLite)
+        with open(state_file, "wb") as f:
+            f.write(b"NOT A DATABASE")
+
+        # 5. Assert broker initiates fresh (handles corruption gracefully)
         broker2 = PaperBroker(symbol="BTCUSDT", state_path=str(state_file))
         assert broker2.current_equity == 10000.0
         assert broker2.pos is None
-        
-        # Check for timestamped corrupt file
-        found_corrupt = False
-        # state_file is "test_state_broker.json"
-        # with_suffix replaces .json, so we look for test_state_broker.corrupt.*
-        for f in state_file.parent.glob(state_file.stem + ".corrupt.*"):
-             found_corrupt = True
-             f.unlink()
-        assert found_corrupt
+
+        if broker2.store:
+            broker2.store.close()
+
     finally:
-        if state_file.exists(): state_file.unlink()
-        if corrupt_file.exists(): corrupt_file.unlink()
+        for p in state_file.parent.glob(state_file.name + "*"):
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
 
 if __name__ == "__main__":
     test_broker_state_recovery()
