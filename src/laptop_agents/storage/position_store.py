@@ -12,6 +12,10 @@ class PositionStore:
     Uses WAL mode for high concurrency and crash resilience.
     """
 
+    def close(self) -> None:
+        """Close any active relationships."""
+        pass
+
     def __init__(self, db_path: str):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

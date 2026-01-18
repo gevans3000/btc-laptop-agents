@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.table import Table
 from laptop_agents.constants import REPO_ROOT
 from laptop_agents.core.lock_manager import LockManager
-from laptop_agents.core.orchestrator import RUNS_DIR
+from laptop_agents.core.events import RUNS_DIR
 
 console = Console()
 AGENT_PID_FILE = REPO_ROOT / ".workspace" / "agent.pid"
