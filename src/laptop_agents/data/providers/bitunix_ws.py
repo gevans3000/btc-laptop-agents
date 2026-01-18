@@ -105,11 +105,18 @@ class BitunixWebsocketClient:
                             logger.error("WS type error")
                             break
             except Exception as e:
-                logger.error(f"WS: Connection error: {e}")
+                if "getaddrinfo failed" in str(e):
+                    logger.warning(
+                        "WS: Connection failed (DNS/Network Issue). Verify internet connection to Bitunix."
+                    )
+                else:
+                    logger.error(f"WS: Connection error: {e}")
 
             if self._running:
                 wait_s = min(self.reconnect_delay, 60.0)
-                logger.warning(f"WS: Reconnecting in {wait_s}s...")
+                # Only log reconnect attempt every ~minute or so if it keeps failing
+                if wait_s >= 8.0 or self.reconnect_delay == 1.0:
+                    logger.warning(f"WS: Reconnecting in {wait_s}s...")
                 await asyncio.sleep(wait_s)
                 self.reconnect_delay *= 2.0
 
@@ -145,7 +152,6 @@ _SINGLETON_CLIENTS: Dict[str, BitunixWebsocketClient] = {}
 def get_ws_client(symbol: str) -> BitunixWebsocketClient:
     if symbol not in _SINGLETON_CLIENTS:
         client = BitunixWebsocketClient(symbol)
-        client.start()
         _SINGLETON_CLIENTS[symbol] = client
     return _SINGLETON_CLIENTS[symbol]
 
@@ -160,6 +166,7 @@ class BitunixWSProvider:
         self.client = get_ws_client(symbol)
 
     async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
+        self.client.start()
         while True:
             c = self.client.get_latest_candle()
             if c:
