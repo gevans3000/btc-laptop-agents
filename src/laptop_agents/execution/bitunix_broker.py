@@ -21,7 +21,9 @@ class BitunixBroker:
     Polls position state to synthesize fill/exit events.
     """
 
-    def __init__(self, provider: BitunixFuturesProvider):
+    def __init__(
+        self, provider: BitunixFuturesProvider, starting_equity: float = 10000.0
+    ):
         self.provider = provider
         self.symbol = provider.symbol
         self.is_inverse = self.symbol.endswith("USD") and not self.symbol.endswith(
@@ -36,7 +38,9 @@ class BitunixBroker:
         self._entry_qty: Optional[float] = None
         self._last_order_id: Optional[str] = None
         self.order_timestamps: List[float] = []
-        self.starting_equity: Optional[float] = None
+        self.starting_equity = starting_equity
+        self.current_equity = starting_equity
+        self.order_history: List[Dict[str, Any]] = []
 
     @property
     def pos(self) -> Optional[Any]:
@@ -61,7 +65,35 @@ class BitunixBroker:
             return val
         return round(round(val / step) * step, 8)
 
-    def on_candle(self, candle: Any, order: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def on_tick(self, tick: Any):
+        """Handle real-time price updates for position monitoring."""
+        # For live trading, we mostly rely on on_candle polling,
+        # but could use ticks for faster exit detection if needed.
+        pass
+
+    def close_all(self, exit_price: float):
+        """Emergency close of all positions."""
+        self.shutdown()
+
+    def cancel_all_open_orders(self):
+        """Cancel all pending orders."""
+        try:
+            self.provider.cancel_all_orders(self.symbol)
+        except Exception as e:
+            logger.error(f"Failed to cancel all orders: {e}")
+
+    def save_state(self):
+        """No-op for live broker as state is persisted on exchange."""
+        pass
+
+    def apply_funding(self, rate: float, ts: str):
+        """Apply funding rate to current equity (simulation or logging)."""
+        # For live trading, funding is handled by the exchange, but we logic here if needed.
+        pass
+
+    def on_candle(
+        self, candle: Any, order: Optional[Dict[str, Any]], tick: Optional[Any] = None
+    ) -> Dict[str, Any]:
         """
         1. Submits new orders if order['go'] is True.
         2. Polls exchange for position status.
@@ -313,6 +345,7 @@ class BitunixBroker:
                 self._entry_qty = abs(qty)
 
                 events["fills"].append(fill_event)
+                self.order_history.append(fill_event)
 
             # Case: Pos -> No pos (EXIT)
             elif self.last_pos and not current_pos:
@@ -341,6 +374,8 @@ class BitunixBroker:
                     "at": candle.ts,
                 }
                 events["exits"].append(exit_event)
+                self.order_history.append(exit_event)
+                self.current_equity += pnl
                 logger.info(f"LIVE Exit Detected: {exit_event}")
 
                 # Reset entry tracking

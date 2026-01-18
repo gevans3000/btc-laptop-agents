@@ -147,7 +147,7 @@ class AsyncRunner:
             live_provider = BitunixFuturesProvider(
                 symbol=symbol, api_key=api_key, secret_key=secret_key
             )
-            self.broker = BitunixBroker(live_provider)
+            self.broker = BitunixBroker(live_provider, starting_equity=starting_balance)
             logger.info(f"Initialized BitunixBroker for live trading on {symbol}")
         else:
             self.broker = PaperBroker(
@@ -159,7 +159,10 @@ class AsyncRunner:
             )
 
         # Restore starting equity from broker (if it was loaded from state)
-        if self.broker.starting_equity != starting_balance:
+        if (
+            self.broker.starting_equity is not None
+            and self.broker.starting_equity != starting_balance
+        ):
             logger.info(
                 f"Restoring starting equity from broker state: ${self.broker.starting_equity:,.2f}"
             )
