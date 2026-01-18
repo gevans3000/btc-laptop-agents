@@ -67,14 +67,26 @@ def render_html(
     # Show last 10 trades (newest first)
     display_trades = trades[-10:] if len(trades) > 10 else trades
     for t in display_trades:
+        pnl = float(t["pnl"])
+        pnl_color = "#2f9e44" if pnl >= 0 else "#e03131"
+        side_badge = f"<span class='badge badge-{t['side'].lower()}'>{t['side']}</span>"
+        trade_id_short = (
+            t["trade_id"][:8] + "..." if len(t["trade_id"]) > 8 else t["trade_id"]
+        )
         rows += (
-            f"<tr><td>{t['trade_id']}</td><td>{t['side']}</td><td>{t['signal']}</td>"
-            f"<td>${float(t['entry']):.2f}</td><td>${float(t['exit']):.2f}</td>"
-            f"<td>{float(t['quantity']):.4f}</td><td>${float(t['pnl']):.4f}</td><td>${float(t['fees']):.4f}</td>"
-            f"<td>{t['timestamp']}</td></tr>"
+            f"<tr>"
+            f"<td class='text-left'><code>{trade_id_short}</code></td>"
+            f"<td class='text-center'>{side_badge}</td>"
+            f"<td class='text-right'>${float(t['entry']):.2f}</td>"
+            f"<td class='text-right'>${float(t['exit']):.2f}</td>"
+            f"<td class='text-right'>{float(t['quantity']):.4f}</td>"
+            f"<td class='text-right' style='color: {pnl_color}; font-weight: 600;'>${pnl:.2f}</td>"
+            f"<td class='text-right'>${float(t['fees']):.2f}</td>"
+            f"<td class='text-right text-muted'>{t['timestamp']}</td>"
+            f"</tr>"
         )
     if not rows:
-        rows = "<tr><td colspan='10'>No trades</td></tr>"
+        rows = "<tr><td colspan='8' class='text-center text-muted'>No trades executed</td></tr>"
 
     # Error section if there was an error
     error_section = ""
@@ -416,17 +428,77 @@ def _generate_html_template(
       background-color: #f8f9fa;
     }}
     h1, h2, h3 {{ color: #1a1a1a; font-weight: 700; margin-top: 0; }}
-    .section {{ background: white; border: 1px solid #e1e8ed; border-radius: 12px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }}
-    .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }}
+    .section {{
+      background: white;
+      border: 1px solid #e1e8ed;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }}
+    .cards {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }}
     .card {{ background: #fdfdfd; border: 1px solid #eee; border-radius: 8px; padding: 16px; }}
-    .card-label {{ font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 4px; }}
+    .card-label {{
+      font-size: 11px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }}
     .card-value {{ font-size: 20px; font-weight: 700; color: #111; }}
-    table {{ border-collapse: collapse; width: 100%; font-size: 14px; overflow: hidden; border-radius: 8px; }}
-    th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }}
-    th {{ background: #f1f3f5; font-weight: 600; color: #495057; }}
+    table {{
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 13px;
+      overflow: hidden;
+      border-radius: 8px;
+    }}
+    th, td {{ padding: 10px 12px; border-bottom: 1px solid #eee; }}
+    th {{
+      background: #f8f9fa;
+      font-weight: 600;
+      color: #495057;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+    }}
     tr:last-child td {{ border-bottom: none; }}
+    tr:hover {{ background: #f8f9fa; }}
+    .text-left {{ text-align: left; }}
+    .text-right {{ text-align: right; }}
+    .text-center {{ text-align: center; }}
+    .text-muted {{ color: #868e96; font-size: 12px; }}
+    .badge {{
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }}
+    .badge-long {{ background: #d3f9d8; color: #2b8a3e; }}
+    .badge-short {{ background: #ffe3e3; color: #c92a2a; }}
+    code {{
+      background: #f1f3f5;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-family: 'Courier New', monospace;
+    }}
     .chart-container {{ height: 600px; width: 100%; }}
-    .status-badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }}
+    .status-badge {{
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }}
     .status-live {{ background: #fff5f5; color: #e03131; border: 1px solid #ffc9c9; }}
     .status-backtest {{ background: #f8f9fa; color: #495057; border: 1px solid #dee2e6; }}
     pre {{ background: #1a1a1a; color: #f8f9fa; padding: 16px; border-radius: 8px; font-size: 12px; overflow-x: auto; }}
@@ -450,9 +522,16 @@ def _generate_html_template(
       <div class="card"><div class="card-label">Symbol</div><div class="card-value">{summary['symbol']}</div></div>
       <div class="card"><div class="card-label">Interval</div><div class="card-value">{summary['interval']}</div></div>
       <div class="card"><div class="card-label">Source</div><div class="card-value">{summary['source']}</div></div>
-      <div class="card"><div class="card-label">Starting</div><div class="card-value">${summary['starting_balance']:.2f}</div></div>
-      <div class="card"><div class="card-label">Ending</div>
-        <div class="card-value" style="color: {'#2f9e44' if summary['ending_balance'] >= summary['starting_balance'] else '#e03131'}">
+      <div class="card">
+        <div class="card-label">Starting</div>
+        <div class="card-value">${summary['starting_balance']:.2f}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Ending</div>
+        <div
+          class="card-value"
+          style="color: {'#2f9e44' if summary['ending_balance'] >= summary['starting_balance'] else '#e03131'}"
+        >
           ${summary['ending_balance']:.2f}
         </div>
       </div>
@@ -486,7 +565,16 @@ def _generate_html_template(
     <h2>Last 10 Trades</h2>
     <table>
       <thead>
-        <tr><th>Trade ID</th><th>Side</th><th>Entry</th><th>Exit</th><th>Quantity</th><th>PnL</th><th>Fees</th><th>Timestamp</th></tr>
+        <tr>
+          <th class='text-left'>ID</th>
+          <th class='text-center'>Side</th>
+          <th class='text-right'>Entry</th>
+          <th class='text-right'>Exit</th>
+          <th class='text-right'>Qty</th>
+          <th class='text-right'>PnL</th>
+          <th class='text-right'>Fees</th>
+          <th class='text-right'>Time</th>
+        </tr>
       </thead>
       <tbody>{rows}</tbody>
     </table>
