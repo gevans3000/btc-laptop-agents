@@ -63,6 +63,7 @@ class AsyncRunner:
         dry_run: bool = False,
         provider: Optional[Any] = None,
         state_dir: Optional[Path] = None,
+        execution_mode: str = "paper",
     ):
         from laptop_agents.core.orchestrator import PAPER_DIR
 
@@ -125,19 +126,37 @@ class AsyncRunner:
         )
         self.circuit_breaker.set_starting_equity(starting_balance)
 
-        from laptop_agents.data.providers.bitunix_ws import BitunixWSProvider
-
-        self.provider: Any = provider or BitunixWSProvider(symbol)
+        self.provider: Any = provider
         state_path = str(self.state_dir / "async_broker_state.json")
         from laptop_agents.paper.broker import PaperBroker
+        from laptop_agents.execution.bitunix_broker import BitunixBroker
 
-        self.broker = PaperBroker(
-            symbol=symbol,
-            fees_bps=fees_bps,
-            slip_bps=slip_bps,
-            starting_equity=starting_balance,
-            state_path=state_path,
-        )
+        if execution_mode == "live":
+            from laptop_agents.data.providers.bitunix_futures import (
+                BitunixFuturesProvider,
+            )
+
+            api_key = os.environ.get("BITUNIX_API_KEY")
+            secret_key = os.environ.get("BITUNIX_API_SECRET") or os.environ.get(
+                "BITUNIX_SECRET_KEY"
+            )
+            if not api_key or not secret_key:
+                raise ValueError(
+                    "Live execution requires BITUNIX_API_KEY and BITUNIX_API_SECRET environment variables"
+                )
+            live_provider = BitunixFuturesProvider(
+                symbol=symbol, api_key=api_key, secret_key=secret_key
+            )
+            self.broker = BitunixBroker(live_provider)
+            logger.info(f"Initialized BitunixBroker for live trading on {symbol}")
+        else:
+            self.broker = PaperBroker(
+                symbol=symbol,
+                fees_bps=fees_bps,
+                slip_bps=slip_bps,
+                starting_equity=starting_balance,
+                state_path=state_path,
+            )
 
         # Restore starting equity from broker (if it was loaded from state)
         if self.broker.starting_equity != starting_balance:
@@ -176,7 +195,7 @@ class AsyncRunner:
         # Execution queue for decoupled order processing
         self.execution_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
         self.start_time = time.time()
-        from laptop_agents.core.orchestrator import REPO_ROOT
+        from laptop_agents.constants import REPO_ROOT
 
         self.kill_file = REPO_ROOT / "kill.txt"
         self.last_data_time: float = time.time()
@@ -1012,6 +1031,7 @@ async def run_async_session(
     execution_latency_ms: int = 200,
     dry_run: bool = False,
     replay_path: Optional[str] = None,
+    execution_mode: str = "paper",
 ) -> AsyncSessionResult:
     """Entry point for the async session."""
 
@@ -1047,6 +1067,7 @@ async def run_async_session(
             execution_latency_ms=execution_latency_ms,
             dry_run=dry_run,
             provider=None,
+            execution_mode=execution_mode,
         )
 
         # Determine Provider based on config/path
@@ -1060,6 +1081,12 @@ async def run_async_session(
 
             runner.provider = MockProvider()
             logger.info("Using MOCK PROVIDER (simulated market data)")
+
+        if runner.provider is None:
+            from laptop_agents.data.providers.bitunix_ws import BitunixWSProvider
+
+            runner.provider = BitunixWSProvider(symbol)
+            logger.info(f"Using default BITUNIX WEBSOCKET PROVIDER for {symbol}")
 
         # Handle OS signals
         def handle_sigterm(signum, frame):

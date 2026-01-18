@@ -197,6 +197,7 @@ def run(ctx: typer.Context):
                         execution_latency_ms=args.execution_latency_ms,
                         dry_run=session_config.dry_run,
                         replay_path=args.replay,
+                        execution_mode=args.execution_mode,
                     )
                 )
                 ret = 0 if session_result.errors == 0 else 1
