@@ -84,92 +84,89 @@ class BitunixWebsocketClient:
         self._loop.close()
 
     async def _connect_and_stream(self):
-        ctx = aiohttp.ClientSession()
-        while self._running:
-            try:
-                async with ctx.ws_connect(self.ws_url, heartbeat=30) as ws:
-                    logger.info(f"WS: Connected to {self.ws_url} [{self.symbol}]")
-                    self.reconnect_delay = 1.0
+        async with aiohttp.ClientSession() as ctx:
+            while self._running:
+                try:
+                    async with ctx.ws_connect(self.ws_url, heartbeat=30) as ws:
+                        logger.info(f"WS: Connected to {self.ws_url} [{self.symbol}]")
+                        self.reconnect_delay = 1.0
 
-                    # Subscriptions
-                    channels = [
-                        f"market.{self.symbol}.kline.1m",
-                        f"market.{self.symbol}.ticker",
-                    ]
-                    for chan in channels:
-                        sub_msg = {
-                            "event": "sub",
-                            "params": {
-                                "channel": chan,
-                                "cb_id": f"{self.symbol}_{chan}",
-                            },
-                        }
-                        await ws.send_json(sub_msg)
+                        # Subscriptions
+                        channels = [
+                            f"market.{self.symbol}.kline.1m",
+                            f"market.{self.symbol}.ticker",
+                        ]
+                        for chan in channels:
+                            sub_msg = {
+                                "event": "sub",
+                                "params": {
+                                    "channel": chan,
+                                    "cb_id": f"{self.symbol}_{chan}",
+                                },
+                            }
+                            await ws.send_json(sub_msg)
 
-                    async for msg in ws:
-                        if not self._running:
-                            break
+                        async for msg in ws:
+                            if not self._running:
+                                break
 
-                        # Zombie Detection (Phase 3)
-                        # The 'async for' can block indefinitely if the link is zombie.
-                        # We use is_healthy check periodically or via timeout.
-                        # However, since we are in a tight loop, we rely on the next message
-                        # OR if no message arrives, we need a timeout.
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                data = json.loads(msg.data)
+                                self._last_pong = time.time()
+                                if "ping" in data:
+                                    await ws.send_json({"pong": data["ping"]})
+                                elif (
+                                    "event" in data
+                                    and data["event"] == "channel_pushed"
+                                ):
+                                    self._handle_push(data)
+                            elif msg.type == aiohttp.WSMsgType.ERROR:
+                                logger.error("WS type error")
+                                break
 
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            data = json.loads(msg.data)
-                            self._last_pong = (
-                                time.time()
-                            )  # Track any message as liveness
-                            if "ping" in data:
-                                await ws.send_json({"pong": data["ping"]})
-                            elif "event" in data and data["event"] == "channel_pushed":
-                                self._handle_push(data)
-                        elif msg.type == aiohttp.WSMsgType.ERROR:
-                            logger.error("WS type error")
-                            break
+                            if not self.is_healthy():
+                                logger.warning(
+                                    "WS: Connection became zombie (no data >20s). Forcefully reconnecting."
+                                )
+                                break
 
-                        if not self.is_healthy():
-                            logger.warning(
-                                "WS: Connection became zombie (no data > 20s). Forcefully reconnecting."
-                            )
-                            break
+                except Exception as e:
+                    if "getaddrinfo failed" in str(e):
+                        logger.warning(
+                            "WS: Connection failed (DNS/Network Issue). Verify internet connection to Bitunix."
+                        )
+                    else:
+                        logger.error(f"WS: Connection error: {e}")
 
-            except Exception as e:
-                if "getaddrinfo failed" in str(e):
-                    logger.warning(
-                        "WS: Connection failed (DNS/Network Issue). Verify internet connection to Bitunix."
-                    )
-                else:
-                    logger.error(f"WS: Connection error: {e}")
-
-            if self._running:
-                wait_s = min(self.reconnect_delay, 60.0)
-                # Phase 3: Reconnection Jitter (0-5s)
-                jitter = random.uniform(0, 5.0)
-                full_wait = wait_s + jitter
-                # Only log reconnect attempt every ~minute or so if it keeps failing
-                if wait_s >= 8.0 or self.reconnect_delay == 1.0:
-                    logger.warning(
-                        f"WS: Reconnecting in {full_wait:.1f}s (jittered)..."
-                    )
-                await asyncio.sleep(full_wait)
-                self.reconnect_delay *= 2.0
-
-        await ctx.close()
+                if self._running:
+                    wait_s = min(self.reconnect_delay, 60.0)
+                    jitter = random.uniform(0, 5.0)
+                    full_wait = wait_s + jitter
+                    if wait_s >= 8.0 or self.reconnect_delay == 1.0:
+                        logger.warning(
+                            f"WS: Reconnecting in {full_wait:.1f}s (jittered)..."
+                        )
+                    await asyncio.sleep(full_wait)
+                    self.reconnect_delay *= 2.0
+        # Session automatically closed by async with
 
     def is_healthy(self) -> bool:
-        """Returns False if it's been >20s since the last pong or push message."""
-        return (time.time() - self._last_pong) < 20.0
+        """Returns False if it's been >15s since the last pong or push message."""
+        return (time.time() - self._last_pong) < 15.0
 
     def _handle_push(self, data: Dict[str, Any]):
         try:
-            # Bitunix structure: { "data": { "kline": { ... } } }
             d = data.get("data", {})
             kline = d.get("kline")
             ticker = d.get("ticker")
 
             if kline:
+                # Validate required fields
+                required_kline = ["time", "open", "high", "low", "close"]
+                if not all(k in kline for k in required_kline):
+                    logger.warning(f"WS: Malformed kline missing keys: {kline.keys()}")
+                    return
+
                 c = Candle(
                     ts=datetime.fromtimestamp(
                         kline.get("time", 0) / 1000.0, tz=timezone.utc
@@ -184,7 +181,14 @@ class BitunixWebsocketClient:
                     self._latest_candle = c
 
             if ticker:
-                # Bitunix ticker: buy=bid, sell=ask
+                # Validate required fields
+                required_ticker = ["buy", "sell", "last", "time"]
+                if not all(k in ticker for k in required_ticker):
+                    logger.warning(
+                        f"WS: Malformed ticker missing keys: {ticker.keys()}"
+                    )
+                    return
+
                 t = Tick(
                     symbol=self.symbol,
                     bid=float(ticker.get("buy", 0)),
@@ -196,8 +200,10 @@ class BitunixWebsocketClient:
                 )
                 with self._lock:
                     self._latest_tick = t
+        except (KeyError, TypeError, ValueError) as e:
+            logger.warning(f"WS: Parse error (malformed data): {e}")
         except Exception as e:
-            logger.error(f"WS: Parse error: {e}")
+            logger.error(f"WS: Unexpected parse error: {e}")
 
 
 _SINGLETON_CLIENTS: Dict[str, BitunixWebsocketClient] = {}
@@ -224,7 +230,10 @@ class BitunixWSProvider:
 
     async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
         self.client.start()
+        last_yield_time = time.time()
+
         while True:
+            # Check liveness (Zombie Detection)
             if not self.client.is_healthy():
                 self.circuit_breaker.record_error("WS_LIVENESS_FAILURE")
                 if self.circuit_breaker.is_tripped():
@@ -237,13 +246,39 @@ class BitunixWSProvider:
                         details={"reason": "Liveness check failed 5 times"},
                     )
                     break
+                else:
+                    # Soft restart attempts
+                    logger.warning(
+                        f"WS unhealthy (zombie). Restarting client for {self.symbol}..."
+                    )
+                    self.client.stop()
+                    await asyncio.sleep(1.0)
+                    self.client.start()
+                    # Reset last pong so we don't loop-restart immediately
+                    self.client._last_pong = time.time()
+
+            # Check Silence (Data stream stall)
+            # If healthy but no data for 15s, something is wrong with subscription
+            if (time.time() - last_yield_time) > 15.0:
+                logger.warning(
+                    f"WS Silence detected (>15s). Restarting client for {self.symbol}..."
+                )
+                self.client.stop()
+                await asyncio.sleep(1.0)
+                self.client.start()
+                last_yield_time = time.time()
+
             # Check for ticks first
             t = self.client.get_latest_tick()
             if t:
+                # Dedupe logic if needed, but for now we trust client clears it or we handle it
                 yield t
+                last_yield_time = time.time()
 
             c = self.client.get_latest_candle()
             if c:
                 yield c
+                last_yield_time = time.time()
+
             # Polling interval
             await asyncio.sleep(0.05)

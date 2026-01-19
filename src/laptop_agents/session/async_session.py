@@ -11,6 +11,7 @@ import psutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import math
 from typing import Any, Dict, List, Optional, Union
 
 from laptop_agents.data.providers.bitunix_ws import FatalError
@@ -95,8 +96,8 @@ class AsyncRunner:
         self.kill_switch_triggered = False
         self.execution_latency_ms = execution_latency_ms
         self.status = "initializing"
-
-        # Live stats
+        self._shutting_down = False
+        self._last_backfill_time = 0.0
         self.max_equity = starting_balance
         self.max_drawdown = 0.0
 
@@ -266,10 +267,16 @@ class AsyncRunner:
                     await asyncio.sleep(10)
 
             if len(self.candles) < min_history:
-                raise FatalError(
-                    f"Failed to seed historical candles after 5 attempts "
-                    f"({len(self.candles)} < {min_history})"
+                logger.error(
+                    f"DEGRADED_START: Failed to seed historical candles after 5 attempts "
+                    f"({len(self.candles)} < {min_history}). Starting with empty/partial history."
                 )
+                # Ensure we have at least an empty list if it failed completely
+                if self.candles is None:
+                    self.candles = []
+                # Proceed without raising FatalError
+            else:
+                logger.info(f"Seed complete: {len(self.candles)} candles")
 
         from laptop_agents.trading.helpers import detect_candle_gaps
 
@@ -339,10 +346,12 @@ class AsyncRunner:
 
             try:
                 await asyncio.wait_for(
-                    asyncio.to_thread(self.broker.shutdown), timeout=5.0
+                    asyncio.shield(asyncio.to_thread(self.broker.shutdown)), timeout=5.0
                 )
+            except asyncio.TimeoutError:
+                logger.warning("Broker shutdown timed out after 5s")
             except Exception as e:
-                logger.error(f"Broker shutdown failed: {e}")
+                logger.exception(f"Broker shutdown failed: {e}")
 
             logger.info("AsyncRunner shutdown complete.")
 
@@ -451,132 +460,179 @@ Total Fees: ${total_fees:,.2f}
 
     async def market_data_task(self):
         """Consumes WebSocket data and triggers strategy on candle closure."""
-        try:
-            async for item in self.provider.listen():
+        while not self.shutdown_event.is_set():
+            try:
+                # Re-enter the listener if it yields (it handles its own inner logic but this catches generator exit)
+                async for item in self.provider.listen():
+                    if self.shutdown_event.is_set():
+                        break
+
+                    # Reset timeout timer on each successful item (Item 1)
+                    self.last_data_time = time.time()
+
+                    if isinstance(item, DataEvent):
+                        logger.warning(
+                            f"RECEIVED_DATA_EVENT: {item.event} | {item.details}"
+                        )
+                        if (
+                            item.event == "ORDER_BOOK_STALE"
+                            or item.event == "CIRCUIT_TRIPPED"
+                        ):
+                            # Critical failures that might warrant restart or shutdown
+                            # For now, we trust the provider's circuit breaker to have tried enough
+                            write_alert(f"MARKET_DATA_FAILED: {item.event}")
+                            # We could try to reconstruct the provider here, but shutdown is safer if CB tripped
+                            self.shutdown_event.set()
+                            break
+
+                    if isinstance(item, Tick):
+                        # Robust Validation
+                        if (
+                            item.last <= 0
+                            or item.ask <= 0
+                            or math.isnan(item.last)
+                            or math.isinf(item.last)
+                        ):
+                            logger.warning(
+                                "INVALID_TICK: Non-positive or NaN/Inf price. Skipping."
+                            )
+                            continue
+
+                        ts_sec = self._parse_ts_to_int(item.ts)
+                        if ts_sec < 1704067200:  # Before 2024
+                            logger.warning(
+                                f"INVALID_TIMESTAMP: Tick {item.ts} is too old or malformed. Skipping."
+                            )
+                            continue
+
+                        self.latest_tick = item
+                        if self.consecutive_ws_errors > 0:
+                            logger.info("WS connection recovered. Error count reset.")
+                            self.consecutive_ws_errors = 0
+
+                    elif isinstance(item, Candle):
+                        # Robust Validation
+                        if (
+                            item.close <= 0
+                            or item.open <= 0
+                            or math.isnan(item.close)
+                            or math.isinf(item.close)
+                        ):
+                            logger.warning(
+                                "INVALID_CANDLE: Non-positive or NaN/Inf price. Skipping."
+                            )
+                            continue
+
+                        new_ts_sec = self._parse_ts_to_int(item.ts)
+                        if new_ts_sec < 1704067200:
+                            logger.warning(
+                                f"INVALID_TIMESTAMP: Candle {item.ts} is too old or malformed. Skipping."
+                            )
+                            continue
+
+                        # Gap Backfill Logic
+                        try:
+                            interval_sec = {
+                                "1m": 60,
+                                "5m": 300,
+                                "15m": 900,
+                                "1h": 3600,
+                            }.get(self.interval, 60)
+                            if self.candles:
+                                last_ts_sec = self._parse_ts_to_int(self.candles[-1].ts)
+                                if (new_ts_sec - last_ts_sec) > interval_sec * 1.5:
+                                    missing_count = int(
+                                        (new_ts_sec - last_ts_sec) / interval_sec
+                                    )
+                                    if missing_count > 0:
+                                        # Rate limit backfills to max 1 per 30 seconds
+                                        now = time.time()
+                                        if now - self._last_backfill_time < 30.0:
+                                            logger.debug(
+                                                "Skipping backfill: rate limited "
+                                                f"({now - self._last_backfill_time:.1f}s since last)"
+                                            )
+                                        else:
+                                            logger.warning(
+                                                f"GAP_DETECTED: {missing_count} missing candles. "
+                                                "Attempting async backfill..."
+                                            )
+                                            self._last_backfill_time = now
+                                            # Use asyncio.to_thread to avoid blocking main loop (Item 5)
+                                        try:
+                                            fetched = await asyncio.to_thread(
+                                                load_bitunix_candles,
+                                                self.symbol,
+                                                self.interval,
+                                                min(missing_count + 5, 200),
+                                            )
+
+                                            fetched = normalize_candle_order(fetched)
+                                            for f_candle in fetched:
+                                                f_ts_sec = self._parse_ts_to_int(
+                                                    f_candle.ts
+                                                )
+                                                if last_ts_sec < f_ts_sec < new_ts_sec:
+                                                    if f_candle.ts not in [
+                                                        c.ts for c in self.candles
+                                                    ]:
+                                                        self.candles.append(f_candle)
+                                                        logger.info(
+                                                            f"Injected missing candle: {f_candle.ts}"
+                                                        )
+                                            self.candles.sort(
+                                                key=lambda x: self._parse_ts_to_int(
+                                                    x.ts
+                                                )
+                                            )
+                                        except Exception as be:
+                                            logger.error(f"Backfill failed: {be}")
+                        except (ValueError, TypeError, AttributeError, Exception) as ge:
+                            logger.error(f"Error checking for gaps: {ge}")
+
+                        # Check if this is a NEW candle or an update to the current one
+                        if not self.candles or item.ts != self.candles[-1].ts:
+                            # New candle! This means the previous one just closed.
+                            if self.candles:
+                                closed_candle = self.candles[-1]
+                                await self.on_candle_closed(closed_candle)
+
+                            self.candles.append(item)
+                            # Phase 4.3: Strict Candle Buffer Cap
+                            if len(self.candles) > hard_limits.MAX_CANDLE_BUFFER:
+                                self.candles = self.candles[
+                                    -hard_limits.MAX_CANDLE_BUFFER :
+                                ]
+                        else:
+                            # Update current open candle
+                            self.candles[-1] = item
+
+            except asyncio.CancelledError:
+                break  # Exit cleanly on cancel
+            except FatalError as fe:
+                logger.error(f"FATAL_ERROR in market_data_task: {fe}")
+                self.errors = MAX_ERRORS_PER_SESSION
+                self.shutdown_event.set()
+                break
+            except Exception as e:
+                # Item 1: Graceful restart instead of hard fail
                 if self.shutdown_event.is_set():
                     break
 
-                if isinstance(item, DataEvent):
-                    logger.warning(
-                        f"RECEIVED_DATA_EVENT: {item.event} | {item.details}"
-                    )
-                    if (
-                        item.event == "ORDER_BOOK_STALE"
-                        or item.event == "CIRCUIT_TRIPPED"
-                    ):
-                        write_alert(f"MARKET_DATA_STALE_EVENT: {item.event}")
-                        self.shutdown_event.set()
-                        break
-
-                if isinstance(item, Tick):
-                    # Robust Validation
-                    if item.last <= 0 or item.ask <= 0:
-                        logger.warning("INVALID_TICK: Non-positive price. Skipping.")
-                        continue
-
-                    ts_sec = self._parse_ts_to_int(item.ts)
-                    if ts_sec < 1704067200:  # Before 2024
-                        logger.warning(
-                            f"INVALID_TIMESTAMP: Tick {item.ts} is too old or malformed. Skipping."
-                        )
-                        continue
-
-                    self.latest_tick = item
-                    self.last_data_time = time.time()
-                    if self.consecutive_ws_errors > 0:
-                        logger.info("WS connection recovered. Error count reset.")
-                        self.consecutive_ws_errors = 0
-
-                elif isinstance(item, Candle):
-                    # Robust Validation
-                    if item.close <= 0 or item.open <= 0:
-                        logger.warning("INVALID_CANDLE: Non-positive price. Skipping.")
-                        continue
-
-                    new_ts_sec = self._parse_ts_to_int(item.ts)
-                    if new_ts_sec < 1704067200:
-                        logger.warning(
-                            f"INVALID_TIMESTAMP: Candle {item.ts} is too old or malformed. Skipping."
-                        )
-                        continue
-
-                    # Gap Backfill Logic
-                    try:
-                        interval_sec = {
-                            "1m": 60,
-                            "5m": 300,
-                            "15m": 900,
-                            "1h": 3600,
-                        }.get(self.interval, 60)
-                        if self.candles:
-                            last_ts_sec = self._parse_ts_to_int(self.candles[-1].ts)
-                            if (new_ts_sec - last_ts_sec) > interval_sec * 1.5:
-                                missing_count = int(
-                                    (new_ts_sec - last_ts_sec) / interval_sec
-                                )
-                                if missing_count > 0:
-                                    logger.warning(
-                                        f"GAP_DETECTED: {missing_count} missing candles. Attempting backfill..."
-                                    )
-                                    try:
-                                        fetched = load_bitunix_candles(
-                                            self.symbol,
-                                            self.interval,
-                                            limit=min(missing_count + 5, 200),
-                                        )
-                                        fetched = normalize_candle_order(fetched)
-                                        for f_candle in fetched:
-                                            f_ts_sec = self._parse_ts_to_int(
-                                                f_candle.ts
-                                            )
-                                            if last_ts_sec < f_ts_sec < new_ts_sec:
-                                                if f_candle.ts not in [
-                                                    c.ts for c in self.candles
-                                                ]:
-                                                    self.candles.append(f_candle)
-                                                    logger.info(
-                                                        f"Injected missing candle: {f_candle.ts}"
-                                                    )
-                                        self.candles.sort(
-                                            key=lambda x: self._parse_ts_to_int(x.ts)
-                                        )
-                                    except Exception as be:
-                                        logger.error(f"Backfill failed: {be}")
-                    except Exception as ge:
-                        logger.error(f"Error checking for gaps: {ge}")
-                    except (ValueError, TypeError, AttributeError) as ge:
-                        logger.error(f"Error checking for gaps: {ge}")
-
-                    # Check if this is a NEW candle or an update to the current one
-                    if not self.candles or item.ts != self.candles[-1].ts:
-                        # New candle! This means the previous one just closed.
-                        if self.candles:
-                            closed_candle = self.candles[-1]
-                            await self.on_candle_closed(closed_candle)
-
-                        self.candles.append(item)
-                        # Phase 4.3: Strict Candle Buffer Cap
-                        if len(self.candles) > hard_limits.MAX_CANDLE_BUFFER:
-                            self.candles = self.candles[
-                                -hard_limits.MAX_CANDLE_BUFFER :
-                            ]
-                    else:
-                        # Update current open candle
-                        self.candles[-1] = item
-
-        except asyncio.CancelledError:
-            pass
-        except FatalError as fe:
-            logger.error(f"FATAL_ERROR in market_data_task: {fe}")
-            self.errors = MAX_ERRORS_PER_SESSION
-            self.shutdown_event.set()
-        except Exception as e:
-            if self.shutdown_event.is_set():
-                logger.info(f"Market data task stopped (shutdown active): {e}")
-            else:
-                logger.error(f"FATAL: market_data_task failed: {e}")
                 self.errors += 1
-                self.shutdown_event.set()
+                self.consecutive_ws_errors += 1
+                logger.exception(
+                    f"Error in market data stream (attempt {self.consecutive_ws_errors}): {e}"
+                )
+
+                if self.consecutive_ws_errors >= 10:
+                    if not self.shutdown_event.is_set():
+                        logger.critical("Too many consecutive WS errors. Giving up.")
+                        self.shutdown_event.set()
+                    break
+
+                # Wait a bit before retrying the loop
+                await asyncio.sleep(5.0)
 
     async def checkpoint_task(self):
         """Periodically saves state to disk for crash recovery."""
@@ -635,6 +691,8 @@ Total Fees: ${total_fees:,.2f}
                     # If it persists to stale_data_timeout_sec, we shut down.
 
                 if age > self.stale_data_timeout_sec:
+                    if self.shutdown_event.is_set():
+                        break  # Already shutting down
                     error_msg = f"STALE DATA: No market data for {age:.0f}s. Triggering session restart."
                     logger.error(error_msg)
                     self.errors += 1
@@ -655,35 +713,39 @@ Total Fees: ${total_fees:,.2f}
         try:
             while not self.shutdown_event.is_set():
                 if self.latest_tick and self.broker.pos:
-                    events = self.broker.on_tick(self.latest_tick)
-                    for exit_event in events.get("exits", []):
-                        self.trades += 1
-                        logger.info(
-                            f"REALTIME_TICK_EXIT: {exit_event['reason']} @ {exit_event['price']}"
-                        )
+                    try:
+                        events = self.broker.on_tick(self.latest_tick)
+                        for exit_event in events.get("exits", []):
+                            self.trades += 1
+                            logger.info(
+                                f"REALTIME_TICK_EXIT: {exit_event['reason']} @ {exit_event['price']}"
+                            )
 
-                        # Phase 1: Update metrics immediately on realtime exit
-                        elapsed = time.time() - self.start_time
-                        self.metrics.append(
-                            {
-                                "ts": datetime.now(timezone.utc).isoformat(),
-                                "elapsed": elapsed,
-                                "equity": self.broker.current_equity,
-                                "price": exit_event["price"],
-                                "unrealized": 0.0,
-                                "event": "REALTIME_TICK_EXIT",
-                                "reason": exit_event["reason"],
-                            }
-                        )
+                            # Phase 1: Update metrics immediately on realtime exit
+                            elapsed = time.time() - self.start_time
+                            self.metrics.append(
+                                {
+                                    "ts": datetime.now(timezone.utc).isoformat(),
+                                    "elapsed": elapsed,
+                                    "equity": self.broker.current_equity,
+                                    "price": exit_event["price"],
+                                    "unrealized": 0.0,
+                                    "event": "REALTIME_TICK_EXIT",
+                                    "reason": exit_event["reason"],
+                                }
+                            )
 
-                        append_event(
-                            {
-                                "event": "WatchdogExit",
-                                "tick": vars(self.latest_tick),
-                                **exit_event,
-                            },
-                            paper=True,
-                        )
+                            append_event(
+                                {
+                                    "event": "WatchdogExit",
+                                    "tick": vars(self.latest_tick),
+                                    **exit_event,
+                                },
+                                paper=True,
+                            )
+                    except Exception as e:
+                        logger.error(f"Error in watchdog on_tick: {e}")
+                        self.errors += 1
 
                 await asyncio.sleep(0.05)
         except asyncio.CancelledError:
@@ -693,6 +755,11 @@ Total Fees: ${total_fees:,.2f}
         """Runs strategy logic when a candle is confirmed closed."""
         self.iterations += 1
         logger.info(f"Candle closed: {candle.ts} at {candle.close}")
+
+        # Early exit if insufficient history
+        if len(self.candles) < 2:
+            logger.debug("Skipping strategy: insufficient candle history (<2)")
+            return
 
         if hasattr(candle, "volume") and float(candle.volume) == 0:
             logger.warning(f"LOW_VOLUME_WARNING: Candle {candle.ts} has zero volume")
@@ -802,9 +869,12 @@ Total Fees: ${total_fees:,.2f}
                     )
 
         except Exception as e:
-            logger.error(f"Error in on_candle_closed: {e}")
+            logger.exception(f"Error in on_candle_closed: {e}")
             self.errors += 1
-            if self.errors >= MAX_ERRORS_PER_SESSION:
+            if (
+                self.errors >= MAX_ERRORS_PER_SESSION
+                and not self.shutdown_event.is_set()
+            ):
                 logger.error(
                     f"ERROR BUDGET EXHAUSTED: {self.errors} errors. Shutting down."
                 )
@@ -950,9 +1020,19 @@ Total Fees: ${total_fees:,.2f}
                     and now.hour != last_funding_hour
                 ):
                     logger.info(f"Funding window detected at {now.hour:02d}:00 UTC")
-                    rate = await self.provider.funding_rate()
-                    logger.info(f"FUNDING APPLIED: Rate {rate:.6f}")
-                    self.broker.apply_funding(rate, now.isoformat())
+                    if hasattr(self.provider, "funding_rate") and callable(
+                        self.provider.funding_rate
+                    ):
+                        try:
+                            rate = await self.provider.funding_rate()
+                            logger.info(f"FUNDING APPLIED: Rate {rate:.6f}")
+                            self.broker.apply_funding(rate, now.isoformat())
+                        except Exception as fe:
+                            logger.warning(f"Failed to fetch/apply funding rate: {fe}")
+                    else:
+                        logger.debug(
+                            "Provider does not support funding_rate(). Skipping."
+                        )
                     last_funding_hour = now.hour
 
                 if now.minute != 0:
@@ -979,6 +1059,15 @@ Total Fees: ${total_fees:,.2f}
 
                 if not order or not order.get("go"):
                     continue
+
+                # Add idempotency check
+                client_order_id = order.get("client_order_id")
+                if client_order_id and hasattr(self.broker, "processed_order_ids"):
+                    if client_order_id in self.broker.processed_order_ids:
+                        logger.warning(
+                            f"Duplicate order {client_order_id} in execution queue. Skipping."
+                        )
+                        continue
 
                 # Simulate network latency WITHOUT blocking main loop
                 if not self.dry_run:

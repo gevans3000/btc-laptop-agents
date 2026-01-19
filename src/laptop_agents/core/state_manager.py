@@ -69,8 +69,19 @@ class StateManager:
 
             # Step 3: Atomic rename
             os.replace(temp, self.state_file)
+        except OSError as e:
+            # Disk full, permission denied, etc.
+            # Use print as logger might also fail
+            print(f"CRITICAL: State save failed (disk issue?): {e}")
+            try:
+                logger.error(f"Failed to save unified state: {e}")
+            except Exception:
+                pass  # Logger also broken, continue anyway
         except Exception as e:
-            logger.error(f"Failed to save unified state: {e}")
+            try:
+                logger.error(f"Failed to save unified state: {e}")
+            except Exception:
+                print(f"CRITICAL: State save failed: {e}")
 
     def get(self, key: str, default: Any = None) -> Any:
         return self._state.get(key, default)
