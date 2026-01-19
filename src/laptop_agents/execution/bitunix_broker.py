@@ -319,6 +319,8 @@ class BitunixBroker:
 
                 fill_event = {
                     "type": "fill",
+                    "trade_id": current_pos.get("positionId")
+                    or f"live_{int(time.time())}",
                     "side": side,
                     "price": px,
                     "qty": abs(qty),
@@ -365,10 +367,16 @@ class BitunixBroker:
 
                 exit_event = {
                     "type": "exit",
+                    "trade_id": self.last_pos.get("positionId") or "live_exit",
                     "reason": "exchange_detected",
-                    "price": px,
-                    "pnl": pnl,
+                    "entry": float(self._entry_price or 0),
+                    "exit": float(px),
+                    "price": float(px),
+                    "quantity": float(self._entry_qty or 0),
+                    "pnl": float(pnl),
                     "at": candle.ts,
+                    "timestamp": candle.ts,
+                    "side": self._entry_side or "N/A",
                 }
                 events["exits"].append(exit_event)
                 self.order_history.append(exit_event)

@@ -67,22 +67,30 @@ def render_html(
     # Show last 10 trades (newest first)
     display_trades = trades[-10:] if len(trades) > 10 else trades
     for t in display_trades:
-        pnl = float(t["pnl"])
+        pnl = float(t.get("pnl", 0.0))
         pnl_color = "#2f9e44" if pnl >= 0 else "#e03131"
-        side_badge = f"<span class='badge badge-{t['side'].lower()}'>{t['side']}</span>"
-        trade_id_short = (
-            t["trade_id"][:8] + "..." if len(t["trade_id"]) > 8 else t["trade_id"]
-        )
+        side = t.get("side", "N/A")
+        side_badge = f"<span class='badge badge-{side.lower()}'>{side}</span>"
+
+        trade_id = str(t.get("trade_id") or t.get("exchange_id") or "N/A")
+        trade_id_short = trade_id[:8] + "..." if len(trade_id) > 8 else trade_id
+
+        entry_px = float(t.get("entry") or t.get("price", 0.0))
+        exit_px = float(t.get("exit") or t.get("price", 0.0))
+        quantity = float(t.get("quantity") or t.get("qty", 0.0))
+        fees = float(t.get("fees", 0.0))
+        timestamp = t.get("timestamp") or t.get("at") or "N/A"
+
         rows += (
             f"<tr>"
             f"<td class='text-left'><code>{trade_id_short}</code></td>"
             f"<td class='text-center'>{side_badge}</td>"
-            f"<td class='text-right'>${float(t['entry']):.2f}</td>"
-            f"<td class='text-right'>${float(t['exit']):.2f}</td>"
-            f"<td class='text-right'>{float(t['quantity']):.4f}</td>"
+            f"<td class='text-right'>${entry_px:.2f}</td>"
+            f"<td class='text-right'>${exit_px:.2f}</td>"
+            f"<td class='text-right'>{quantity:.4f}</td>"
             f"<td class='text-right' style='color: {pnl_color}; font-weight: 600;'>${pnl:.2f}</td>"
-            f"<td class='text-right'>${float(t['fees']):.2f}</td>"
-            f"<td class='text-right text-muted'>{t['timestamp']}</td>"
+            f"<td class='text-right'>${fees:.2f}</td>"
+            f"<td class='text-right text-muted'>{timestamp}</td>"
             f"</tr>"
         )
     if not rows:

@@ -27,6 +27,7 @@ class Position:
     lots: deque[
         Dict[str, Any]
     ]  # FIFO lots: {"qty": float, "price": float, "fees": float}
+    trade_id: str = ""
     bars_open: int = 0
     trail_active: bool = False
     trail_stop: float = 0.0
@@ -346,6 +347,7 @@ class PaperBroker:
 
         new_lot = {"qty": pos_qty, "price": fill_px_slipped, "fees": entry_fees}
 
+        trade_id = client_order_id if not is_working else uuid.uuid4().hex[:12]
         if self.pos:
             # Add to existing position
             self.pos.lots.append(new_lot)
@@ -358,9 +360,11 @@ class PaperBroker:
                 tp=tp,
                 opened_at=candle.ts,
                 lots=deque([new_lot]),
+                trade_id=trade_id,
             )
         fill_event = {
             "type": "fill",
+            "trade_id": trade_id,
             "side": side,
             "price": fill_px_slipped,
             "qty": pos_qty,
@@ -573,31 +577,29 @@ class PaperBroker:
 
         r_mult = (net_pnl / risk) if risk > 0 else 0.0
         self.current_equity += net_pnl
-        self.order_history.append(
-            {
-                "type": "exit",
-                "reason": reason,
-                "pnl": net_pnl,
-                "at": ts,
-                "fees": exit_fees + total_entry_fees,
-                "r": r_mult,
-                "side": p.side,
-            }
-        )
+        exit_event = {
+            "type": "exit",
+            "trade_id": p.trade_id,
+            "reason": reason,
+            "entry": float(avg_entry),
+            "exit": float(px_slipped),
+            "price": float(px_slipped),
+            "quantity": float(p.qty),
+            "qty": float(p.qty),
+            "pnl": float(net_pnl),
+            "at": ts,
+            "timestamp": ts,
+            "fees": float(exit_fees + total_entry_fees),
+            "r": float(r_mult),
+            "side": p.side,
+            "bars_open": p.bars_open,
+        }
+        self.order_history.append(exit_event)
 
         if self.state_path:
             self._save_state()
 
-        return {
-            "type": "exit",
-            "reason": reason,
-            "price": px_slipped,
-            "pnl": net_pnl,
-            "r": r_mult,
-            "bars_open": p.bars_open,
-            "at": ts,
-            "fees": exit_fees + total_entry_fees,
-        }
+        return exit_event
 
     def save_state(self) -> None:
         """Public alias for state persistence."""
