@@ -507,8 +507,10 @@ Total Fees: ${total_fees:,.2f}
 
                         self.latest_tick = item
                         if self.consecutive_ws_errors > 0:
-                            logger.info("WS connection recovered. Error count reset.")
-                            self.consecutive_ws_errors = 0
+                            logger.info(
+                                "WS connection recovered on tick. Error count reset."
+                            )
+                        self.consecutive_ws_errors = 0
 
                     elif isinstance(item, Candle):
                         # Robust Validation
@@ -529,6 +531,8 @@ Total Fees: ${total_fees:,.2f}
                                 f"INVALID_TIMESTAMP: Candle {item.ts} is too old or malformed. Skipping."
                             )
                             continue
+
+                        self.consecutive_ws_errors = 0
 
                         # Gap Backfill Logic
                         try:
@@ -753,6 +757,11 @@ Total Fees: ${total_fees:,.2f}
 
     async def on_candle_closed(self, candle: Candle):
         """Runs strategy logic when a candle is confirmed closed."""
+        if math.isnan(candle.close) or candle.close <= 0:
+            logger.warning(
+                f"SKIPPING_STRATEGY: Invalid candle price {candle.close} for {candle.ts}"
+            )
+            return
         self.iterations += 1
         logger.info(f"Candle closed: {candle.ts} at {candle.close}")
 
@@ -1123,6 +1132,8 @@ Total Fees: ${total_fees:,.2f}
         process = psutil.Process()
         while not self.shutdown_event.is_set():
             # Heartbeat check
+            if self.shutdown_event.is_set():
+                break
             age = time.time() - self.last_heartbeat_time
             if age > 30:
                 # Use critical print as logger might be stuck too

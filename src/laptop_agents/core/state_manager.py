@@ -68,7 +68,18 @@ class StateManager:
                     pass
 
             # Step 3: Atomic rename
-            os.replace(temp, self.state_file)
+            max_retries = 3
+            for i in range(max_retries):
+                try:
+                    os.replace(temp, self.state_file)
+                    break
+                except PermissionError as e:
+                    if i == max_retries - 1:
+                        raise
+                    logger.warning(
+                        f"PermissionError saving state (retry {i+1}/{max_retries}): {e}"
+                    )
+                    time.sleep(0.1)
         except OSError as e:
             # Disk full, permission denied, etc.
             # Use print as logger might also fail

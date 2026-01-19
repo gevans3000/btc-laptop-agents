@@ -80,8 +80,14 @@ class BitunixWebsocketClient:
     def _run_thread(self):
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
-        self._loop.run_until_complete(self._connect_and_stream())
-        self._loop.close()
+        try:
+            self._loop.run_until_complete(self._connect_and_stream())
+        except BaseException as e:
+            logger.critical(
+                f"WS: Background thread crashed for {self.symbol}: {e}", exc_info=True
+            )
+        finally:
+            self._loop.close()
 
     async def _connect_and_stream(self):
         async with aiohttp.ClientSession() as ctx:
@@ -232,53 +238,59 @@ class BitunixWSProvider:
         self.client.start()
         last_yield_time = time.time()
 
-        while True:
-            # Check liveness (Zombie Detection)
-            if not self.client.is_healthy():
-                self.circuit_breaker.record_error("WS_LIVENESS_FAILURE")
-                if self.circuit_breaker.is_tripped():
-                    logger.critical(
-                        f"WS circuit breaker TRIPPED for {self.symbol}. Shutting down provider."
-                    )
-                    yield DataEvent(
-                        event="CIRCUIT_TRIPPED",
-                        ts=datetime.now(timezone.utc).isoformat(),
-                        details={"reason": "Liveness check failed 5 times"},
-                    )
-                    break
-                else:
-                    # Soft restart attempts
+        try:
+            while True:
+                # Check liveness (Zombie Detection)
+                if not self.client.is_healthy():
+                    self.circuit_breaker.record_error("WS_LIVENESS_FAILURE")
+                    if self.circuit_breaker.is_tripped():
+                        logger.critical(
+                            f"WS circuit breaker TRIPPED for {self.symbol}. Shutting down provider."
+                        )
+                        yield DataEvent(
+                            event="CIRCUIT_TRIPPED",
+                            ts=datetime.now(timezone.utc).isoformat(),
+                            details={"reason": "Liveness check failed 5 times"},
+                        )
+                        break
+                    else:
+                        # Soft restart attempts
+                        logger.warning(
+                            f"WS unhealthy (zombie). Restarting client for {self.symbol}..."
+                        )
+                        self.client.stop()
+                        await asyncio.sleep(1.0)
+                        self.client.start()
+                        # Reset last pong so we don't loop-restart immediately
+                        self.client._last_pong = time.time()
+
+                # Check Silence (Data stream stall)
+                # If healthy but no data for 15s, something is wrong with subscription
+                if (time.time() - last_yield_time) > 15.0:
                     logger.warning(
-                        f"WS unhealthy (zombie). Restarting client for {self.symbol}..."
+                        f"WS Silence detected (>15s). Restarting client for {self.symbol}..."
                     )
                     self.client.stop()
                     await asyncio.sleep(1.0)
                     self.client.start()
-                    # Reset last pong so we don't loop-restart immediately
-                    self.client._last_pong = time.time()
+                    last_yield_time = time.time()
 
-            # Check Silence (Data stream stall)
-            # If healthy but no data for 15s, something is wrong with subscription
-            if (time.time() - last_yield_time) > 15.0:
-                logger.warning(
-                    f"WS Silence detected (>15s). Restarting client for {self.symbol}..."
-                )
-                self.client.stop()
-                await asyncio.sleep(1.0)
-                self.client.start()
-                last_yield_time = time.time()
+                # Check for ticks first
+                t = self.client.get_latest_tick()
+                if t:
+                    # Dedupe logic if needed, but for now we trust client clears it or we handle it
+                    yield t
+                    last_yield_time = time.time()
 
-            # Check for ticks first
-            t = self.client.get_latest_tick()
-            if t:
-                # Dedupe logic if needed, but for now we trust client clears it or we handle it
-                yield t
-                last_yield_time = time.time()
+                c = self.client.get_latest_candle()
+                if c:
+                    yield c
+                    last_yield_time = time.time()
 
-            c = self.client.get_latest_candle()
-            if c:
-                yield c
-                last_yield_time = time.time()
-
-            # Polling interval
-            await asyncio.sleep(0.05)
+                # Polling interval
+                await asyncio.sleep(0.05)
+        finally:
+            logger.info(
+                f"WS: Provider listener for {self.symbol} stopped. Stopping client."
+            )
+            self.client.stop()
