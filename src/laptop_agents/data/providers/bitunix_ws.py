@@ -3,6 +3,7 @@ import asyncio
 import json
 import time
 import aiohttp
+import math
 from typing import Optional, Dict, Any, List, AsyncGenerator, Union
 from datetime import datetime, timezone
 import random
@@ -90,10 +91,10 @@ class BitunixWebsocketClient:
             self._loop.close()
 
     async def _connect_and_stream(self):
-        async with aiohttp.ClientSession() as ctx:
-            while self._running:
-                try:
-                    async with ctx.ws_connect(self.ws_url, heartbeat=30) as ws:
+        while self._running:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.ws_connect(self.ws_url, heartbeat=30) as ws:
                         logger.info(f"WS: Connected to {self.ws_url} [{self.symbol}]")
                         self.reconnect_delay = 1.0
 
@@ -126,35 +127,33 @@ class BitunixWebsocketClient:
                                     and data["event"] == "channel_pushed"
                                 ):
                                     self._handle_push(data)
-                            elif msg.type == aiohttp.WSMsgType.ERROR:
-                                logger.error("WS type error")
+                            elif msg.type in (
+                                aiohttp.WSMsgType.CLOSED,
+                                aiohttp.WSMsgType.ERROR,
+                            ):
+                                logger.error(f"WS disconnected or error: {msg.type}")
                                 break
 
                             if not self.is_healthy():
                                 logger.warning(
-                                    "WS: Connection became zombie (no data >20s). Forcefully reconnecting."
+                                    "WS: Connection became zombie (no data >60s). Reconnecting."
                                 )
                                 break
+            except Exception as e:
+                if "getaddrinfo failed" in str(e):
+                    logger.warning(
+                        "WS: Connection failed (DNS/Network Issue). Verify internet connection."
+                    )
+                else:
+                    logger.error(f"WS: Connection error: {e}")
 
-                except Exception as e:
-                    if "getaddrinfo failed" in str(e):
-                        logger.warning(
-                            "WS: Connection failed (DNS/Network Issue). Verify internet connection to Bitunix."
-                        )
-                    else:
-                        logger.error(f"WS: Connection error: {e}")
-
-                if self._running:
-                    wait_s = min(self.reconnect_delay, 60.0)
-                    jitter = random.uniform(0, 5.0)
-                    full_wait = wait_s + jitter
-                    if wait_s >= 8.0 or self.reconnect_delay == 1.0:
-                        logger.warning(
-                            f"WS: Reconnecting in {full_wait:.1f}s (jittered)..."
-                        )
-                    await asyncio.sleep(full_wait)
-                    self.reconnect_delay *= 2.0
-        # Session automatically closed by async with
+            if self._running:
+                wait_s = min(self.reconnect_delay, 60.0)
+                jitter = random.uniform(0, 5.0)
+                full_wait = wait_s + jitter
+                logger.warning(f"WS: Reconnecting in {full_wait:.1f}s...")
+                await asyncio.sleep(full_wait)
+                self.reconnect_delay *= 2.0
 
     def is_healthy(self) -> bool:
         """Returns False if it's been >60s since the last pong or push message."""
@@ -168,47 +167,65 @@ class BitunixWebsocketClient:
             ticker = d.get("ticker")
 
             if kline:
-                # Validate required fields
-                required_kline = ["time", "open", "high", "low", "close"]
-                if not all(k in kline for k in required_kline):
-                    logger.warning(f"WS: Malformed kline missing keys: {kline.keys()}")
-                    return
+                # Robust validation and conversion
+                try:
+                    ts_val = kline.get("time", 0)
+                    o = float(kline.get("open", 0))
+                    h = float(kline.get("high", 0))
+                    low_val = float(kline.get("low", 0))
+                    c = float(kline.get("close", 0))
+                    v = float(kline.get("baseVol", 0))
 
-                c = Candle(
-                    ts=datetime.fromtimestamp(
-                        kline.get("time", 0) / 1000.0, tz=timezone.utc
-                    ).isoformat(),
-                    open=float(kline.get("open", 0)),
-                    high=float(kline.get("high", 0)),
-                    low=float(kline.get("low", 0)),
-                    close=float(kline.get("close", 0)),
-                    volume=float(kline.get("baseVol", 0)),
-                )
-                with self._lock:
-                    self._latest_candle = c
+                    if any(
+                        math.isnan(x) or math.isinf(x) or x <= 0
+                        for x in [o, h, low_val, c]
+                    ):
+                        logger.warning(f"WS: Invalid kline prices detected: {kline}")
+                        return
+
+                    candle = Candle(
+                        ts=datetime.fromtimestamp(
+                            ts_val / 1000.0, tz=timezone.utc
+                        ).isoformat(),
+                        open=o,
+                        high=h,
+                        low=low_val,
+                        close=c,
+                        volume=v,
+                    )
+                    with self._lock:
+                        self._latest_candle = candle
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"WS: Kline numeric conversion failed: {e}")
 
             if ticker:
-                # Validate required fields
-                required_ticker = ["buy", "sell", "last", "time"]
-                if not all(k in ticker for k in required_ticker):
-                    logger.warning(
-                        f"WS: Malformed ticker missing keys: {ticker.keys()}"
-                    )
-                    return
+                try:
+                    bid = float(ticker.get("buy", 0))
+                    ask = float(ticker.get("sell", 0))
+                    last = float(ticker.get("last", 0))
+                    ts_val = ticker.get("time", 0)
 
-                t = Tick(
-                    symbol=self.symbol,
-                    bid=float(ticker.get("buy", 0)),
-                    ask=float(ticker.get("sell", 0)),
-                    last=float(ticker.get("last", 0)),
-                    ts=datetime.fromtimestamp(
-                        ticker.get("time", 0) / 1000.0, tz=timezone.utc
-                    ).isoformat(),
-                )
-                with self._lock:
-                    self._latest_tick = t
-        except (KeyError, TypeError, ValueError) as e:
-            logger.warning(f"WS: Parse error (malformed data): {e}")
+                    if any(
+                        math.isnan(x) or math.isinf(x) or x <= 0
+                        for x in [bid, ask, last]
+                    ):
+                        logger.warning(f"WS: Invalid ticker prices: {ticker}")
+                        return
+
+                    t = Tick(
+                        symbol=self.symbol,
+                        bid=bid,
+                        ask=ask,
+                        last=last,
+                        ts=datetime.fromtimestamp(
+                            ts_val / 1000.0, tz=timezone.utc
+                        ).isoformat(),
+                    )
+                    with self._lock:
+                        self._latest_tick = t
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"WS: Ticker numeric conversion failed: {e}")
+
         except Exception as e:
             logger.error(f"WS: Unexpected parse error: {e}")
 

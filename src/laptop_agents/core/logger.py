@@ -220,8 +220,11 @@ def setup_logger(name: str = "btc_agents", log_dir: Optional[str] = None):
         logger.addHandler(ch)
     else:
         # Use RichHandler for standard log levels
+        # Item 15: Optimize for Windows stability by limiting traceback depth and complexity
         rh = RichHandler(
             rich_tracebacks=True,
+            tracebacks_show_locals=False,
+            tracebacks_max_frames=10,
             show_path=False,
             keywords=["BUY", "SELL", "LONG", "SHORT", "ERROR", "CRITICAL"],
         )

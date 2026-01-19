@@ -302,11 +302,11 @@ class AsyncRunner:
         try:
             await self.shutdown_event.wait()
         finally:
+            if self._shutting_down:
+                return
+            self._shutting_down = True
             self.status = "shutting_down"
             logger.info("GRACEFUL SHUTDOWN INITIATED")
-
-            # 1. Set shutting down flag
-            self._shutting_down = True
 
             # 2. Cancel all open orders (alias in PaperBroker)
             try:
@@ -314,9 +314,7 @@ class AsyncRunner:
             except Exception as e:
                 logger.error(f"Failed to cancel orders: {e}")
 
-            # 3. Wait up to 5s for pending fills (non-blocking sleep in finally)
-            # Since we are in finally, we can't easily wait for more tasks if they are cancelled,
-            # but we can do a quick async sleep if the loop is still alive.
+            # 3. Wait up to 5s for pending fills
             try:
                 await asyncio.sleep(2.0)
             except Exception:
@@ -329,7 +327,7 @@ class AsyncRunner:
                     order = item.get("order")
                     if order:
                         if hasattr(self.broker, "working_orders"):
-                            self.broker.working_orders.append(order)  # type: ignore
+                            self.broker.working_orders.append(order)
                         logger.info(
                             f"Drained pending order {order.get('client_order_id')} to broker state"
                         )
@@ -345,9 +343,11 @@ class AsyncRunner:
                 self.broker.close_all(self.latest_tick.last)
 
             try:
-                await asyncio.wait_for(
-                    asyncio.shield(asyncio.to_thread(self.broker.shutdown)), timeout=5.0
+                # Item 9: Use task wrapper for shutdown to ensure it completes
+                shutdown_task = asyncio.create_task(
+                    asyncio.to_thread(self.broker.shutdown)
                 )
+                await asyncio.wait_for(asyncio.shield(shutdown_task), timeout=5.0)
             except asyncio.TimeoutError:
                 logger.warning("Broker shutdown timed out after 5s")
             except Exception as e:
@@ -462,26 +462,25 @@ Total Fees: ${total_fees:,.2f}
         """Consumes WebSocket data and triggers strategy on candle closure."""
         while not self.shutdown_event.is_set():
             try:
-                # Re-enter the listener if it yields (it handles its own inner logic but this catches generator exit)
-                async for item in self.provider.listen():
-                    if self.shutdown_event.is_set():
+                listener = self.provider.listen()
+                while not self.shutdown_event.is_set():
+                    try:
+                        # Item 1: Timeout-aware iteration
+                        item = await asyncio.wait_for(listener.__anext__(), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        continue
+                    except StopAsyncIteration:
                         break
 
-                    # Reset timeout timer on each successful item (Item 1)
+                    # Reset timeout timer on each successful item
                     self.last_data_time = time.time()
 
                     if isinstance(item, DataEvent):
                         logger.warning(
                             f"RECEIVED_DATA_EVENT: {item.event} | {item.details}"
                         )
-                        if (
-                            item.event == "ORDER_BOOK_STALE"
-                            or item.event == "CIRCUIT_TRIPPED"
-                        ):
-                            # Critical failures that might warrant restart or shutdown
-                            # For now, we trust the provider's circuit breaker to have tried enough
+                        if item.event in ["ORDER_BOOK_STALE", "CIRCUIT_TRIPPED"]:
                             write_alert(f"MARKET_DATA_FAILED: {item.event}")
-                            # We could try to reconstruct the provider here, but shutdown is safer if CB tripped
                             self.shutdown_event.set()
                             break
 
@@ -489,52 +488,26 @@ Total Fees: ${total_fees:,.2f}
                         # Robust Validation
                         if (
                             item.last <= 0
-                            or item.ask <= 0
                             or math.isnan(item.last)
                             or math.isinf(item.last)
                         ):
-                            logger.warning(
-                                "INVALID_TICK: Non-positive or NaN/Inf price. Skipping."
-                            )
-                            continue
-
-                        ts_sec = self._parse_ts_to_int(item.ts)
-                        if ts_sec < 1704067200:  # Before 2024
-                            logger.warning(
-                                f"INVALID_TIMESTAMP: Tick {item.ts} is too old or malformed. Skipping."
-                            )
                             continue
 
                         self.latest_tick = item
-                        if self.consecutive_ws_errors > 0:
-                            logger.info(
-                                "WS connection recovered on tick. Error count reset."
-                            )
                         self.consecutive_ws_errors = 0
 
                     elif isinstance(item, Candle):
-                        # Robust Validation
                         if (
                             item.close <= 0
-                            or item.open <= 0
                             or math.isnan(item.close)
                             or math.isinf(item.close)
                         ):
-                            logger.warning(
-                                "INVALID_CANDLE: Non-positive or NaN/Inf price. Skipping."
-                            )
-                            continue
-
-                        new_ts_sec = self._parse_ts_to_int(item.ts)
-                        if new_ts_sec < 1704067200:
-                            logger.warning(
-                                f"INVALID_TIMESTAMP: Candle {item.ts} is too old or malformed. Skipping."
-                            )
                             continue
 
                         self.consecutive_ws_errors = 0
+                        new_ts_sec = self._parse_ts_to_int(item.ts)
 
-                        # Gap Backfill Logic
+                        # Item 3 & 12: Fixed Gap-Detection & Rate Limiting
                         try:
                             interval_sec = {
                                 "1m": 60,
@@ -548,21 +521,14 @@ Total Fees: ${total_fees:,.2f}
                                     missing_count = int(
                                         (new_ts_sec - last_ts_sec) / interval_sec
                                     )
-                                    if missing_count > 0:
-                                        # Rate limit backfills to max 1 per 30 seconds
-                                        now = time.time()
-                                        if now - self._last_backfill_time < 30.0:
-                                            logger.debug(
-                                                "Skipping backfill: rate limited "
-                                                f"({now - self._last_backfill_time:.1f}s since last)"
-                                            )
-                                        else:
-                                            logger.warning(
-                                                f"GAP_DETECTED: {missing_count} missing candles. "
-                                                "Attempting async backfill..."
-                                            )
-                                            self._last_backfill_time = now
-                                            # Use asyncio.to_thread to avoid blocking main loop (Item 5)
+                                    now = time.time()
+                                    if (
+                                        missing_count > 0
+                                        and (now - self._last_backfill_time) >= 30.0
+                                    ):
+                                        logger.warning(
+                                            f"GAP_DETECTED: {missing_count} missing. Backfilling..."
+                                        )
                                         try:
                                             fetched = await asyncio.to_thread(
                                                 load_bitunix_candles,
@@ -570,7 +536,9 @@ Total Fees: ${total_fees:,.2f}
                                                 self.interval,
                                                 min(missing_count + 5, 200),
                                             )
-
+                                            self._last_backfill_time = (
+                                                time.time()
+                                            )  # Update AFTER success
                                             fetched = normalize_candle_order(fetched)
                                             for f_candle in fetched:
                                                 f_ts_sec = self._parse_ts_to_int(
@@ -581,9 +549,6 @@ Total Fees: ${total_fees:,.2f}
                                                         c.ts for c in self.candles
                                                     ]:
                                                         self.candles.append(f_candle)
-                                                        logger.info(
-                                                            f"Injected missing candle: {f_candle.ts}"
-                                                        )
                                             self.candles.sort(
                                                 key=lambda x: self._parse_ts_to_int(
                                                     x.ts
@@ -591,24 +556,18 @@ Total Fees: ${total_fees:,.2f}
                                             )
                                         except Exception as be:
                                             logger.error(f"Backfill failed: {be}")
-                        except (ValueError, TypeError, AttributeError, Exception) as ge:
+                        except Exception as ge:
                             logger.error(f"Error checking for gaps: {ge}")
 
-                        # Check if this is a NEW candle or an update to the current one
                         if not self.candles or item.ts != self.candles[-1].ts:
-                            # New candle! This means the previous one just closed.
                             if self.candles:
-                                closed_candle = self.candles[-1]
-                                await self.on_candle_closed(closed_candle)
-
+                                await self.on_candle_closed(self.candles[-1])
                             self.candles.append(item)
-                            # Phase 4.3: Strict Candle Buffer Cap
                             if len(self.candles) > hard_limits.MAX_CANDLE_BUFFER:
                                 self.candles = self.candles[
                                     -hard_limits.MAX_CANDLE_BUFFER :
                                 ]
                         else:
-                            # Update current open candle
                             self.candles[-1] = item
 
             except asyncio.CancelledError:
@@ -643,14 +602,18 @@ Total Fees: ${total_fees:,.2f}
         try:
             while not self.shutdown_event.is_set():
                 await asyncio.sleep(60)
-                logger.info("Pulse Checkpointing: Saving system state...")
                 try:
-                    self.state_manager.set_circuit_breaker_state(
-                        self.circuit_breaker.get_status()
-                    )
-                    self.state_manager.set("starting_equity", self.starting_equity)
-                    self.state_manager.save()
-                    self.broker.save_state()
+                    # Item 13: Offload checkpointing to threads
+                    def do_checkpoint():
+                        self.state_manager.set_circuit_breaker_state(
+                            self.circuit_breaker.get_status()
+                        )
+                        self.state_manager.set("starting_equity", self.starting_equity)
+                        self.state_manager.save()
+                        self.broker.save_state()
+
+                    await asyncio.to_thread(do_checkpoint)
+                    logger.info("Pulse checkpoint saved.")
                 except Exception as e:
                     logger.error(f"Checkpoint failed: {e}")
         except asyncio.CancelledError:
@@ -717,6 +680,7 @@ Total Fees: ${total_fees:,.2f}
         try:
             while not self.shutdown_event.is_set():
                 if self.latest_tick and self.broker.pos:
+                    # Item 4: Exception guard for watchdog logic
                     try:
                         events = self.broker.on_tick(self.latest_tick)
                         for exit_event in events.get("exits", []):
@@ -724,13 +688,10 @@ Total Fees: ${total_fees:,.2f}
                             logger.info(
                                 f"REALTIME_TICK_EXIT: {exit_event['reason']} @ {exit_event['price']}"
                             )
-
-                            # Phase 1: Update metrics immediately on realtime exit
-                            elapsed = time.time() - self.start_time
                             self.metrics.append(
                                 {
                                     "ts": datetime.now(timezone.utc).isoformat(),
-                                    "elapsed": elapsed,
+                                    "elapsed": time.time() - self.start_time,
                                     "equity": self.broker.current_equity,
                                     "price": exit_event["price"],
                                     "unrealized": 0.0,
@@ -738,7 +699,6 @@ Total Fees: ${total_fees:,.2f}
                                     "reason": exit_event["reason"],
                                 }
                             )
-
                             append_event(
                                 {
                                     "event": "WatchdogExit",
@@ -750,7 +710,8 @@ Total Fees: ${total_fees:,.2f}
                     except Exception as e:
                         logger.error(f"Error in watchdog on_tick: {e}")
                         self.errors += 1
-
+                        if self.errors >= MAX_ERRORS_PER_SESSION:
+                            self.shutdown_event.set()
                 await asyncio.sleep(0.05)
         except asyncio.CancelledError:
             pass
@@ -758,30 +719,13 @@ Total Fees: ${total_fees:,.2f}
     async def on_candle_closed(self, candle: Candle):
         """Runs strategy logic when a candle is confirmed closed."""
         if math.isnan(candle.close) or candle.close <= 0:
-            logger.warning(
-                f"SKIPPING_STRATEGY: Invalid candle price {candle.close} for {candle.ts}"
-            )
             return
         self.iterations += 1
-        logger.info(f"Candle closed: {candle.ts} at {candle.close}")
+        warmup_bars = (
+            self.strategy_config.get("warmup_bars", 50) if self.strategy_config else 50
+        )
 
-        # Early exit if insufficient history
-        if len(self.candles) < 2:
-            logger.debug("Skipping strategy: insufficient candle history (<2)")
-            return
-
-        if hasattr(candle, "volume") and float(candle.volume) == 0:
-            logger.warning(f"LOW_VOLUME_WARNING: Candle {candle.ts} has zero volume")
-
-        if self.circuit_breaker.is_tripped():
-            logger.warning("SIGNAL BLOCKED: Circuit breaker is tripped.")
-            return
-
-        # 4.2 Warmup Period (No-Trade Zone)
-        warmup_bars = 50
-        if self.strategy_config:
-            warmup_bars = self.strategy_config.get("warmup_bars", 50)
-
+        # Item 11: Unified Warmup Guard
         if len(self.candles) < warmup_bars:
             if self.iterations % 10 == 0:
                 logger.info(
@@ -1029,8 +973,10 @@ Total Fees: ${total_fees:,.2f}
                     and now.hour != last_funding_hour
                 ):
                     logger.info(f"Funding window detected at {now.hour:02d}:00 UTC")
-                    if hasattr(self.provider, "funding_rate") and callable(
-                        self.provider.funding_rate
+                    if (
+                        self.provider
+                        and hasattr(self.provider, "funding_rate")
+                        and asyncio.iscoroutinefunction(self.provider.funding_rate)
                     ):
                         try:
                             rate = await self.provider.funding_rate()
@@ -1069,14 +1015,16 @@ Total Fees: ${total_fees:,.2f}
                 if not order or not order.get("go"):
                     continue
 
-                # Add idempotency check
+                # Item 8: Immediate ID locking
                 client_order_id = order.get("client_order_id")
                 if client_order_id and hasattr(self.broker, "processed_order_ids"):
                     if client_order_id in self.broker.processed_order_ids:
                         logger.warning(
-                            f"Duplicate order {client_order_id} in execution queue. Skipping."
+                            f"Duplicate order {client_order_id} detected. Skipping."
                         )
                         continue
+                    # Reserve ID locally before network delay
+                    self.broker.processed_order_ids.add(client_order_id)
 
                 # Simulate network latency WITHOUT blocking main loop
                 if not self.dry_run:
@@ -1131,18 +1079,17 @@ Total Fees: ${total_fees:,.2f}
         """Independent thread that kills the process if main loop freezes."""
         process = psutil.Process()
         while not self.shutdown_event.is_set():
-            # Heartbeat check
             if self.shutdown_event.is_set():
                 break
             age = time.time() - self.last_heartbeat_time
-            if age > 30:
-                # Use critical print as logger might be stuck too
+            # Item 14: Increased threshold and graceful attempt
+            if age > 60:
                 print(
-                    f"\n\n!!! WATCHDOG FATAL: Main loop frozen for {age:.1f}s. FORCE EXITing. !!!\n\n"
+                    f"\n\n!!! WATCHDOG FATAL: Main loop frozen for {age:.1f}s. !!!\n\n"
                 )
-                logger.critical(
-                    f"WATCHDOG_FATAL: Main loop frozen for {age:.1f}s. HARD EXIT."
-                )
+                logger.critical(f"WATCHDOG_FATAL: Main loop frozen for {age:.1f}s.")
+                self.shutdown_event.set()
+                time.sleep(5)  # Give it 5s to shut down gracefully
                 os._exit(1)
 
             # Memory check (Phase 4.1)

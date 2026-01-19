@@ -80,19 +80,13 @@ class StateManager:
                         f"PermissionError saving state (retry {i+1}/{max_retries}): {e}"
                     )
                     time.sleep(0.1)
-        except OSError as e:
-            # Disk full, permission denied, etc.
-            # Use print as logger might also fail
-            print(f"CRITICAL: State save failed (disk issue?): {e}")
-            try:
-                logger.error(f"Failed to save unified state: {e}")
-            except Exception:
-                pass  # Logger also broken, continue anyway
+        except (OSError, PermissionError) as e:
+            # Item 7: Propagate critical persistence errors
+            logger.critical(f"FATAL: State save failed (disk/permission issue): {e}")
+            raise
         except Exception as e:
-            try:
-                logger.error(f"Failed to save unified state: {e}")
-            except Exception:
-                print(f"CRITICAL: State save failed: {e}")
+            logger.error(f"Failed to save unified state: {e}")
+            raise
 
     def get(self, key: str, default: Any = None) -> Any:
         return self._state.get(key, default)
