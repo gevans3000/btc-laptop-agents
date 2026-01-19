@@ -18,21 +18,31 @@ Write-Host "✓ Done." -ForegroundColor Green
 ## 2. Prune Logs
 ```powershell
 Write-Host "Checking logs..." -ForegroundColor Cyan
-if (Test-Path logs/system.jsonl) {
-    $size = (Get-Item logs/system.jsonl).Length / 1MB
+# Inspect .workspace/logs
+if (Test-Path .workspace/logs/system.jsonl) {
+    $size = (Get-Item .workspace/logs/system.jsonl).Length / 1MB
     if ($size -gt 50) {
-        Write-Host "⚠ logs/system.jsonl is large ($([math]::Round($size, 2)) MB). Consider archiving." -ForegroundColor Yellow
+        Write-Host "⚠ .workspace/logs/system.jsonl is large ($([math]::Round($size, 2)) MB). Consider archiving." -ForegroundColor Yellow
     } else {
-        Write-Host "✓ logs/system.jsonl is healthy ($([math]::Round($size, 2)) MB)." -ForegroundColor Green
+        Write-Host "✓ .workspace/logs/system.jsonl is healthy ($([math]::Round($size, 2)) MB)." -ForegroundColor Green
+    }
+
+    # Prune old logs if rotated files exist there
+    $logFiles = Get-ChildItem .workspace/logs/system.jsonl.* -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+    if ($logFiles.Count -gt 5) {
+        $toDelete = $logFiles | Select-Object -Skip 5
+        Write-Host "Pruning $($toDelete.Count) old log files in .workspace/logs..." -ForegroundColor Yellow
+        $toDelete | Remove-Item -Force
     }
 }
 
-# Keep only last 5 rotated logs if they exist
-$logFiles = Get-ChildItem logs/system.jsonl.* -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
-if ($logFiles.Count -gt 5) {
-    $toDelete = $logFiles | Select-Object -Skip 5
-    Write-Host "Pruning $($toDelete.Count) old log files..." -ForegroundColor Yellow
-    $toDelete | Remove-Item -Force
+# Inspect legacy logs/ folder just in case
+if (Test-Path logs/system.jsonl) {
+    Write-Host "Found legacy logs/ folder. Checking..." -ForegroundColor Yellow
+    $size = (Get-Item logs/system.jsonl).Length / 1MB
+    if ($size -gt 50) {
+        Write-Host "⚠ logs/system.jsonl is large ($([math]::Round($size, 2)) MB)." -ForegroundColor Yellow
+    }
 }
 Write-Host "✓ Log pruning complete." -ForegroundColor Green
 ```
