@@ -1,8 +1,8 @@
 import os
 import psutil
 from pathlib import Path
-from typing import Optional
 from laptop_agents.core.logger import logger
+
 
 class LockManager:
     def __init__(self, lock_file: Path):
@@ -59,9 +59,9 @@ class LockManager:
                         "pid": pid,
                         "created": proc.create_time(),
                         "memory_info": proc.memory_info()._asdict(),
-                        "status": proc.status()
+                        "status": proc.status(),
                     }
         except Exception:
             pass
-        
+
         return {"running": False}

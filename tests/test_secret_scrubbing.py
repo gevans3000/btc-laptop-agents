@@ -1,6 +1,6 @@
 import os
-import logging
-from laptop_agents.core.logger import scrub_secrets, setup_logger
+from laptop_agents.core.logger import scrub_secrets
+
 
 def test_scrub_env_secrets():
     os.environ["TEST_API_KEY"] = "supersecretkey12345678"
@@ -8,6 +8,7 @@ def test_scrub_env_secrets():
     assert "supersecretkey12345678" not in result
     assert "***" in result
     del os.environ["TEST_API_KEY"]
+
 
 def test_scrub_patterns():
     text = 'api_key="abc123456789012345"'

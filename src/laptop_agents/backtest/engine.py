@@ -21,7 +21,6 @@ from laptop_agents.trading.helpers import (
     utc_ts,
 )
 
-
 # Context (Dependency Injection)
 LATEST_DIR: Optional[Path] = None
 _append_event_fn: Optional[Callable[[Dict[str, Any]], None]] = None

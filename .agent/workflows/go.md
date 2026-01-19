@@ -8,6 +8,15 @@ description: One command to verify, commit, and ship code changes autonomously
 
 // turbo
 
+## 0. Code Formatting
+// turbo
+```powershell
+Write-Host "Formatting code..." -ForegroundColor Cyan
+python -m autoflake --in-place --remove-all-unused-imports --recursive src tests
+python -m black src tests
+Write-Host "✓ Formatting complete" -ForegroundColor Green
+```
+
 ## 1. Syntax Check
 // turbo
 ```powershell
@@ -57,7 +66,7 @@ Write-Host "✓ Type safety OK" -ForegroundColor Green
 // turbo
 ```powershell
 $env:PYTHONPATH='src'
-python -m pytest tests/ -q --tb=short -p no:cacheprovider --basetemp=./pytest_temp
+python -m pytest tests/ -n auto -q --tb=short -p no:cacheprovider --basetemp=./pytest_temp
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ABORT: Tests failed." -ForegroundColor Red
     exit 1
@@ -78,12 +87,13 @@ if ($LASTEXITCODE -ne 0) {
 // turbo
 ```powershell
 # Get changed files and generate semantic commit message
-$changedFiles = git --no-pager diff --name-only --cached
-if (-not $changedFiles) {
-    $changedFiles = git --no-pager diff --name-only
+$stagedFiles = git --no-pager diff --name-only --cached
+if (-not $stagedFiles) {
+    git add .
+    $stagedFiles = git --no-pager diff --name-only --cached
 }
 
-if (-not $changedFiles) {
+if (-not $stagedFiles) {
     Write-Host "No changes to commit." -ForegroundColor Yellow
     exit 0
 }
@@ -92,17 +102,21 @@ if (-not $changedFiles) {
 $commitType = "chore"
 $scope = ""
 
-if ($changedFiles -match "src/") { $commitType = "feat" }
-if ($changedFiles -match "test") { $commitType = "test" }
-if ($changedFiles -match "docs/") { $commitType = "docs" }
-if ($changedFiles -match "\.agent/") { $commitType = "chore" }
-if ($changedFiles -match "scripts/") { $commitType = "chore" }
+if ($stagedFiles -match "src/") { $commitType = "feat" }
+if ($stagedFiles -match "test") { $commitType = "test" }
+if ($stagedFiles -match "docs/") { $commitType = "docs" }
+if ($stagedFiles -match "\.agent/") { $commitType = "chore" }
+if ($stagedFiles -match "scripts/") { $commitType = "chore" }
 
-# Detect scope
-if ($changedFiles -match "broker") { $scope = "broker" }
-elseif ($changedFiles -match "session") { $scope = "session" }
-elseif ($changedFiles -match "orchestrator") { $scope = "orchestrator" }
-elseif ($changedFiles -match "workflow") { $scope = "workflow" }
+# Detect scope intelligently
+if ($stagedFiles -match "src/laptop_agents/paper") { $scope = "paper" }
+elseif ($stagedFiles -match "src/laptop_agents/execution") { $scope = "execution" }
+elseif ($stagedFiles -match "src/laptop_agents/strategy") { $scope = "strategy" }
+elseif ($stagedFiles -match "src/laptop_agents/backtest") { $scope = "backtest" }
+elseif ($stagedFiles -match "src/laptop_agents/session") { $scope = "session" }
+elseif ($stagedFiles -match "src/laptop_agents/orchestrator") { $scope = "orchestrator" }
+elseif ($stagedFiles -match "docs/") { $scope = "docs" }
+elseif ($stagedFiles -match "workflow") { $scope = "workflow" }
 
 Write-Host "Detected commit type: $commitType" -ForegroundColor Cyan
 if ($scope) { Write-Host "Detected scope: $scope" -ForegroundColor Cyan }

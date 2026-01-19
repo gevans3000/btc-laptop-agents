@@ -14,7 +14,7 @@ from .rate_limiter import SimpleRateLimiter
 
 __all__ = [
     "ProviderError",
-    "TransientProviderError", 
+    "TransientProviderError",
     "RateLimitProviderError",
     "AuthProviderError",
     "UnknownProviderError",

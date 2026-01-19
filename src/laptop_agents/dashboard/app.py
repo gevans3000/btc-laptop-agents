@@ -16,9 +16,11 @@ BROKER_STATE_PATH = WORKSPACE_DIR / "paper" / "async_broker_state.json"
 EVENTS_PATH = WORKSPACE_DIR / "paper" / "events.jsonl"
 LOG_PATH = WORKSPACE_DIR / "logs" / "system.jsonl"
 
+
 @app.route("/")
 def index():
     return render_template("index.html")
+
 
 @app.route("/api/status")
 def status():
@@ -30,7 +32,7 @@ def status():
                 heartbeat = json.load(f)
         except Exception:
             pass
-            
+
     # Read Broker State
     broker = {}
     if BROKER_STATE_PATH.exists():
@@ -39,7 +41,7 @@ def status():
                 broker = json.load(f)
         except Exception:
             pass
-            
+
     # Read Recent Events (last 10)
     events = []
     if EVENTS_PATH.exists():
@@ -59,24 +61,28 @@ def status():
                 logs = lines[-30:]
         except Exception:
             pass
-            
-    return jsonify({
-        "server_time": time.time(),
-        "heartbeat": heartbeat,
-        "broker": broker,
-        "events": events,
-        "logs": logs
-    })
+
+    return jsonify(
+        {
+            "server_time": time.time(),
+            "heartbeat": heartbeat,
+            "broker": broker,
+            "events": events,
+            "logs": logs,
+        }
+    )
+
 
 def run_dashboard(port=5000):
     """Run the dashboard server."""
     # Ensure templates folder exists
     template_dir = Path(__file__).parent / "templates"
     template_dir.mkdir(exist_ok=True)
-    
+
     port = int(os.environ.get("DASHBOARD_PORT", port))
     print(f"Starting Trading Dashboard on port {port}...")
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
 
 if __name__ == "__main__":
     run_dashboard()

@@ -7,9 +7,12 @@ from .state import State
 
 class DerivativesFlowsAgent:
     """Agent 2 — Derivatives/Flows: funding/OI snapshot with caching."""
+
     name = "derivatives_flows"
 
-    def __init__(self, provider: Any, gates: Dict[str, float], refresh_bars: int = 6) -> None:
+    def __init__(
+        self, provider: Any, gates: Dict[str, float], refresh_bars: int = 6
+    ) -> None:
         self.provider = provider
         self.gates = gates
         self.refresh_bars = max(1, int(refresh_bars))
@@ -25,7 +28,12 @@ class DerivativesFlowsAgent:
             snap = dict(self._last)
             snap["cached"] = True
         else:
-            snap = {"funding_8h": None, "open_interest": None, "basis": None, "liq_map": None}
+            snap = {
+                "funding_8h": None,
+                "open_interest": None,
+                "basis": None,
+                "liq_map": None,
+            }
             if hasattr(self.provider, "snapshot_derivatives"):
                 try:
                     snap = self.provider.snapshot_derivatives()

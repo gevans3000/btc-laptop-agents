@@ -18,6 +18,44 @@ python -m laptop_agents status
 python -m laptop_agents doctor
 ```
 
+## 3. Resource Usage
+```powershell
+Write-Host "`n--- RESOURCE USAGE ---" -ForegroundColor Cyan
+# Disk Usage
+$workspaceSize = (Get-ChildItem .workspace -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1MB
+$logsSize = (Get-ChildItem logs -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1MB
+$total = $workspaceSize + $logsSize
+
+Write-Host "Disk: .workspace/ ($([math]::Round($workspaceSize, 2)) MB), logs/ ($([math]::Round($logsSize, 2)) MB)" -ForegroundColor White
+if ($total -gt 500) {
+    Write-Host "⚠ WARNING: Total storage > 500MB ($([math]::Round($total, 2)) MB). Run /clean." -ForegroundColor Yellow
+} else {
+    Write-Host "✓ Storage OK ($([math]::Round($total, 2)) MB)" -ForegroundColor Green
+}
+
+# Memory Usage (Current Python Process)
+$mem = Get-Process -Id $PID | Select-Object -ExpandProperty WorkingSet64
+Write-Host "Session Memory: $([math]::Round($mem / 1MB, 2)) MB" -ForegroundColor White
+```
+
+## 4. Connectivity Check
+```powershell
+Write-Host "`n--- CONNECTIVITY ---" -ForegroundColor Cyan
+try {
+    $google = Test-Connection -ComputerName www.google.com -Count 1 -ErrorAction Stop
+    Write-Host "Internet: Connected (Latency: $($google.ResponseTime)ms)" -ForegroundColor Green
+} catch {
+    Write-Host "Internet: DISCONNECTED" -ForegroundColor Red
+}
+
+try {
+    $bitunix = Test-Connection -ComputerName api.bitunix.com -Count 1 -ErrorAction Stop
+    Write-Host "Exchange (Bitunix): Reachable (Latency: $($bitunix.ResponseTime)ms)" -ForegroundColor Green
+} catch {
+    Write-Host "Exchange (Bitunix): UNREACHABLE" -ForegroundColor Yellow
+}
+```
+
 ## 5. Recent Errors
 ```powershell
 $errors = Get-Content .workspace/logs/system.jsonl -Tail 100 -ErrorAction SilentlyContinue | Where-Object { $_ -match '"level":\s*"ERROR"' }

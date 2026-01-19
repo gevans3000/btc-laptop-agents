@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import List
 
-from ..indicators import Candle, ema, atr, swing_high_low, equal_level
+from ..indicators import ema, atr, swing_high_low, equal_level
 from .state import State
 
 
 import json
 from pathlib import Path
 
+
 class MarketIntakeAgent:
     """Agent 1 — Market Intake: structure, levels, regime, what changed."""
+
     name = "market_intake"
 
     def __init__(self) -> None:
@@ -54,11 +56,11 @@ class MarketIntakeAgent:
             regime = "NORMAL"
 
         swing_hi, swing_lo = swing_high_low(candles, lookback=40)
-        
+
         # Get symbol-specific tolerance
         symbol = state.instrument
         tol = self.overrides.get(symbol, {}).get("eq_tolerance_pct", 0.0008)
-        
+
         eq_high = equal_level(highs, tol_pct=tol)
         eq_low = equal_level(lows, tol_pct=tol)
 

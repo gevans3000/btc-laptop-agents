@@ -650,10 +650,8 @@ class PaperBroker:
             now = time.time()
             original_count = len(self.working_orders)
             self.working_orders = [
-                o
-                for o in self.working_orders
-                if now - o.get("created_at", now) < 86400  # 24 hours
-            ]
+                o for o in self.working_orders if now - o.get("created_at", now) < 86400
+            ]  # 24 hours
             if original_count != len(self.working_orders):
                 logger.info(
                     f"Expired {original_count - len(self.working_orders)} stale working orders"

@@ -1,9 +1,10 @@
 from __future__ import annotations
-from typing import Any, Dict, List
 from .state import State
+
 
 class TrendFilterAgent:
     """Filter trades against higher timeframe trend."""
+
     name = "trend_filter"
 
     def __init__(self, higher_tf_candles: int = 4):
@@ -24,7 +25,9 @@ class TrendFilterAgent:
         order = state.order
         if order and order.get("go"):
             side = order.get("side")
-            if (trend == "DOWN" and side == "LONG") or (trend == "UP" and side == "SHORT"):
+            if (trend == "DOWN" and side == "LONG") or (
+                trend == "UP" and side == "SHORT"
+            ):
                 state.order = {"go": False, "reason": f"counter_trend_{trend}"}
 
         return state

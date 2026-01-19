@@ -3,10 +3,12 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 
+
 class LocalMemoryStore:
     """
     Simple append-only JSONL store. Local-only. Never sync unless you commit files yourself.
     """
+
     def __init__(self, data_dir: str, namespace: str = "default"):
         self.base = Path(data_dir)
         self.base.mkdir(parents=True, exist_ok=True)

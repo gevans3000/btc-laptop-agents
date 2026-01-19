@@ -69,7 +69,6 @@ class BitunixBroker:
         """Handle real-time price updates for position monitoring."""
         # For live trading, we mostly rely on on_candle polling,
         # but could use ticks for faster exit detection if needed.
-        pass
 
     def close_all(self, exit_price: float):
         """Emergency close of all positions."""
@@ -84,12 +83,10 @@ class BitunixBroker:
 
     def save_state(self):
         """No-op for live broker as state is persisted on exchange."""
-        pass
 
     def apply_funding(self, rate: float, ts: str):
         """Apply funding rate to current equity (simulation or logging)."""
         # For live trading, funding is handled by the exchange, but we logic here if needed.
-        pass
 
     def on_candle(
         self, candle: Any, order: Optional[Dict[str, Any]], tick: Optional[Any] = None

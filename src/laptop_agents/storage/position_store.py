@@ -14,7 +14,6 @@ class PositionStore:
 
     def close(self) -> None:
         """Close any active relationships."""
-        pass
 
     def __init__(self, db_path: str):
         self.db_path = Path(db_path)

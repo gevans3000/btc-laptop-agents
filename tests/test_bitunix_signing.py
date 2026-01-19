@@ -23,7 +23,10 @@ def test_rest_signature_matches_reference_computation():
     secret_key = "yourSecretKey"
     query_params = build_query_string({"uid": 200, "id": 1})
 
-    body_obj = {"uid": "2899", "arr": [{"id": 1, "name": "maple"}, {"id": 2, "name": "lily"}]}
+    body_obj = {
+        "uid": "2899",
+        "arr": [{"id": 1, "name": "maple"}, {"id": 2, "name": "lily"}],
+    }
     body = json.dumps(body_obj, separators=(",", ":"), ensure_ascii=False)
 
     # expected per docs: digest=sha256(nonce+timestamp+apiKey+queryParams+body); sign=sha256(digest+secretKey)

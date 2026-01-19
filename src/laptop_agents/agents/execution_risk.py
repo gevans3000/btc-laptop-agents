@@ -7,6 +7,7 @@ from .state import State
 
 class ExecutionRiskSentinelAgent:
     """Agent 4 — Execution & Risk Sentinel: GO/NO-GO + exact order."""
+
     name = "execution_risk_sentinel"
 
     def __init__(self, risk_cfg: Dict[str, Any]) -> None:
@@ -25,18 +26,22 @@ class ExecutionRiskSentinelAgent:
         current_bar = len(state.candles)
         last_trade_bar = state.meta.get("last_trade_bar", 0)
         cooldown = 5
-        
+
         # If we have an active trade or just exited, track it
         if state.trade_id:
             state.meta["last_trade_bar"] = current_bar
-            
+
         if (current_bar - last_trade_bar) < cooldown and not state.trade_id:
-             state.order = {"go": False, "reason": "cooldown_active", "setup": setup}
-             return state
+            state.order = {"go": False, "reason": "cooldown_active", "setup": setup}
+            return state
 
         size_mult = 1.0
         if "NO_TRADE_funding_hot" in flags:
-            state.order = {"go": False, "reason": "funding_hot_no_trade", "setup": setup}
+            state.order = {
+                "go": False,
+                "reason": "funding_hot_no_trade",
+                "setup": setup,
+            }
             return state
         if "HALF_SIZE_funding_warm" in flags:
             size_mult = 0.5
@@ -76,8 +81,8 @@ class ExecutionRiskSentinelAgent:
             "size_mult": size_mult,
             "risk_pct": risk_pct,
             "equity": equity,
-            "lot_step": 0.001, # Enforce lot step
-            "min_notional": 5.0, # Enforce min notional ($)
+            "lot_step": 0.001,  # Enforce lot step
+            "min_notional": 5.0,  # Enforce min notional ($)
             "setup": setup,
         }
         return state

@@ -34,10 +34,12 @@ class BybitDerivativesProvider:
 
             # Expected: retCode=0, result.list[0].fundingRate/openInterest
             if j.get("retCode") != 0:
-                out["errors"].append(f"retCode={j.get('retCode')} retMsg={j.get('retMsg')}")
+                out["errors"].append(
+                    f"retCode={j.get('retCode')} retMsg={j.get('retMsg')}"
+                )
                 return out
 
-            lst = (((j.get("result") or {}).get("list")) or [])
+            lst = ((j.get("result") or {}).get("list")) or []
             if not lst:
                 out["errors"].append("empty_list")
                 return out
