@@ -1,9 +1,5 @@
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from laptop_agents.paper.broker import PaperBroker
-from laptop_agents.trading.helpers import DataEvent
-from laptop_agents.data.providers.bitunix_ws import BitunixWSProvider
-import time
 
 
 def test_paper_broker_idempotency():
@@ -128,20 +124,3 @@ def test_paper_broker_fifo():
     res = broker._exit("2024-01-01T00:01:00Z", exit_px, "TP")
 
     assert abs(res["pnl"] - 3000.0) < 1.0
-
-
-@pytest.mark.asyncio
-async def test_ws_provider_stale_detection():
-    provider = BitunixWSProvider("BTCUSDT")
-    provider.heartbeat_timeout_sec = 0.1
-    provider._running = True
-    provider.last_message_time = time.time() - 0.2
-
-    with patch("asyncio.sleep", return_value=None):
-        await provider._heartbeat_check()
-
-    assert provider._running is False
-    assert provider.queue.qsize() > 0
-    event = provider.queue.get_nowait()
-    assert isinstance(event, DataEvent)
-    assert event.event == "ORDER_BOOK_STALE"

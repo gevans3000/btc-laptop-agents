@@ -168,6 +168,10 @@ def render_html(
                 <div class="card-value" style="color: #e74c3c;">{max_drawdown_pct:.2f}%</div>
             </div>
             <div class="card">
+                <div class="card-label">Sharpe Ratio</div>
+                <div class="card-value">{stats.get('sharpe', 0.0):.2f}</div>
+            </div>
+            <div class="card">
                 <div class="card-label">Total Fees</div>
                 <div class="card-value">${stats.get('fees_total', 0.0):.2f}</div>
             </div>
@@ -199,6 +203,10 @@ def render_html(
             <div class="card">
                 <div class="card-label">Trade Count</div>
                 <div class="card-value">{summary.get('trades', 0)}</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Max Drawdown</div>
+                <div class="card-value" style="color: #e74c3c;">{summary.get('max_drawdown', 0.0) * 100:.2f}%</div>
             </div>
             <div class="card">
                 <span class="stat-value">{summary.get('symbol', 'N/A')}</span>

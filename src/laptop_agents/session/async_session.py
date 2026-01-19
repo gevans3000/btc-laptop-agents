@@ -11,7 +11,7 @@ import psutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from laptop_agents.data.providers.bitunix_ws import FatalError
 from laptop_agents.core.logger import logger, write_alert
@@ -41,6 +41,7 @@ class AsyncSessionResult:
     starting_equity: float = 10000.0
     ending_equity: float = 10000.0
     duration_sec: float = 0.0
+    max_drawdown: float = 0.0
     stopped_reason: str = "completed"
 
 
@@ -61,60 +62,50 @@ class AsyncRunner:
         stale_timeout: int = 30,
         execution_latency_ms: int = 200,
         dry_run: bool = False,
-        provider: Optional[Any] = None,
-        state_dir: Optional[Path] = None,
+        provider: Any = None,
         execution_mode: str = "paper",
+        state_dir: Optional[Path] = None,
     ):
-        from laptop_agents.core.orchestrator import PAPER_DIR
+        from laptop_agents.constants import REPO_ROOT
 
-        self.state_dir = state_dir or PAPER_DIR
         self.symbol = symbol
         self.interval = interval
         self.strategy_config = strategy_config
         self.starting_equity = starting_balance
-        self.status = "initializing"
-        self.iterations = 0
-        self.errors = 0
-        self.consecutive_ws_errors: int = 0
-        self.max_ws_errors: int = (
-            10  # Increased tolerance; provider has its own tenacity retries
-        )
-        self.ws_error_backoff_sec: float = (
-            5.0  # Base backoff between reconnect attempts
-        )
-
-        # New: Store risk parameters
         self.risk_pct = risk_pct
         self.stop_bps = stop_bps
         self.tp_r = tp_r
-
-        # State
-        self.latest_tick: Optional[Tick] = None
-        self.kill_switch_triggered = False
-        self._shutting_down = False
-        # Load last price cache
-        try:
-            cache_path = Path("paper/last_price_cache.json")
-            if cache_path.exists():
-                with open(cache_path, "r") as f:
-                    cache = json.load(f)
-                    # Create a dummy Tick from cache
-                    self.latest_tick = Tick(
-                        symbol=self.symbol,
-                        bid=cache["last"],
-                        ask=cache["last"],
-                        last=cache["last"],
-                        ts=cache.get("ts", str(int(time.time() * 1000))),
-                    )
-                    logger.info(
-                        f"Loaded last price from cache: {cache['last']} (stale marker applied internally)"
-                    )
-        except Exception as e:
-            logger.warning(f"Failed to load last price cache: {e}")
-
-        self.candles: List[Candle] = []
-
+        self.dry_run = dry_run
+        self.duration_min = 0  # set in run()
+        self.start_time = time.time()
+        self.last_data_time = self.start_time
+        self.last_heartbeat_time = self.start_time
+        self.errors = 0
+        self.iterations = 0
         self.trades = 0
+        self.latest_tick: Optional[Tick] = None
+        self.candles: List[Candle] = []
+        self.metrics: List[Dict[str, Any]] = []
+        self.shutdown_event = asyncio.Event()
+        self.execution_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
+        self.stale_data_timeout_sec = float(stale_timeout)
+        self.consecutive_ws_errors = 0
+        self.kill_file = REPO_ROOT / "kill.txt"
+        self.kill_switch_triggered = False
+        self.execution_latency_ms = execution_latency_ms
+        self.status = "initializing"
+
+        # Live stats
+        self.max_equity = starting_balance
+        self.max_drawdown = 0.0
+
+        # Create session-specific workspace
+        self.state_dir = state_dir or Path("paper")
+        self.state_dir.mkdir(exist_ok=True)
+
+        from laptop_agents.core.state_manager import StateManager
+
+        self.state_manager = StateManager(self.state_dir)
 
         # Components
         from laptop_agents.resilience.trading_circuit_breaker import (
@@ -130,6 +121,8 @@ class AsyncRunner:
         state_path = str(self.state_dir / "async_broker_state.json")
         from laptop_agents.paper.broker import PaperBroker
         from laptop_agents.execution.bitunix_broker import BitunixBroker
+
+        self.broker: Union[PaperBroker, BitunixBroker]
 
         if execution_mode == "live":
             from laptop_agents.data.providers.bitunix_futures import (
@@ -192,27 +185,6 @@ class AsyncRunner:
                 logger.error(f"CONFIG_VALIDATION_FAILED: {e}")
                 # Hard fail on startup as per Perfection Plan Phase 2.3
                 raise ValueError(f"Invalid strategy configuration: {e}")
-
-        # Control
-        self.shutdown_event = asyncio.Event()
-        # Execution queue for decoupled order processing
-        self.execution_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
-        self.start_time = time.time()
-        from laptop_agents.constants import REPO_ROOT
-
-        self.kill_file = REPO_ROOT / "kill.txt"
-        self.last_data_time: float = time.time()
-        self.dry_run = dry_run
-        self.stale_data_timeout_sec: float = float(stale_timeout)
-        self.execution_latency_ms = execution_latency_ms
-
-        self.duration_min: int = 0  # Will be set in run()
-
-        from laptop_agents.core.state_manager import StateManager
-
-        self.state_manager = StateManager(self.state_dir)
-        self.last_heartbeat_time: float = time.time()
-        self.metrics: List[Dict[str, Any]] = []
 
         # PID Tracking for external monitoring
         workspace_dir = REPO_ROOT / ".workspace"
@@ -799,6 +771,15 @@ Total Fees: ${total_fees:,.2f}
                 unrealized = self.broker.get_unrealized_pnl(price)
                 total_equity = self.broker.current_equity + unrealized
 
+                # Update max drawdown tracking
+                self.max_equity = max(self.max_equity, total_equity)
+                dd = (
+                    (self.max_equity - total_equity) / self.max_equity
+                    if self.max_equity > 0
+                    else 0
+                )
+                self.max_drawdown = max(self.max_drawdown, dd)
+
                 process = psutil.Process()
                 mem_mb = process.memory_info().rss / 1024 / 1024
                 cpu_pct = process.cpu_percent()
@@ -1144,10 +1125,20 @@ async def run_async_session(
                 "starting_balance": starting_balance,
                 "ending_balance": runner.broker.current_equity,
                 "net_pnl": runner.broker.current_equity - starting_balance,
+                "max_drawdown": runner.max_drawdown,
                 "trades": runner.trades,
                 "mode": "async",
             }
-            render_html(summary, [], "", candles=runner.candles)
+            # Pass trades from broker history for a complete report
+            trades_for_report = [
+                h for h in runner.broker.order_history if h.get("type") == "exit"
+            ]
+            render_html(
+                summary,
+                trades_for_report,
+                "",
+                candles=runner.candles,
+            )
             logger.info(f"HTML report generated at {LATEST_DIR / 'summary.html'}")
         except Exception as e:
             logger.error(f"Failed to generate HTML report: {e}")
@@ -1170,6 +1161,7 @@ async def run_async_session(
             starting_equity=runner.starting_equity,
             ending_equity=runner.broker.current_equity,
             duration_sec=time.time() - runner.start_time,
+            max_drawdown=runner.max_drawdown,
         )
     else:
         return AsyncSessionResult(stopped_reason="init_failed")

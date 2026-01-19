@@ -5,6 +5,8 @@ Extracted from run.py.
 
 import csv
 import json
+import math
+import statistics
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -122,6 +124,27 @@ def parse_grid(grid_str: str, max_candidates: int = 200) -> list[dict[str, Any]]
     if not combinations:
         raise ValueError("Grid parsing resulted in 0 combinations.")
     return combinations
+
+
+def calculate_sharpe_ratio(
+    equity_history: List[Dict[str, Any]], periods_per_year: float = 252
+) -> float:
+    """Calculate Sharpe Ratio from equity history."""
+    if len(equity_history) < 2:
+        return 0.0
+    returns = []
+    for i in range(1, len(equity_history)):
+        prev = equity_history[i - 1]["equity"]
+        curr = equity_history[i]["equity"]
+        if prev > 0:
+            returns.append((curr - prev) / prev)
+    if not returns or len(returns) < 2:
+        return 0.0
+    mean_ret = statistics.mean(returns)
+    std_ret = statistics.stdev(returns)
+    if std_ret == 0:
+        return 0.0
+    return (mean_ret / std_ret) * math.sqrt(periods_per_year)
 
 
 def run_backtest_on_segment(
@@ -396,6 +419,7 @@ def run_backtest_on_segment(
     return {
         "net_pnl": float(realized_equity - starting_balance),
         "max_drawdown": float(max_drawdown),
+        "sharpe": float(calculate_sharpe_ratio(equity_history)),
         "trades": len(trades),
         "wins": wins,
         "losses": losses,
@@ -473,6 +497,7 @@ def run_backtest_bar_mode(
         "net_pnl": equity - starting_balance,
         "fees_total": total_fees,
         "max_drawdown": max_drawdown,
+        "sharpe": float(calculate_sharpe_ratio(equity_history)),
         "starting_balance": starting_balance,
         "ending_balance": equity,
     }
@@ -551,6 +576,7 @@ def run_backtest_position_mode(
         "net_pnl": result["net_pnl"],
         "fees_total": result["fees_total"],
         "max_drawdown": result["max_drawdown"],
+        "sharpe": result["sharpe"],
         "starting_balance": starting_balance,
         "ending_balance": starting_balance + result["net_pnl"],
     }

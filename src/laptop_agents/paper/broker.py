@@ -88,6 +88,7 @@ class PaperBroker:
         self.order_history: List[Dict[str, Any]] = []
 
         self.store: Optional[PositionStore] = None
+        self.state_path: Optional[str] = None
         if state_path:
             # Enforce .db extension for SQLite store
             db_path = Path(state_path).with_suffix(".db")
