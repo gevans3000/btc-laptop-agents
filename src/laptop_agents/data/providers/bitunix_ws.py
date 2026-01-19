@@ -5,8 +5,10 @@ import time
 import aiohttp
 from typing import Optional, Dict, Any, List, AsyncGenerator, Union
 from datetime import datetime, timezone
+import random
 from laptop_agents.core.logger import logger
 from laptop_agents.trading.helpers import Candle, Tick, DataEvent
+from laptop_agents.resilience.circuit import ErrorCircuitBreaker
 
 
 class FatalError(Exception):
@@ -107,8 +109,18 @@ class BitunixWebsocketClient:
                     async for msg in ws:
                         if not self._running:
                             break
+
+                        # Zombie Detection (Phase 3)
+                        # The 'async for' can block indefinitely if the link is zombie.
+                        # We use is_healthy check periodically or via timeout.
+                        # However, since we are in a tight loop, we rely on the next message
+                        # OR if no message arrives, we need a timeout.
+
                         if msg.type == aiohttp.WSMsgType.TEXT:
                             data = json.loads(msg.data)
+                            self._last_pong = (
+                                time.time()
+                            )  # Track any message as liveness
                             if "ping" in data:
                                 await ws.send_json({"pong": data["ping"]})
                             elif "event" in data and data["event"] == "channel_pushed":
@@ -116,6 +128,13 @@ class BitunixWebsocketClient:
                         elif msg.type == aiohttp.WSMsgType.ERROR:
                             logger.error("WS type error")
                             break
+
+                        if not self.is_healthy():
+                            logger.warning(
+                                "WS: Connection became zombie (no data > 20s). Forcefully reconnecting."
+                            )
+                            break
+
             except Exception as e:
                 if "getaddrinfo failed" in str(e):
                     logger.warning(
@@ -126,13 +145,22 @@ class BitunixWebsocketClient:
 
             if self._running:
                 wait_s = min(self.reconnect_delay, 60.0)
+                # Phase 3: Reconnection Jitter (0-5s)
+                jitter = random.uniform(0, 5.0)
+                full_wait = wait_s + jitter
                 # Only log reconnect attempt every ~minute or so if it keeps failing
                 if wait_s >= 8.0 or self.reconnect_delay == 1.0:
-                    logger.warning(f"WS: Reconnecting in {wait_s}s...")
-                await asyncio.sleep(wait_s)
+                    logger.warning(
+                        f"WS: Reconnecting in {full_wait:.1f}s (jittered)..."
+                    )
+                await asyncio.sleep(full_wait)
                 self.reconnect_delay *= 2.0
 
         await ctx.close()
+
+    def is_healthy(self) -> bool:
+        """Returns False if it's been >20s since the last pong or push message."""
+        return (time.time() - self._last_pong) < 20.0
 
     def _handle_push(self, data: Dict[str, Any]):
         try:
@@ -190,10 +218,25 @@ class BitunixWSProvider:
     def __init__(self, symbol: str):
         self.symbol = symbol
         self.client = get_ws_client(symbol)
+        self.circuit_breaker = ErrorCircuitBreaker(
+            max_errors=5, reset_window_sec=120, name=f"WSProvider_{symbol}"
+        )
 
     async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
         self.client.start()
         while True:
+            if not self.client.is_healthy():
+                self.circuit_breaker.record_error("WS_LIVENESS_FAILURE")
+                if self.circuit_breaker.is_tripped():
+                    logger.critical(
+                        f"WS circuit breaker TRIPPED for {self.symbol}. Shutting down provider."
+                    )
+                    yield DataEvent(
+                        event="CIRCUIT_TRIPPED",
+                        ts=datetime.now(timezone.utc).isoformat(),
+                        details={"reason": "Liveness check failed 5 times"},
+                    )
+                    break
             # Check for ticks first
             t = self.client.get_latest_tick()
             if t:

@@ -10,3 +10,7 @@ MAX_ORDERS_PER_MINUTE = 10  # Rate limit for orders
 MIN_RR_RATIO = 1.0  # Reject trades with R:R below this
 MAX_LEVERAGE = 20.0  # Match user's manual settings
 MAX_ERRORS_PER_SESSION = 20  # Shutdown if session hit this many errors
+MAX_SINGLE_TRADE_LOSS_USD = (
+    100.0  # Plan Phase 4.2: Protection against bad signal sizing
+)
+MAX_CANDLE_BUFFER = 500  # Plan Phase 4.3: Memory overhead ceiling

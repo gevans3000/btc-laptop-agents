@@ -79,6 +79,7 @@ def test_paper_broker_slippage_and_fees():
 def test_paper_broker_fifo():
     broker = PaperBroker()
     broker.max_position_per_symbol = {"BTCUSDT": 100.0}
+    broker.min_trade_interval_sec = 0.0
     broker.exchange_fees = {"maker": 0.0, "taker": 0.0}
 
     candle = MagicMock()
@@ -94,7 +95,7 @@ def test_paper_broker_fifo():
         {
             "go": True,
             "side": "LONG",
-            "qty": 1.0,
+            "qty": 0.001,
             "entry_type": "limit",
             "entry": 50000.0,
             "sl": 40000.0,
@@ -108,7 +109,7 @@ def test_paper_broker_fifo():
         {
             "go": True,
             "side": "LONG",
-            "qty": 1.0,
+            "qty": 0.001,
             "entry_type": "limit",
             "entry": 51000.0,
             "sl": 40000.0,
@@ -116,11 +117,11 @@ def test_paper_broker_fifo():
         },
     )
 
-    assert broker.pos.qty == 2.0
+    assert broker.pos.qty == 0.002
     assert abs(broker.pos.entry - 50500.0) < 1.0
 
     # Exit
     exit_px = 52000.0
     res = broker._exit("2024-01-01T00:01:00Z", exit_px, "TP")
 
-    assert abs(res["pnl"] - 3000.0) < 1.0
+    assert abs(res["pnl"] - 3.0) < 0.1

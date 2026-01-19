@@ -27,6 +27,7 @@ from laptop_agents.trading.helpers import (
     normalize_candle_order,
 )
 from laptop_agents.data.loader import load_bitunix_candles
+from laptop_agents.core import hard_limits
 from laptop_agents.core.hard_limits import MAX_ERRORS_PER_SESSION
 from laptop_agents.constants import DEFAULT_SYMBOL
 
@@ -149,6 +150,7 @@ class AsyncRunner:
                 slip_bps=slip_bps,
                 starting_equity=starting_balance,
                 state_path=state_path,
+                strategy_config=self.strategy_config,
             )
 
         # Restore starting equity from broker (if it was NOT restored from unified state already)
@@ -280,7 +282,7 @@ class AsyncRunner:
         # Start tasks
         tasks = [
             asyncio.create_task(self.market_data_task()),
-            asyncio.create_task(self.watchdog_task()),
+            asyncio.create_task(self.watchdog_tick_task()),
             asyncio.create_task(self.heartbeat_task()),
             asyncio.create_task(self.timer_task(end_time)),
             asyncio.create_task(self.kill_switch_task()),
@@ -312,6 +314,20 @@ class AsyncRunner:
                 await asyncio.sleep(2.0)
             except Exception:
                 pass
+
+            # 4. Queue Draining: Persist pending orders to broker state
+            while not self.execution_queue.empty():
+                try:
+                    item = self.execution_queue.get_nowait()
+                    order = item.get("order")
+                    if order:
+                        if hasattr(self.broker, "working_orders"):
+                            self.broker.working_orders.append(order)  # type: ignore
+                        logger.info(
+                            f"Drained pending order {order.get('client_order_id')} to broker state"
+                        )
+                except asyncio.QueueEmpty:
+                    break
 
             for task in tasks:
                 task.cancel()
@@ -417,6 +433,22 @@ Total Fees: ${total_fees:,.2f}
             if self.errors > 0:
                 write_alert(f"Session failed with {self.errors} errors")
 
+    def _parse_ts_to_int(self, ts: Any) -> int:
+        """Robustly parse timestamp (int, float, or ISO string) to unix seconds."""
+        try:
+            if isinstance(ts, (int, float)):
+                return int(ts)
+            ts_str = str(ts)
+            if ts_str.isdigit():
+                return int(ts_str)
+            if "T" in ts_str:
+                return int(
+                    datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
+                )
+        except Exception:
+            pass
+        return 0
+
     async def market_data_task(self):
         """Consumes WebSocket data and triggers strategy on candle closure."""
         try:
@@ -428,67 +460,48 @@ Total Fees: ${total_fees:,.2f}
                     logger.warning(
                         f"RECEIVED_DATA_EVENT: {item.event} | {item.details}"
                     )
-                    if item.event == "ORDER_BOOK_STALE":
-                        write_alert("MARKET_DATA_STALE_EVENT")
-                        # Trigger shutdown as per plan Step 1.2
+                    if (
+                        item.event == "ORDER_BOOK_STALE"
+                        or item.event == "CIRCUIT_TRIPPED"
+                    ):
+                        write_alert(f"MARKET_DATA_STALE_EVENT: {item.event}")
                         self.shutdown_event.set()
                         break
 
                 if isinstance(item, Tick):
-                    # Task 2: Defensive Data Validation
+                    # Robust Validation
                     if item.last <= 0 or item.ask <= 0:
-                        logger.warning(
-                            f"INVALID_TICK: Received non-positive price {item.last} / {item.ask}. Skipping."
-                        )
+                        logger.warning("INVALID_TICK: Non-positive price. Skipping.")
                         continue
 
-                    try:
-                        ts = int(item.ts)
-                        if ts < 1704067200000:  # Before 2024
-                            logger.warning(
-                                f"INVALID_TIMESTAMP: Tick timestamp {ts} is too old. Skipping."
-                            )
-                            continue
-                    except (ValueError, TypeError):
+                    ts_sec = self._parse_ts_to_int(item.ts)
+                    if ts_sec < 1704067200:  # Before 2024
                         logger.warning(
-                            f"INVALID_TIMESTAMP: Tick timestamp {item.ts} is malformed. Skipping."
+                            f"INVALID_TIMESTAMP: Tick {item.ts} is too old or malformed. Skipping."
                         )
                         continue
 
                     self.latest_tick = item
                     self.last_data_time = time.time()
-                    # Reset consecutive errors on successful data receipt
                     if self.consecutive_ws_errors > 0:
-                        logger.info(
-                            f"WS connection recovered. Resetting error count from {self.consecutive_ws_errors} to 0."
-                        )
+                        logger.info("WS connection recovered. Error count reset.")
                         self.consecutive_ws_errors = 0
 
                 elif isinstance(item, Candle):
-                    # Validation for Candle
+                    # Robust Validation
                     if item.close <= 0 or item.open <= 0:
-                        logger.warning(
-                            "INVALID_CANDLE: Received non-positive price. Skipping."
-                        )
+                        logger.warning("INVALID_CANDLE: Non-positive price. Skipping.")
                         continue
-                    try:
-                        ts = int(item.ts)
-                        # Candle timestamps might be seconds or ms depending on source,
-                        # but we check if it's before 2024 (1704067200)
-                        if ts < 1704067200:
-                            logger.warning(
-                                f"INVALID_TIMESTAMP: Candle timestamp {ts} is too old. Skipping."
-                            )
-                            continue
-                    except (ValueError, TypeError):
+
+                    new_ts_sec = self._parse_ts_to_int(item.ts)
+                    if new_ts_sec < 1704067200:
                         logger.warning(
-                            f"INVALID_TIMESTAMP: Candle timestamp {item.ts} is malformed. Skipping."
+                            f"INVALID_TIMESTAMP: Candle {item.ts} is too old or malformed. Skipping."
                         )
                         continue
 
-                    # 1.1 Implement Gap Backfill Logic
+                    # Gap Backfill Logic
                     try:
-                        new_ts = int(item.ts)
                         interval_sec = {
                             "1m": 60,
                             "5m": 300,
@@ -496,21 +509,41 @@ Total Fees: ${total_fees:,.2f}
                             "1h": 3600,
                         }.get(self.interval, 60)
                         if self.candles:
-                            last_ts = int(self.candles[-1].ts)
-                            # If gap is more than 1.5x interval, we likely missed a candle
-                            if (new_ts - last_ts) > interval_sec * 1.5:
-                                logger.warning(
-                                    f"GAP_DETECTED: {new_ts - last_ts}s missing between "
-                                    f"{last_ts} and {new_ts}. Attempting backfill..."
+                            last_ts_sec = self._parse_ts_to_int(self.candles[-1].ts)
+                            if (new_ts_sec - last_ts_sec) > interval_sec * 1.5:
+                                missing_count = int(
+                                    (new_ts_sec - last_ts_sec) / interval_sec
                                 )
-                                if hasattr(self.provider, "fetch_and_inject_gap"):
-                                    await self.provider.fetch_and_inject_gap(
-                                        last_ts, new_ts
+                                if missing_count > 0:
+                                    logger.warning(
+                                        f"GAP_DETECTED: {missing_count} missing candles. Attempting backfill..."
                                     )
-                                else:
-                                    logger.info(
-                                        "Provider does not support backfill, skipping."
-                                    )
+                                    try:
+                                        fetched = load_bitunix_candles(
+                                            self.symbol,
+                                            self.interval,
+                                            limit=min(missing_count + 5, 200),
+                                        )
+                                        fetched = normalize_candle_order(fetched)
+                                        for f_candle in fetched:
+                                            f_ts_sec = self._parse_ts_to_int(
+                                                f_candle.ts
+                                            )
+                                            if last_ts_sec < f_ts_sec < new_ts_sec:
+                                                if f_candle.ts not in [
+                                                    c.ts for c in self.candles
+                                                ]:
+                                                    self.candles.append(f_candle)
+                                                    logger.info(
+                                                        f"Injected missing candle: {f_candle.ts}"
+                                                    )
+                                        self.candles.sort(
+                                            key=lambda x: self._parse_ts_to_int(x.ts)
+                                        )
+                                    except Exception as be:
+                                        logger.error(f"Backfill failed: {be}")
+                    except Exception as ge:
+                        logger.error(f"Error checking for gaps: {ge}")
                     except (ValueError, TypeError, AttributeError) as ge:
                         logger.error(f"Error checking for gaps: {ge}")
 
@@ -522,9 +555,11 @@ Total Fees: ${total_fees:,.2f}
                             await self.on_candle_closed(closed_candle)
 
                         self.candles.append(item)
-                        # Keep window size
-                        if len(self.candles) > 200:
-                            self.candles = self.candles[-200:]
+                        # Phase 4.3: Strict Candle Buffer Cap
+                        if len(self.candles) > hard_limits.MAX_CANDLE_BUFFER:
+                            self.candles = self.candles[
+                                -hard_limits.MAX_CANDLE_BUFFER :
+                            ]
                     else:
                         # Update current open candle
                         self.candles[-1] = item
@@ -615,8 +650,8 @@ Total Fees: ${total_fees:,.2f}
         except asyncio.CancelledError:
             pass
 
-    async def watchdog_task(self):
-        """Checks open positions against latest tick every 100ms."""
+    async def watchdog_tick_task(self):
+        """Checks open positions against latest tick every 50ms (REALTIME SENTINEL)."""
         try:
             while not self.shutdown_event.is_set():
                 if self.latest_tick and self.broker.pos:
@@ -624,8 +659,23 @@ Total Fees: ${total_fees:,.2f}
                     for exit_event in events.get("exits", []):
                         self.trades += 1
                         logger.info(
-                            f"WATCHDOG TRIGGERED EXIT: {exit_event['reason']} @ {exit_event['price']}"
+                            f"REALTIME_TICK_EXIT: {exit_event['reason']} @ {exit_event['price']}"
                         )
+
+                        # Phase 1: Update metrics immediately on realtime exit
+                        elapsed = time.time() - self.start_time
+                        self.metrics.append(
+                            {
+                                "ts": datetime.now(timezone.utc).isoformat(),
+                                "elapsed": elapsed,
+                                "equity": self.broker.current_equity,
+                                "price": exit_event["price"],
+                                "unrealized": 0.0,
+                                "event": "REALTIME_TICK_EXIT",
+                                "reason": exit_event["reason"],
+                            }
+                        )
+
                         append_event(
                             {
                                 "event": "WatchdogExit",
@@ -635,7 +685,7 @@ Total Fees: ${total_fees:,.2f}
                             paper=True,
                         )
 
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
         except asyncio.CancelledError:
             pass
 
@@ -793,9 +843,12 @@ Total Fees: ${total_fees:,.2f}
                 mem_mb = process.memory_info().rss / 1024 / 1024
                 cpu_pct = process.cpu_percent()
 
-                if mem_mb > 1500:
+                # Phase 4.1: Memory Tuning from Env
+                max_mem_allowed = float(os.getenv("LA_MAX_MEMORY_MB", "1500"))
+
+                if mem_mb > max_mem_allowed:
                     logger.critical(
-                        f"CRITICAL: Memory Limit Exceeded ({mem_mb:.1f} MB). RSS > 1.5GB. Triggering shutdown."
+                        f"CRITICAL: Memory Limit ({mem_mb:.1f}MB > {max_mem_allowed}MB). Shutting down."
                     )
                     self.shutdown_event.set()
 
@@ -992,15 +1045,17 @@ Total Fees: ${total_fees:,.2f}
                 )
                 os._exit(1)
 
-            # Memory check
+            # Memory check (Phase 4.1)
             try:
                 mem_rss_mb = process.memory_info().rss / 1024 / 1024
-                if mem_rss_mb > 1500:
+                # Use LA_MAX_MEMORY_MB for hardware watchdog as well
+                max_mem_allowed = float(os.getenv("LA_MAX_MEMORY_MB", "1500"))
+                if mem_rss_mb > max_mem_allowed:
                     print(
                         f"\n\n!!! CRITICAL: Memory Limit Exceeded ({mem_rss_mb:.1f} MB). FORCE EXITing. !!!\n\n"
                     )
                     logger.critical(
-                        f"CRITICAL: Memory Limit Exceeded ({mem_rss_mb:.1f} MB). RSS > 1.5GB."
+                        f"CRITICAL: Memory Limit Exceeded ({mem_rss_mb:.1f} MB). RSS > {max_mem_allowed} MB."
                     )
                     os._exit(1)
             except Exception:

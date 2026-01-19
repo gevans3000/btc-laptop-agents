@@ -44,3 +44,30 @@ class CircuitBreaker:
 
 class CircuitBreakerOpenError(Exception):
     """Raised when circuit breaker is open."""
+
+
+class ErrorCircuitBreaker:
+    """Tracks errors over a window and 'trips' if too many occur."""
+
+    def __init__(
+        self, max_errors: int = 5, reset_window_sec: int = 120, name: str = "default"
+    ):
+        self.max_errors = max_errors
+        self.reset_window_sec = reset_window_sec
+        self.name = name
+        self.error_timestamps: list[float] = []
+
+    def record_error(self, error_msg: str = ""):
+        now = time.time()
+        self.error_timestamps.append(now)
+        # Prune old errors
+        self.error_timestamps = [
+            t for t in self.error_timestamps if now - t < self.reset_window_sec
+        ]
+
+    def is_tripped(self) -> bool:
+        now = time.time()
+        self.error_timestamps = [
+            t for t in self.error_timestamps if now - t < self.reset_window_sec
+        ]
+        return len(self.error_timestamps) >= self.max_errors

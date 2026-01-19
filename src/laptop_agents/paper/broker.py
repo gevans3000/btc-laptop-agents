@@ -62,8 +62,10 @@ class PaperBroker:
         starting_equity: float = 10000.0,
         state_path: Optional[str] = None,
         random_seed: Optional[int] = None,
+        strategy_config: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.symbol = symbol
+        self.strategy_config = strategy_config or {}
         self.rng = random.Random(random_seed)
         self.last_trade_time: float = 0.0
         self.min_trade_interval_sec: float = 60.0  # 1 minute minimum between trades
@@ -116,7 +118,19 @@ class PaperBroker:
         # 1) manage open position
         if self.pos is not None:
             self.pos.bars_open += 1
-            exit_event = self._check_exit(candle)
+            max_bars = self.strategy_config.get(
+                "max_bars_open", 50
+            )  # Phase 2: Force exit after 50 bars
+            exit_event: Optional[Dict[str, Any]] = None
+            if self.pos.bars_open > max_bars:
+                logger.warning(
+                    f"STALE_EXIT: Position open for {self.pos.bars_open} > {max_bars} bars. Force closing."
+                )
+                close_px = float(candle.close)
+                exit_event = self._exit(candle.ts, close_px, "STALE_EXIT")
+            else:
+                exit_event = self._check_exit(candle)
+
             if exit_event:
                 events["exits"].append(exit_event)
                 self.pos = None
@@ -142,6 +156,37 @@ class PaperBroker:
                 if self.state_path:
                     self._save_state()
         return events
+
+    def place_order(
+        self,
+        *,
+        side: str,
+        qty: float,
+        order_type: str = "MARKET",
+        price: Optional[float] = None,
+        sl: Optional[float] = None,
+        tp: Optional[float] = None,
+        client_order_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Unified entry point for internal orders."""
+        side_upper = side.upper()
+        normalized_side = "LONG" if side_upper in ["BUY", "LONG"] else "SHORT"
+        order = {
+            "side": normalized_side,
+            "qty": qty,
+            "entry_type": order_type.lower(),
+            "entry": price or 0.0,
+            "sl": sl or 0.0,
+            "tp": tp or 0.0,
+            "client_order_id": client_order_id or uuid.uuid4().hex,
+            "go": True,
+            "created_at": time.time(),
+        }
+        self.working_orders.append(order)
+        logger.info(
+            f"PAPER ORDER PLACED: {side} {qty} {order_type} (ID: {order['client_order_id']})"
+        )
+        return {"status": "success", "order": order}
 
     def _try_fill(
         self,
@@ -180,6 +225,21 @@ class PaperBroker:
             )
             return None
         self.order_timestamps.append(now)
+
+        # Trade frequency throttle (min_trade_interval_sec)
+        time_since_last = now - self.last_trade_time
+        if not is_working and time_since_last < self.min_trade_interval_sec:
+            logger.warning(
+                f"REJECTED: Trade throttling. {time_since_last:.1f}s < {self.min_trade_interval_sec}s"
+            )
+            append_event(
+                {
+                    "event": "OrderThrottled",
+                    "interval_sec": self.min_trade_interval_sec,
+                },
+                paper=True,
+            )
+            return None
 
         # Daily loss check
         equity = float(order.get("equity") or self.current_equity)
@@ -261,6 +321,22 @@ class PaperBroker:
         qty = float(order["qty"])
         sl = float(order["sl"])
         tp = float(order["tp"])
+
+        # Single Trade Loss Cap
+        risk_dollars = abs(entry - sl) * qty
+        if risk_dollars > hard_limits.MAX_SINGLE_TRADE_LOSS_USD:
+            logger.warning(
+                f"REJECTED: Risk ${risk_dollars:.2f} > Max ${hard_limits.MAX_SINGLE_TRADE_LOSS_USD}"
+            )
+            append_event(
+                {
+                    "event": "OrderRejected",
+                    "reason": "risk_cap_exceeded",
+                    "risk": risk_dollars,
+                },
+                paper=True,
+            )
+            return None
 
         if entry_type == "market":
             if tick and tick.bid and tick.ask:
@@ -348,11 +424,88 @@ class PaperBroker:
         new_lot = {"qty": pos_qty, "price": fill_px_slipped, "fees": entry_fees}
 
         trade_id = client_order_id if not is_working else uuid.uuid4().hex[:12]
+
+        if self.pos and side != self.pos.side:
+            # Plan 4.1: FIFO Closing Logic
+            remaining_qty = actual_qty
+            total_realized_pnl = 0.0
+            total_exit_fees = 0.0
+            total_reduction = 0.0
+
+            exit_fee_rate = self.exchange_fees["taker"]
+
+            while remaining_qty > 0 and self.pos and self.pos.lots:
+                lot = self.pos.lots[0]
+                signed_lot_qty = lot["qty"]
+
+                # How much of this lot can we close?
+                close_qty = min(remaining_qty, signed_lot_qty)
+
+                # Settle this portion
+                avg_entry = lot["price"]
+                entry_fees_portion = lot["fees"] * (close_qty / signed_lot_qty)
+
+                if self.is_inverse:
+                    pnl_coins = (1.0 / avg_entry - 1.0 / fill_px_slipped) * close_qty
+                    if side == "LONG":
+                        pnl_coins = -pnl_coins  # closing short
+                    pnl = pnl_coins * fill_px_slipped
+                else:
+                    pnl = (
+                        (fill_px_slipped - avg_entry) * close_qty
+                        if self.pos.side == "LONG"
+                        else (avg_entry - fill_px_slipped) * close_qty
+                    )
+
+                exit_fees = (
+                    abs(
+                        close_qty * fill_px_slipped
+                        if not self.is_inverse
+                        else close_qty
+                    )
+                    * exit_fee_rate
+                )
+
+                total_realized_pnl += pnl - exit_fees - entry_fees_portion
+                total_exit_fees += exit_fees + entry_fees_portion
+                total_reduction += close_qty
+
+                if close_qty < lot["qty"]:
+                    lot["qty"] -= close_qty
+                    lot["fees"] -= entry_fees_portion
+                    remaining_qty = 0
+                else:
+                    self.pos.lots.popleft()
+                    remaining_qty -= close_qty
+
+            self.pos.qty -= total_reduction
+            self.current_equity += total_realized_pnl
+
+            close_event = {
+                "type": "exit" if self.pos.qty <= 0.00000001 else "partial_exit",
+                "trade_id": self.pos.trade_id,
+                "side": side,
+                "price": float(fill_px_slipped),
+                "qty": float(total_reduction),
+                "pnl": float(total_realized_pnl),
+                "fees": float(total_exit_fees),
+                "at": candle.ts,
+            }
+            self.order_history.append(close_event)
+            if self.pos.qty <= 0.00000001:
+                self.pos = None
+
+            if self.state_path:
+                self._save_state()
+            self.last_trade_time = time.time()
+            return close_event
+
         if self.pos:
-            # Add to existing position
+            # Add to existing position (same side)
             self.pos.lots.append(new_lot)
             self.pos.qty += pos_qty
         else:
+            # New position
             self.pos = Position(
                 side=side,
                 qty=pos_qty,
@@ -382,7 +535,7 @@ class PaperBroker:
                 "client_order_id": f"{client_order_id or 'anon'}_remainder",
                 "side": side,
                 "entry_type": "limit",
-                "entry": fill_px,
+                "entry": entry,  # Phase 2: Use original limit price to avoid double slippage taxation
                 "qty": qty - actual_qty,
                 "sl": sl,
                 "tp": tp,
@@ -444,8 +597,8 @@ class PaperBroker:
                     paper=True,
                 )
 
-        # ATR Trailing Stop Logic (simplified: 1.5 ATR from highest close)
-        atr_mult = 1.5  # Could be configurable
+        # ATR Trailing Stop Logic (configurable mult)
+        atr_mult = self.strategy_config.get("trailing_atr_mult", 1.5)
         if not p.trail_active:
             # Activate trail if profit > 0.5R
             if (
@@ -817,14 +970,9 @@ class PaperBroker:
         fills = []
         remaining = []
         for order in self.working_orders:
-            if self.pos is None:  # Only fill if no position
-                # We need to bypass the client_order_id check for working orders
-                # as they are already processed.
-                fill = self._try_fill(candle, order, is_working=True)
-                if fill:
-                    fills.append(fill)
-                else:
-                    remaining.append(order)
+            fill = self._try_fill(candle, order, is_working=True)
+            if fill:
+                fills.append(fill)
             else:
                 remaining.append(order)
         self.working_orders = remaining

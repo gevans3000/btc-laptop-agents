@@ -7,6 +7,16 @@ from typing import List
 import tenacity
 from laptop_agents.core.rate_limiter import exchange_rate_limiter
 from laptop_agents.trading.helpers import Candle
+from laptop_agents.resilience import RateLimitProviderError
+
+
+def wait_rate_limit(retry_state: tenacity.RetryCallState) -> float:
+    """Phase 4.2: Capture 429 Specifically and wait longer (60s)."""
+    if retry_state.outcome and isinstance(
+        retry_state.outcome.exception(), RateLimitProviderError
+    ):
+        return 60.0
+    return tenacity.wait_exponential(min=2, max=10)(retry_state)
 
 
 def load_mock_candles(n: int = 200) -> List[Candle]:
@@ -55,8 +65,8 @@ def _get_bitunix_provider_class():
 
 
 @tenacity.retry(
-    stop=tenacity.stop_after_attempt(3),
-    wait=tenacity.wait_exponential(min=2, max=10),
+    stop=tenacity.stop_after_attempt(5),
+    wait=wait_rate_limit,
     retry=tenacity.retry_if_exception_type(Exception),
 )
 def load_bitunix_candles(symbol: str, interval: str, limit: int) -> List[Candle]:
