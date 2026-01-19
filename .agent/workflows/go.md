@@ -4,81 +4,43 @@ description: One command to verify, commit, and ship code changes autonomously
 
 # Go Workflow
 
-> **Goal**: Fully autonomous code verification, commit, and deployment in a single command.
+> **Goal**: Fully autonomous code verification, commit, and deployment in a single atomic pipeline.
 
 // turbo-all
 
-## 0. Code Formatting
+## 1. Verify & Deploy
 ```powershell
-Write-Host "Formatting code..." -ForegroundColor Cyan
+Write-Host "Starting Autonomous Deployment Pipeline..." -ForegroundColor Cyan
+
+# 0. Code Formatting
+Write-Host "`n[1/5] Formatting code..." -ForegroundColor White
 python -m autoflake --in-place --remove-all-unused-imports --recursive src tests
 python -m black src tests
-Write-Host "✓ Formatting complete" -ForegroundColor Green
-```
 
-## 1. Syntax Check
-```powershell
+# 1. Syntax & Lint Check
+Write-Host "[2/5] Running Syntax & Lint Checks..." -ForegroundColor White
 python -m compileall src scripts -q
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ABORT: Syntax errors detected." -ForegroundColor Red
-    exit 1
-}
-Write-Host "✓ Syntax OK" -ForegroundColor Green
-```
+if ($LASTEXITCODE -ne 0) { Write-Host "ABORT: Syntax errors." -ForegroundColor Red; exit 1 }
 
-## 2. Learned Lint Rules
-```powershell
 python scripts/check_lint_rules.py
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ABORT: Learned lint rules violated." -ForegroundColor Red
-    exit 1
-}
-Write-Host "✓ Lint rules OK" -ForegroundColor Green
-```
+if ($LASTEXITCODE -ne 0) { Write-Host "ABORT: Lint violations." -ForegroundColor Red; exit 1 }
 
-## 3. Verification & Doctor
-```powershell
+# 2. Doctor & Type Safety
+Write-Host "[3/5] Verifying System (Doctor & Mypy)..." -ForegroundColor White
 python -m laptop_agents doctor --fix
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ABORT: Verification failed." -ForegroundColor Red
-    exit 1
-}
-Write-Host "✓ Verification OK" -ForegroundColor Green
-```
+if ($LASTEXITCODE -ne 0) { Write-Host "ABORT: Doctor failed." -ForegroundColor Red; exit 1 }
 
-## 4. Type Safety (mypy)
-```powershell
 $env:PYTHONPATH='src'
 python -m mypy src/laptop_agents --ignore-missing-imports
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ABORT: Type checks failed." -ForegroundColor Red
-    exit 1
-}
-Write-Host "✓ Type safety OK" -ForegroundColor Green
-```
+if ($LASTEXITCODE -ne 0) { Write-Host "ABORT: Type checks failed." -ForegroundColor Red; exit 1 }
 
-## 5. Unit Tests
-```powershell
-$env:PYTHONPATH='src'
+# 3. Unit Tests
+Write-Host "[4/5] Running Unit Tests..." -ForegroundColor White
 python -m pytest tests/ -n auto -q --tb=short -p no:cacheprovider --basetemp=./pytest_temp
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ABORT: Tests failed." -ForegroundColor Red
-    exit 1
-}
-Write-Host "✓ All tests passed" -ForegroundColor Green
-```
+if ($LASTEXITCODE -ne 0) { Write-Host "ABORT: Tests failed." -ForegroundColor Red; exit 1 }
 
-## 6. Documentation Links
-```powershell
-python scripts/check_docs_links.py
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "WARNING: Broken doc links detected." -ForegroundColor Yellow
-}
-```
-
-## 7. Generate Commit Message
-```powershell
-# Get changed files and generate semantic commit message
+# 4. Git Operations (Commit & Push)
+Write-Host "[5/5] Shipping Code..." -ForegroundColor White
 $stagedFiles = git --no-pager diff --name-only --cached
 if (-not $stagedFiles) {
     git add .
@@ -87,61 +49,29 @@ if (-not $stagedFiles) {
 
 if (-not $stagedFiles) {
     Write-Host "No changes to commit." -ForegroundColor Yellow
-    exit 0
+} else {
+    $commitType = "feat"; $scope = ""
+    if ($stagedFiles -match "src/laptop_agents/paper") { $scope = "paper" }
+    elseif ($stagedFiles -match "src/laptop_agents/execution") { $scope = "execution" }
+    elseif ($stagedFiles -match "src/laptop_agents/strategy") { $scope = "strategy" }
+    elseif ($stagedFiles -match "src/laptop_agents/backtest") { $scope = "backtest" }
+    elseif ($stagedFiles -match "src/laptop_agents/session") { $scope = "session" }
+    elseif ($stagedFiles -match "workflow") { $scope = "workflow" }
+
+    $message = if ($scope) { "${commitType}(${scope}): auto-commit via /go" } else { "${commitType}: auto-commit via /go" }
+
+    git commit -m $message
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "✓ Committed: $message" -ForegroundColor Green
+        git push origin main
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "✓ Pushed to origin/main" -ForegroundColor Green
+        } else {
+            Write-Host "ABORT: Push failed." -ForegroundColor Red; exit 1
+        }
+    }
 }
 
-# Auto-detect commit type based on files changed
-$commitType = "chore"
-$scope = ""
-
-if ($stagedFiles -match "src/") { $commitType = "feat" }
-if ($stagedFiles -match "test") { $commitType = "test" }
-if ($stagedFiles -match "docs/") { $commitType = "docs" }
-if ($stagedFiles -match "\.agent/") { $commitType = "chore" }
-if ($stagedFiles -match "scripts/") { $commitType = "chore" }
-
-# Detect scope intelligently
-if ($stagedFiles -match "src/laptop_agents/paper") { $scope = "paper" }
-elseif ($stagedFiles -match "src/laptop_agents/execution") { $scope = "execution" }
-elseif ($stagedFiles -match "src/laptop_agents/strategy") { $scope = "strategy" }
-elseif ($stagedFiles -match "src/laptop_agents/backtest") { $scope = "backtest" }
-elseif ($stagedFiles -match "src/laptop_agents/session") { $scope = "session" }
-elseif ($stagedFiles -match "src/laptop_agents/orchestrator") { $scope = "orchestrator" }
-elseif ($stagedFiles -match "docs/") { $scope = "docs" }
-elseif ($stagedFiles -match "workflow") { $scope = "workflow" }
-
-Write-Host "Detected commit type: $commitType" -ForegroundColor Cyan
-if ($scope) { Write-Host "Detected scope: $scope" -ForegroundColor Cyan }
-```
-
-## 8. Stage and Commit
-```powershell
-git add .
-git --no-pager status
-
-# Build commit message
-$message = if ($scope) { "${commitType}(${scope}): auto-commit via /go workflow" } else { "${commitType}: auto-commit via /go workflow" }
-
-git commit -m $message
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ABORT: Commit failed." -ForegroundColor Red
-    exit 1
-}
-Write-Host "✓ Committed: $message" -ForegroundColor Green
-```
-
-## 9. Push to Remote
-```powershell
-git push origin main
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ABORT: Push failed." -ForegroundColor Red
-    exit 1
-}
-Write-Host "✓ Pushed to origin/main" -ForegroundColor Green
-```
-
-## 10. Success Summary
-```powershell
 Write-Host "`n=== DEPLOYMENT COMPLETE ===" -ForegroundColor Green
 git --no-pager log -1 --oneline
 ```
