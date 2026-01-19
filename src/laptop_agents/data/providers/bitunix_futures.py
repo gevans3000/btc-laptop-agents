@@ -341,7 +341,9 @@ class BitunixFuturesProvider:
         item = (
             data[0]
             if isinstance(data, list) and data
-            else data if isinstance(data, dict) else {}
+            else data
+            if isinstance(data, dict)
+            else {}
         )
         fr = item.get("fundingRate")
 
