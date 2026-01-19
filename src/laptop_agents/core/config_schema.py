@@ -1,5 +1,5 @@
 from typing import Dict, Optional
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 import yaml
 from laptop_agents.constants import REPO_ROOT
 from laptop_agents.core.logger import logger
@@ -8,8 +8,7 @@ from laptop_agents.core.logger import logger
 class RiskConfig(BaseModel):
     max_position_per_symbol: Dict[str, float] = Field(default_factory=dict)
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
 
 class ExchangeFees(BaseModel):
@@ -20,8 +19,7 @@ class ExchangeFees(BaseModel):
 class ExchangeConfig(BaseModel):
     fees: Optional[ExchangeFees] = None
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
 
 def load_and_validate_risk_config() -> RiskConfig:

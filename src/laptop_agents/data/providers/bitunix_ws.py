@@ -44,11 +44,21 @@ class BitunixWebsocketClient:
         logger.info(f"WS: Started background thread for {self.symbol}")
 
     def stop(self):
+        """Cleanly shutdown the background thread and event loop."""
+        if not self._running:
+            return
         self._running = False
-        if self._loop:
+        if self._loop and self._loop.is_running():
+            # Schedule cancellation of all tasks in the loop
+            self._loop.call_soon_threadsafe(
+                lambda: [t.cancel() for t in asyncio.all_tasks(self._loop)]
+            )
+            # Give it a moment to process cancellations before stopping the loop
             self._loop.call_soon_threadsafe(self._loop.stop)
+
         if self._thread:
-            self._thread.join(timeout=1.0)
+            self._thread.join(timeout=2.0)
+            self._thread = None
         logger.info(f"WS: Stopped background thread for {self.symbol}")
 
     def get_latest_candle(self) -> Optional[Candle]:
@@ -83,12 +93,24 @@ class BitunixWebsocketClient:
         asyncio.set_event_loop(self._loop)
         try:
             self._loop.run_until_complete(self._connect_and_stream())
+        except asyncio.CancelledError:
+            logger.info(f"WS: Stream cancelled for {self.symbol}")
         except BaseException as e:
             logger.critical(
                 f"WS: Background thread crashed for {self.symbol}: {e}", exc_info=True
             )
         finally:
-            self._loop.close()
+            # Shield against closing a running loop or double-close
+            try:
+                # Cancel any remaining tasks
+                pending = asyncio.all_tasks(self._loop)
+                if pending:
+                    self._loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
+                self._loop.close()
+            except Exception:
+                pass
 
     async def _connect_and_stream(self):
         while self._running:
@@ -152,7 +174,10 @@ class BitunixWebsocketClient:
                 jitter = random.uniform(0, 5.0)
                 full_wait = wait_s + jitter
                 logger.warning(f"WS: Reconnecting in {full_wait:.1f}s...")
-                await asyncio.sleep(full_wait)
+                try:
+                    await asyncio.sleep(full_wait)
+                except asyncio.CancelledError:
+                    break
                 self.reconnect_delay *= 2.0
 
     def is_healthy(self) -> bool:

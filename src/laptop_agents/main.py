@@ -7,7 +7,7 @@ from rich.console import Console
 load_dotenv()
 
 from laptop_agents import __version__  # noqa: E402
-from laptop_agents.commands import lifecycle, system, session  # noqa: E402
+from laptop_agents.commands import lifecycle, system, session, backtest  # noqa: E402
 
 console = Console()
 app = typer.Typer(help="Laptop Agents Unified CLI")
@@ -29,6 +29,7 @@ app.command(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
     help="Run a trading session (passes all arguments to the runner logic)",
 )(session.run)
+app.command(name="backtest", help="Run a backtest on historical data")(backtest.main)
 
 
 def handle_exception(exc_type, exc_value, exc_traceback):
