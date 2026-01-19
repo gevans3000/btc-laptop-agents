@@ -157,8 +157,9 @@ class BitunixWebsocketClient:
         # Session automatically closed by async with
 
     def is_healthy(self) -> bool:
-        """Returns False if it's been >15s since the last pong or push message."""
-        return (time.time() - self._last_pong) < 15.0
+        """Returns False if it's been >60s since the last pong or push message."""
+        # Increased from 15s to 60s to allow for slow startups/congestion
+        return (time.time() - self._last_pong) < 60.0
 
     def _handle_push(self, data: Dict[str, Any]):
         try:
@@ -265,13 +266,14 @@ class BitunixWSProvider:
                         self.client._last_pong = time.time()
 
                 # Check Silence (Data stream stall)
-                # If healthy but no data for 15s, something is wrong with subscription
-                if (time.time() - last_yield_time) > 15.0:
+                # If healthy but no data for 60s, something is wrong with subscription
+                # Increased from 15s to 60s to avoid aggressive restarts
+                if (time.time() - last_yield_time) > 60.0:
                     logger.warning(
-                        f"WS Silence detected (>15s). Restarting client for {self.symbol}..."
+                        f"WS Silence detected (>60s). Restarting client for {self.symbol}..."
                     )
                     self.client.stop()
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(2.0)
                     self.client.start()
                     last_yield_time = time.time()
 
