@@ -25,6 +25,7 @@ class BitunixWebsocketClient:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._latest_candle: Optional[Candle] = None
+        self._latest_tick: Optional[Tick] = None
         self._history: List[Candle] = []
         self._lock = threading.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -50,6 +51,12 @@ class BitunixWebsocketClient:
     def get_latest_candle(self) -> Optional[Candle]:
         with self._lock:
             return self._latest_candle
+
+    def get_latest_tick(self) -> Optional[Tick]:
+        with self._lock:
+            val = self._latest_tick
+            self._latest_tick = None  # Consume to avoid double-yielding
+            return val
 
     def get_candles(self) -> List[Candle]:
         """Return history + latest (merged)"""
@@ -82,15 +89,20 @@ class BitunixWebsocketClient:
                     logger.info(f"WS: Connected to {self.ws_url} [{self.symbol}]")
                     self.reconnect_delay = 1.0
 
-                    # Subscribe
-                    sub_msg = {
-                        "event": "sub",
-                        "params": {
-                            "channel": f"market.{self.symbol}.kline.1m",
-                            "cb_id": self.symbol,
-                        },
-                    }
-                    await ws.send_json(sub_msg)
+                    # Subscriptions
+                    channels = [
+                        f"market.{self.symbol}.kline.1m",
+                        f"market.{self.symbol}.ticker",
+                    ]
+                    for chan in channels:
+                        sub_msg = {
+                            "event": "sub",
+                            "params": {
+                                "channel": chan,
+                                "cb_id": f"{self.symbol}_{chan}",
+                            },
+                        }
+                        await ws.send_json(sub_msg)
 
                     async for msg in ws:
                         if not self._running:
@@ -125,23 +137,37 @@ class BitunixWebsocketClient:
     def _handle_push(self, data: Dict[str, Any]):
         try:
             # Bitunix structure: { "data": { "kline": { ... } } }
-            kline = data.get("data", {}).get("kline", {})
-            if not kline:
-                return
+            d = data.get("data", {})
+            kline = d.get("kline")
+            ticker = d.get("ticker")
 
-            c = Candle(
-                ts=datetime.fromtimestamp(
-                    kline.get("time", 0) / 1000.0, tz=timezone.utc
-                ).isoformat(),
-                open=float(kline.get("open", 0)),
-                high=float(kline.get("high", 0)),
-                low=float(kline.get("low", 0)),
-                close=float(kline.get("close", 0)),
-                volume=float(kline.get("baseVol", 0)),
-            )
+            if kline:
+                c = Candle(
+                    ts=datetime.fromtimestamp(
+                        kline.get("time", 0) / 1000.0, tz=timezone.utc
+                    ).isoformat(),
+                    open=float(kline.get("open", 0)),
+                    high=float(kline.get("high", 0)),
+                    low=float(kline.get("low", 0)),
+                    close=float(kline.get("close", 0)),
+                    volume=float(kline.get("baseVol", 0)),
+                )
+                with self._lock:
+                    self._latest_candle = c
 
-            with self._lock:
-                self._latest_candle = c
+            if ticker:
+                # Bitunix ticker: buy=bid, sell=ask
+                t = Tick(
+                    symbol=self.symbol,
+                    bid=float(ticker.get("buy", 0)),
+                    ask=float(ticker.get("sell", 0)),
+                    last=float(ticker.get("last", 0)),
+                    ts=datetime.fromtimestamp(
+                        ticker.get("time", 0) / 1000.0, tz=timezone.utc
+                    ).isoformat(),
+                )
+                with self._lock:
+                    self._latest_tick = t
         except Exception as e:
             logger.error(f"WS: Parse error: {e}")
 
@@ -168,9 +194,13 @@ class BitunixWSProvider:
     async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
         self.client.start()
         while True:
+            # Check for ticks first
+            t = self.client.get_latest_tick()
+            if t:
+                yield t
+
             c = self.client.get_latest_candle()
             if c:
                 yield c
-            # Polling interval - in a real implementation we'd use an asyncio.Queue
-            # pushed to by the thread, but this is safe enough for 1m candles
-            await asyncio.sleep(0.1)
+            # Polling interval
+            await asyncio.sleep(0.05)

@@ -400,10 +400,11 @@ class PaperBroker:
         """Sub-minute check for SL/TP against latest tick price."""
         assert self.pos is not None
         p = self.pos
-        px = float(tick.last)
         ts = str(tick.ts)
 
         if p.side == "LONG":
+            # LONG exit (SELL) fills at BID
+            px = float(tick.bid)
             if px <= p.sl:
                 return self._exit(ts, p.sl, "SL_TICK")
             if px >= p.tp:
@@ -411,6 +412,8 @@ class PaperBroker:
             if p.trail_active and px <= p.trail_stop:
                 return self._exit(ts, p.trail_stop, "TRAIL_TICK")
         else:  # SHORT
+            # SHORT exit (BUY) fills at ASK
+            px = float(tick.ask)
             if px >= p.sl:
                 return self._exit(ts, p.sl, "SL_TICK")
             if px <= p.tp:

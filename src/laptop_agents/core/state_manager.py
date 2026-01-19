@@ -53,6 +53,10 @@ class StateManager:
         try:
             with open(temp, "w") as f:
                 json.dump(self._state, f, indent=2)
+                f.flush()
+                import os
+
+                os.fsync(f.fileno())
 
             # Step 2: Backup current (if exists and valid)
             if self.state_file.exists():
@@ -64,7 +68,7 @@ class StateManager:
                     pass
 
             # Step 3: Atomic rename
-            temp.replace(self.state_file)
+            os.replace(temp, self.state_file)
         except Exception as e:
             logger.error(f"Failed to save unified state: {e}")
 

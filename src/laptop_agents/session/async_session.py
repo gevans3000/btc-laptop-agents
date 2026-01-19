@@ -151,16 +151,24 @@ class AsyncRunner:
                 state_path=state_path,
             )
 
-        # Restore starting equity from broker (if it was loaded from state)
-        if (
-            self.broker.starting_equity is not None
-            and self.broker.starting_equity != starting_balance
-        ):
+        # Restore starting equity from broker (if it was NOT restored from unified state already)
+        # If starting_balance is NOT the default, it means it was likely restored from unified state
+        is_restored = starting_balance != 10000.0
+
+        if not is_restored and self.broker.starting_equity is not None:
             logger.info(
                 f"Restoring starting equity from broker state: ${self.broker.starting_equity:,.2f}"
             )
             self.starting_equity = self.broker.starting_equity
             self.circuit_breaker.set_starting_equity(self.starting_equity)
+        else:
+            # Sync broker to our master starting_equity
+            self.broker.starting_equity = self.starting_equity
+            self.circuit_breaker.set_starting_equity(self.starting_equity)
+
+        # Ensure starting_equity is in state_manager for unified restoration
+        self.state_manager.set("starting_equity", self.starting_equity)
+        self.state_manager.save()
 
         # 2.3 Config Validation on Startup
         if self.strategy_config:
@@ -545,6 +553,7 @@ Total Fees: ${total_fees:,.2f}
                     self.state_manager.set_circuit_breaker_state(
                         self.circuit_breaker.get_status()
                     )
+                    self.state_manager.set("starting_equity", self.starting_equity)
                     self.state_manager.save()
                     self.broker.save_state()
                 except Exception as e:
@@ -1034,6 +1043,21 @@ async def run_async_session(
         return AsyncSessionResult(stopped_reason="already_running")
     except Exception as e:
         logger.warning(f"Could not create PID lock file: {e}")
+
+    # Reference Persistence: Restore starting_equity from local state if available
+    unified_state_path = Path("paper/unified_state.json")
+    if unified_state_path.exists():
+        try:
+            with open(unified_state_path, "r") as f:
+                state = json.load(f)
+                restored_equity = state.get("starting_equity")
+                if restored_equity:
+                    logger.info(
+                        f"RECOVERY: Restored starting_equity from state: ${restored_equity:,.2f}"
+                    )
+                    starting_balance = float(restored_equity)
+        except Exception as e:
+            logger.warning(f"Failed to restore starting_equity from state: {e}")
 
     runner = None
     try:
