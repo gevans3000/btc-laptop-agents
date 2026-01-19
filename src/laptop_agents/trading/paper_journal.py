@@ -37,7 +37,10 @@ class PaperJournal:
         plan: Dict[str, Any],
         trade_id: str | None = None,
     ) -> str:
-        tid = trade_id or f"PT-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        tid = (
+            trade_id
+            or f"PT-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        )
         event = {
             "type": "trade",
             "trade_id": tid,

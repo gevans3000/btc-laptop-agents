@@ -11,7 +11,9 @@ class Runner:
 
     def run(self, agent_name: str, task: str) -> str:
         if agent_name not in self.registry:
-            raise ValueError(f"Unknown agent '{agent_name}'. Available: {list(self.registry)}")
+            raise ValueError(
+                f"Unknown agent '{agent_name}'. Available: {list(self.registry)}"
+            )
 
         self.memory.add("user", task, meta={"agent": agent_name})
         agent = self.registry[agent_name]
