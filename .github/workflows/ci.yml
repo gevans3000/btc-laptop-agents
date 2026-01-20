@@ -12,8 +12,15 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip
+      - run: python --version
+      - run: python -m pip check
 
       - run: pip install -e .[test]
-      - run: pip install mypy
+      - run: python -c "import laptop_agents; print('ok')"
+      - run: pip install build mypy pip-audit
+      - run: python -m build
+      - run: python -m compileall src
       - run: pytest -q --tb=short
       - run: mypy src/laptop_agents --ignore-missing-imports --no-error-summary
+      - run: pip-audit
+      - run: la --help
