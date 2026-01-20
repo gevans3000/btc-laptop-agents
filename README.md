@@ -1,97 +1,124 @@
-﻿# BTC Laptop Agents - Unified Trading System
+﻿# 🚀 BTC Laptop Agents: Your Autonomous High-Frequency Trading System
 
-> **Status**: Phase 3 Complete (Structural Polish)
-> **Version**: 1.1.0
+> **Status**: Phase 2 Complete (Resilience & Hardening)
+> **Current Capability**: 10-minute+ Autonomous Paper Trading with Real-Time Safety
+> **Engine**: Python 3.12+ / Asyncio / WebSocket
 
-BTC Laptop Agents is a local-first, privacy-focused paper trading system for Bitcoin. It has been unified into a single Python-based CLI (`la`) for maximum reliability and minimum cognitive load.
+## 📖 Introduction
+
+**BTC Laptop Agents** is a privacy-first, local-running autonomous trading system designed to trade Bitcoin on the Bitunix exchange. Unlike typical command-line bots, this system is architected as an **autonomous agent** capable of self-diagnosis, self-healing, and continuous operation without human intervention.
+
+It unifies high-frequency event processing with robust safety guardrails, allowing it to run reliably on consumer hardware ("Laptop") while mimicking institutional-grade reliability.
+
+**Warning**: *This is a powerful financial tool. Please exercise caution with its operations, especially when authorizing real-money trading (Future Feature).*
 
 ---
 
-## 🚀 Quick Start (Unified CLI)
+## ✨ Key Features
 
-The whole system is now operated via the `la` command.
+- **⚡ The Sentinel Engine**: Processes WebSocket ticks in real-time, bypassing 1-minute candle latency for immediate Stop-Loss/Take-Profit execution.
+- **🛡️ Atomic Safety**: Uses transactional file writes to ensure trading state is never corrupted, even during power loss.
+- **🧠 Self-Healing Connectivity**: Circuit breakers and exponential backoff strategies prevent API bans and handle internet instability.
+- **🤖 Autonomous Workflow**: Built-in agentic workflows (`/go`, `/fix`) for verifying code integrity and deploying changes safely.
+- **📊 Rich Observability**: Generates visual HTML reports with trade visualization, Sharpe ratios, and real-time drawdown analysis.
+- **🔬 Hybrid Simulation**: Run the exact same strategy code in high-speed Backtest mode or Real-time Paper mode.
 
+---
+
+## 🎬 Quick Start Guide
+
+The entire system is controlled via the `la` (Linear Agent) CLI, designed for zero-friction operation.
+
+### 1. Doctor & Setup
+Verify your environment, API keys, and network connectivity.
 ```powershell
-# 1. Setup & Verify Environment
 la doctor --fix
-
-# 2. Run a 10-minute Paper Session (Async + WebSockets)
-la run --mode live-session --duration 10 --dashboard
-
-# 3. Check System Status
-la status
-
-# 4. Stop Session
-la stop
 ```
 
----
-
-## 🛠️ Unified CLI Reference
-
-| Command | Description |
-| :--- | :--- |
-| `la run` | Start a trading session (Backtest, Live-Session, etc.) |
-| `la start` | Start a session in the background (detached) |
-| `la stop` | Stop any running session |
-| `la watch` | Monitor and auto-restart a session on crash |
-| `la status` | Check system vitals and running process |
-| `la doctor` | Diagnostic tool to verify environment and API |
-| `la clean` | Clean up old run artifacts |
-
-### Common Flags for `la run`
-- `--mode`: `backtest`, `live-session`, `orchestrated`
-- `--source`: `mock`, `bitunix`
-- `--symbol`: `BTCUSDT` (default)
-- `--duration`: Minutes for live-session
-- `--async`: Use high-performance execution engine
-- `--dashboard`: Launch real-time web dashboard
-- `--show`: Auto-open `summary.html` after run
-
----
-
-## 📖 Complete Documentation
-
-All operational and technical details are now consolidated in a single "Engineer's Bible":
-
-👉 **[docs/ENGINEER.md](docs/ENGINEER.md)**
-
----
-
-## 🔍 How to Confirm EVERYTHING is OFF
-
+### 2. Run a Live Session
+Start the agent in **Live Mode** (Paper Trading) with real market data.
 ```powershell
-# 1. Use unified status
+# Run for 15 minutes with a live dashboard
+la run --mode live-session --duration 15 --dashboard --source bitunix
+```
+
+### 3. Backtest a Strategy
+Simulate performance over historical data.
+```powershell
+la run --mode backtest --show
+```
+
+### 4. System Status
+Check the pulse of the agent, running processes, and resource usage.
+```powershell
 la status
-# Should show: STOPPED
-
-# 2. Stop anyway (safety)
-la stop
-
-# 3. Check for lingering PID
-Test-Path .workspace/agent.pid
-# Should return False
 ```
 
 ---
 
-## 📂 Hermetic Workspace
+## 🏗️ Architecture
 
-All system artifacts are stored in `.workspace/` to keep the root clean:
-
-| Path | Purpose |
-|------|---------|
-| `.workspace/runs/` | Historical run data |
-| `.workspace/runs/latest/` | Current/most recent run |
-| `.workspace/logs/` | System and supervisor logs |
-| `.workspace/paper/` | Paper trading state |
-| `.workspace/agent.pid` | Process management |
-| `config/strategies/` | Strategy configurations |
+```
+btc-laptop-agents/
+├── src/
+│   ├── laptop_agents/
+│   │   ├── core/           # Event Bus & Base Classes
+│   │   ├── data/           # Market Data Providers (WebSocket/REST)
+│   │   ├── strategies/     # Signal Generation Logic
+│   │   ├── execution/      # Order Management & Sentinel Engine
+│   │   ├── session/        # Session Orchestration
+│   │   └── ui/             # Dashboard & Reporting
+├── .agent/
+│   ├── workflows/          # Autonomous Agent Capabilities (e.g., /go, /fix)
+│   └── skills/             # Specialized Agent Skills (Monte Carlo, Backtest)
+├── .workspace/             # Hermetic Runtime Artifacts
+│   ├── runs/               # Historical Session Data
+│   ├── paper/              # Live Trading State (SQLite/JSON)
+│   └── logs/               # System Logs
+├── config/
+│   └── strategies/         # Strategy YAML Configurations
+└── docs/                   # The Engineer's Bible
+```
 
 ---
 
-## ⚖️ Safety & Resilience
+## 🗺️ Roadmap
 
-- **Supervisor**: `la watch` ensures your trading session restarts within 10s of a crash.
-- **Hard Limits**: Enforced $50 max daily loss and $200k max position size.
-- **Kill Switch**: Set environment variable `LA_KILL_SWITCH=TRUE` to halt all trading instantly.
+### Phase 1: Foundation (✅ Completed)
+- [x] **Unified CLI**: Single entry point (`la`) for all operations.
+- [x] **Core Architecture**: Event-driven separation of Market Data, Strategy, and Execution.
+- [x] **Paper Trading**: Basic order simulation and portfolio tracking.
+- [x] **Basic Backtesting**: Historical data simulation engine.
+
+### Phase 2: Resilience & Hardening (✅ Completed)
+- [x] **Sentinel Upgrade**: Sub-second tick-based execution for precision safety.
+- [x] **Reliability Overhaul**: 15+ surgical fixes for timeouts, race conditions, and error handling.
+- [x] **System Status**: Comprehensive health checks (`doctor`, `status`) and environment verification.
+- [x] **WebSocket Stability**: Hardened connection logic with "Zombie Connection" detection.
+
+### Phase 3: Intelligence & Optimization (🚧 In Progress)
+- [ ] **Monte Carlo Simulations**: Robustness testing to estimate failure probabilities across thousands of scenarios.
+- [ ] **Hyperparameter Tuning**: Automated search for optimal strategy parameters (Sharpe/Sortino optimization).
+- [ ] **Advanced Strategies**: Integration of ML-based signal generators and multi-factor models.
+- [ ] **Smart Order Routing**: Splitting large orders to minimize slippage (TWAP/VWAP).
+
+### Phase 4: Moonshots (🔮 Future)
+- [ ] **Real Money Execution**: Graduated rollout from Paper to Live trading with hard capital limits.
+- [ ] **Multi-Strategy Portfolio**: Running uncorrelated strategies simultaneously to smooth returns.
+- [ ] **Distributed Deployment**: Moving from Laptop to Cloud/VPS for 24/7 uptime guarantees.
+- [ ] **Sentiment Analysis**: Ingesting news/social data to effectively hedge against "Black Swan" events.
+- [ ] **LLM Strategy Design**: Agent-driven strategy creation and self-improvement loops.
+
+---
+
+## �️ Contributing
+
+We welcome contributions! Whether it's a new Strategy, a UI fix, or a security improvement:
+1. Fork the repo.
+2. Create a branch (`git checkout -b feat/NewStrategy`).
+3. Submit a PR.
+
+---
+
+## � License
+MIT © BTC Laptop Agents Team
