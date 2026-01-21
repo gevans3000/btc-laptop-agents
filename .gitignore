@@ -63,3 +63,4 @@ pytest_temp/
 .gemini/
 .agent/rules/
 .temp_test/
+.codex/

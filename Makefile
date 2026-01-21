@@ -1,4 +1,4 @@
-.PHONY: build test run-paper clean bootstrap
+.PHONY: build test run-paper clean bootstrap review fix harden
 
 build:
 	docker build -t btc-laptop-agents:latest .
@@ -18,3 +18,14 @@ clean:
 
 bootstrap:
 	python -m pip install -e .[test]
+
+review:
+	powershell -ExecutionPolicy Bypass -File scripts/codex_review.ps1
+
+fix:
+	powershell -ExecutionPolicy Bypass -File scripts/codex_fix_loop.ps1
+
+harden:
+	powershell -ExecutionPolicy Bypass -File scripts/codex_review.ps1
+	python -m mypy src/laptop_agents --ignore-missing-imports --no-error-summary
+	python -m pytest tests/ -q --tb=short -p no:cacheprovider --basetemp=./pytest_temp
