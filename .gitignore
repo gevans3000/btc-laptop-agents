@@ -64,3 +64,6 @@ pytest_temp/
 .agent/rules/
 .temp_test/
 .codex/
+out.txt
+local_pytest_temp/
+tests/stress/run_data/
