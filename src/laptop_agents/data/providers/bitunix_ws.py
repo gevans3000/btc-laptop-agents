@@ -32,6 +32,7 @@ class BitunixWebsocketClient:
         self._history: List[Candle] = []
         self._lock = threading.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._main_task: Optional[asyncio.Task] = None
         self._last_pong = time.time()
         self.reconnect_delay = 1.0
 
@@ -49,17 +50,22 @@ class BitunixWebsocketClient:
             return
         self._running = False
         if self._loop and self._loop.is_running():
-            # Schedule cancellation of all tasks in the loop
-            self._loop.call_soon_threadsafe(
-                lambda: [t.cancel() for t in asyncio.all_tasks(self._loop)]
-            )
-            # Give it a moment to process cancellations before stopping the loop
-            self._loop.call_soon_threadsafe(self._loop.stop)
+            self._loop.call_soon_threadsafe(self._cancel_main_task)
 
         if self._thread:
-            self._thread.join(timeout=2.0)
+            self._thread.join(timeout=5.0)
+            if self._thread.is_alive():
+                logger.warning(
+                    f"WS: Background thread did not stop in time for {self.symbol}"
+                )
             self._thread = None
         logger.info(f"WS: Stopped background thread for {self.symbol}")
+
+    def _cancel_main_task(self) -> None:
+        if self._main_task and not self._main_task.done():
+            self._main_task.cancel()
+        for task in asyncio.all_tasks(self._loop):
+            task.cancel()
 
     def get_latest_candle(self) -> Optional[Candle]:
         with self._lock:
@@ -92,7 +98,8 @@ class BitunixWebsocketClient:
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         try:
-            self._loop.run_until_complete(self._connect_and_stream())
+            self._main_task = self._loop.create_task(self._connect_and_stream())
+            self._loop.run_until_complete(self._main_task)
         except asyncio.CancelledError:
             logger.info(f"WS: Stream cancelled for {self.symbol}")
         except BaseException as e:
@@ -102,13 +109,15 @@ class BitunixWebsocketClient:
         finally:
             # Shield against closing a running loop or double-close
             try:
-                # Cancel any remaining tasks
-                pending = asyncio.all_tasks(self._loop)
-                if pending:
-                    self._loop.run_until_complete(
-                        asyncio.gather(*pending, return_exceptions=True)
-                    )
-                self._loop.close()
+                if self._loop and not self._loop.is_closed():
+                    pending = asyncio.all_tasks(self._loop)
+                    for task in pending:
+                        task.cancel()
+                    if pending:
+                        self._loop.run_until_complete(
+                            asyncio.gather(*pending, return_exceptions=True)
+                        )
+                    self._loop.close()
             except Exception:
                 pass
 
