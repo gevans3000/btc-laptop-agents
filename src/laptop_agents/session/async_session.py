@@ -92,6 +92,8 @@ class AsyncRunner:
         self.execution_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
         self.stale_data_timeout_sec = float(stale_timeout)
         self.consecutive_ws_errors = 0
+        self.stale_restart_attempts = 0
+        self.max_stale_restarts = 3
         self.kill_file = REPO_ROOT / "kill.txt"
         self.kill_switch_triggered = False
         self.execution_latency_ms = execution_latency_ms
@@ -490,6 +492,7 @@ Total Fees: ${total_fees:,.2f}
 
                     # Reset timeout timer on each successful item
                     self.last_data_time = time.time()
+                    self.stale_restart_attempts = 0
 
                     if isinstance(item, DataEvent):
                         logger.warning(
@@ -601,7 +604,11 @@ Total Fees: ${total_fees:,.2f}
                 self.errors += 1
                 self.consecutive_ws_errors += 1
                 logger.exception(
-                    f"Error in market data stream (attempt {self.consecutive_ws_errors}): {e}"
+                    "Error in market data stream (attempt %s) for %s %s: %s",
+                    self.consecutive_ws_errors,
+                    self.symbol,
+                    self.interval,
+                    e,
                 )
 
                 if self.consecutive_ws_errors >= 10:
@@ -676,15 +683,61 @@ Total Fees: ${total_fees:,.2f}
                 if age > self.stale_data_timeout_sec:
                     if self.shutdown_event.is_set():
                         break  # Already shutting down
-                    error_msg = f"STALE DATA: No market data for {age:.0f}s. Triggering session restart."
-                    logger.error(error_msg)
-                    self.errors += 1
-                    # Ensure final report reflects this error
-                    append_event(
-                        {"event": "StaleDataError", "error": error_msg}, paper=True
-                    )
-                    self.shutdown_event.set()
-                    break
+                    if self.stale_restart_attempts < self.max_stale_restarts:
+                        self.stale_restart_attempts += 1
+                        logger.error(
+                            "STALE DATA: No market data for %.0fs. Attempting provider restart (%d/%d).",
+                            age,
+                            self.stale_restart_attempts,
+                            self.max_stale_restarts,
+                        )
+                        append_event(
+                            {
+                                "event": "StaleDataRestart",
+                                "error": f"no market data for {age:.0f}s",
+                                "attempt": self.stale_restart_attempts,
+                                "symbol": self.symbol,
+                                "interval": self.interval,
+                            },
+                            paper=True,
+                        )
+                        try:
+                            if self.provider and hasattr(self.provider, "client"):
+                                self.provider.client.stop()
+                                await asyncio.sleep(1.0)
+                                self.provider.client.start()
+                            elif (
+                                self.provider
+                                and hasattr(self.provider, "stop")
+                                and hasattr(self.provider, "start")
+                            ):
+                                self.provider.stop()
+                                await asyncio.sleep(1.0)
+                                self.provider.start()
+                            self.last_data_time = time.time()
+                            self.consecutive_ws_errors = 0
+                        except Exception as re:
+                            logger.error(f"Provider restart failed: {re}")
+                            self.errors += 1
+                    else:
+                        error_msg = (
+                            f"STALE DATA: No market data for {age:.0f}s. "
+                            "Restart attempts exhausted."
+                        )
+                        logger.error(error_msg)
+                        self.errors += 1
+                        # Ensure final report reflects this error
+                        append_event(
+                            {
+                                "event": "StaleDataError",
+                                "error": error_msg,
+                                "symbol": self.symbol,
+                                "interval": self.interval,
+                            },
+                            paper=True,
+                        )
+                        self.shutdown_event.set()
+                        break
 
                 # Check data liveness
                 await asyncio.sleep(5)
@@ -786,7 +839,13 @@ Total Fees: ${total_fees:,.2f}
                     "client_order_id": f"async_{int(time.time())}_{self.iterations}",
                 }
 
-                if not all(
+                if order["side"] not in {"LONG", "SHORT"}:
+                    logger.warning("ORDER_REJECTED: Invalid side")
+                    order = None
+                elif order["sl"] <= 0 or order["tp"] <= 0:
+                    logger.warning("ORDER_REJECTED: Non-positive SL/TP")
+                    order = None
+                elif not all(
                     math.isfinite(x)
                     for x in [
                         order["entry"],
@@ -985,6 +1044,7 @@ Total Fees: ${total_fees:,.2f}
                             "event": "HeartbeatTaskError",
                             "error": str(e),
                             "symbol": self.symbol,
+                            "interval": self.interval,
                         },
                         paper=True,
                     )
@@ -1134,6 +1194,7 @@ Total Fees: ${total_fees:,.2f}
                             "event": "ExecutionTaskError",
                             "error": str(e),
                             "symbol": self.symbol,
+                            "interval": self.interval,
                         },
                         paper=True,
                     )

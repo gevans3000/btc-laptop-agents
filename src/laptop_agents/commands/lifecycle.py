@@ -14,6 +14,7 @@ def start(
     mode: str = typer.Option("live-session", help="Mode: live-session, backtest, etc."),
     execution_mode: str = typer.Option("paper", help="paper or live"),
     symbol: str = typer.Option(DEFAULT_SYMBOL, help="Symbol to trade"),
+    source: str = typer.Option(None, help="Market data source: mock or bitunix"),
     detach: bool = typer.Option(False, "--detach", help="Run in background"),
 ):
     """Launch a session and manage PID."""
@@ -28,6 +29,8 @@ def start(
         except Exception:
             pass
 
+    resolved_source = source or ("bitunix" if mode == "live-session" else "mock")
+
     cmd = [
         sys.executable,
         "-m",
@@ -39,6 +42,8 @@ def start(
         execution_mode,
         "--symbol",
         symbol,
+        "--source",
+        resolved_source,
         "--async",
     ]
 
@@ -133,6 +138,7 @@ def watch(
     mode: str = typer.Option("live-session", help="Mode: live-session, backtest, etc."),
     execution_mode: str = typer.Option("paper", help="paper or live"),
     symbol: str = typer.Option(DEFAULT_SYMBOL, help="Symbol to trade"),
+    source: str = typer.Option(None, help="Market data source: mock or bitunix"),
     duration: int = typer.Option(10, help="Duration in minutes"),
 ):
     """Monitor a session; if it exits with a non-zero code, wait 10s and restart."""
@@ -146,7 +152,11 @@ def watch(
             f.write(f"{ts} {msg}\n")
         console.print(f"[bold yellow]{ts} {msg}[/bold yellow]")
 
-    log_restart(f"Supervisor started for {symbol} ({mode}, {execution_mode})")
+    resolved_source = source or ("bitunix" if mode == "live-session" else "mock")
+
+    log_restart(
+        f"Supervisor started for {symbol} ({mode}, {execution_mode}, {resolved_source})"
+    )
 
     while True:
         try:
@@ -161,6 +171,8 @@ def watch(
                 execution_mode,
                 "--symbol",
                 symbol,
+                "--source",
+                resolved_source,
                 "--duration",
                 str(duration),
                 "--async",

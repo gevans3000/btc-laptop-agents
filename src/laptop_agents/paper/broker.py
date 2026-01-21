@@ -323,6 +323,12 @@ class PaperBroker:
         sl = float(order["sl"])
         tp = float(order["tp"])
 
+        if side not in {"LONG", "SHORT"}:
+            logger.warning("REJECTED: Invalid side")
+            return None
+        if sl <= 0 or tp <= 0:
+            logger.warning("REJECTED: Non-positive SL/TP")
+            return None
         if not all(math.isfinite(x) for x in [entry, qty, sl, tp]):
             logger.warning("REJECTED: Non-finite order fields")
             return None

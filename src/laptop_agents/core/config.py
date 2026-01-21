@@ -88,12 +88,12 @@ def load_session_config(
     config = SessionConfig(**data)
 
     # 5. Fail Fast Validation
-    if config.source == "bitunix" or config.execution_mode == "live":
+    if config.execution_mode == "live":
         api_key = os.environ.get("BITUNIX_API_KEY")
         api_secret = os.environ.get("BITUNIX_API_SECRET")
         if not api_key or not api_secret:
             raise ValueError(
-                "STRICT CONFIGURATION ERROR: Live mode or Bitunix source requires "
+                "STRICT CONFIGURATION ERROR: Live mode requires "
                 "BITUNIX_API_KEY and BITUNIX_API_SECRET environment variables. "
                 "Please run 'la doctor --fix' to initialize .env and add your credentials."
             )
