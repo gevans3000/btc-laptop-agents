@@ -1085,7 +1085,7 @@ Total Fees: ${total_fees:,.2f}
                         "sl": sl,
                         "tp": tp,
                         "equity": self.broker.current_equity,
-                        "client_order_id": f"async_{int(time.time())}_{self.iterations}",
+                        "client_order_id": f"async_{uuid.uuid4().hex}",
                     }
 
                     if order["side"] not in {"LONG", "SHORT"}:
@@ -1311,7 +1311,14 @@ Total Fees: ${total_fees:,.2f}
                     logger.info(
                         f"[ASYNC] {self.symbol} | Price: {price:,.2f} | Pos: {pos_str:5} | "
                         f"Equity: ${total_equity:,.2f} | "
-                        f"Elapsed: {elapsed:.0f}s | Remaining: {remaining_str}"
+                        f"Elapsed: {elapsed:.0f}s | Remaining: {remaining_str}",
+                        {
+                            "event": "Heartbeat",
+                            "symbol": self.symbol,
+                            "loop_id": self.loop_id,
+                            "position": pos_str,
+                            "open_orders_count": open_orders_count,
+                        },
                     )
 
                     append_event(
@@ -1364,7 +1371,7 @@ Total Fees: ${total_fees:,.2f}
                         and not self.shutdown_event.is_set()
                     ):
                         self._request_shutdown("error_budget")
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(10.0)
         except asyncio.CancelledError:
             pass
 

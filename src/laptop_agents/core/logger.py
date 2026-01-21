@@ -78,9 +78,19 @@ class JsonFormatter(logging.Formatter):
         elif record.args and isinstance(record.args, dict):
             # Support for logger.info("msg", {"extra": "data"}) style if meta not used
             log_entry["meta"] = record.args
+        else:
+            log_entry["meta"] = {}
 
         if isinstance(log_entry.get("meta"), dict) and "event" in log_entry["meta"]:
             log_entry["event"] = log_entry["meta"]["event"]
+        else:
+            log_entry["event"] = log_entry.get("event") or "Log"
+
+        meta = log_entry.get("meta") if isinstance(log_entry.get("meta"), dict) else {}
+        log_entry["symbol"] = meta.get("symbol")
+        log_entry["loop_id"] = meta.get("loop_id")
+        log_entry["position"] = meta.get("position")
+        log_entry["open_orders_count"] = meta.get("open_orders_count")
         if record.exc_info:
             log_entry["exception"] = "".join(
                 traceback.format_exception(*record.exc_info)
