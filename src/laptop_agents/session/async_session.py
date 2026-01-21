@@ -515,13 +515,28 @@ Total Fees: ${total_fees:,.2f}
             return
         exc = task.exception()
         if exc:
-            logger.error("Background task failed", exc_info=exc)
+            pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
+            open_orders_count = len(getattr(self.broker, "working_orders", []))
+            logger.error(
+                "Background task failed",
+                {
+                    "event": "TaskFailed",
+                    "symbol": self.symbol,
+                    "loop_id": self.loop_id,
+                    "position": pos_str,
+                    "open_orders_count": open_orders_count,
+                    "interval": self.interval,
+                    "error": str(exc),
+                },
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
             self.errors += 1
             self._request_shutdown("task_failed")
 
     async def market_data_task(self):
         """Consumes WebSocket data and triggers strategy on candle closure."""
         while not self.shutdown_event.is_set():
+            listener = None
             try:
                 listener = self.provider.listen()
                 while not self.shutdown_event.is_set():
@@ -544,6 +559,8 @@ Total Fees: ${total_fees:,.2f}
 
                     if isinstance(item, Tick):
                         ts_sec = self._parse_ts_to_int(item.ts)
+                        if ts_sec <= 0:
+                            continue
                         last_ts_sec = (
                             self._parse_ts_to_int(self.last_tick_ts)
                             if self.last_tick_ts
@@ -551,17 +568,19 @@ Total Fees: ${total_fees:,.2f}
                         )
                         if ts_sec <= last_ts_sec:
                             continue
-                        if (
-                            ts_sec
-                            and (time.time() - ts_sec) > self.stale_data_timeout_sec
-                        ):
+                        if (time.time() - ts_sec) > self.stale_data_timeout_sec:
                             continue
                         # Robust Validation
-                        if (
-                            item.last <= 0
-                            or math.isnan(item.last)
-                            or math.isinf(item.last)
+                        bid = getattr(item, "bid", None)
+                        ask = getattr(item, "ask", None)
+                        last = getattr(item, "last", None)
+                        if bid is None or ask is None or last is None:
+                            continue
+                        if any(
+                            (not math.isfinite(x)) or x <= 0 for x in [bid, ask, last]
                         ):
+                            continue
+                        if bid > ask:
                             continue
 
                         self.latest_tick = item
@@ -572,6 +591,8 @@ Total Fees: ${total_fees:,.2f}
 
                     elif isinstance(item, Candle):
                         ts_sec = self._parse_ts_to_int(item.ts)
+                        if ts_sec <= 0:
+                            continue
                         last_ts_sec = (
                             self._parse_ts_to_int(self.last_candle_ts)
                             if self.last_candle_ts
@@ -579,17 +600,30 @@ Total Fees: ${total_fees:,.2f}
                         )
                         if ts_sec <= last_ts_sec:
                             continue
+                        if (time.time() - ts_sec) > self.stale_data_timeout_sec:
+                            continue
+                        open_val = getattr(item, "open", None)
+                        high_val = getattr(item, "high", None)
+                        low_val = getattr(item, "low", None)
+                        close_val = getattr(item, "close", None)
                         if (
-                            ts_sec
-                            and (time.time() - ts_sec) > self.stale_data_timeout_sec
+                            open_val is None
+                            or high_val is None
+                            or low_val is None
+                            or close_val is None
                         ):
                             continue
-                        if (
-                            item.close <= 0
-                            or math.isnan(item.close)
-                            or math.isinf(item.close)
+                        if any(
+                            (not math.isfinite(x)) or x <= 0
+                            for x in [open_val, high_val, low_val, close_val]
                         ):
                             continue
+                        if low_val > high_val:
+                            continue
+                        volume_val = getattr(item, "volume", None)
+                        if volume_val is not None:
+                            if (not math.isfinite(volume_val)) or volume_val < 0:
+                                continue
 
                         self.consecutive_ws_errors = 0
                         self.last_candle_ts = item.ts
@@ -645,9 +679,47 @@ Total Fees: ${total_fees:,.2f}
                                                 )
                                             )
                                         except Exception as be:
-                                            logger.error(f"Backfill failed: {be}")
+                                            pos_str = (
+                                                self.broker.pos.side
+                                                if self.broker.pos
+                                                else "FLAT"
+                                            )
+                                            open_orders_count = len(
+                                                getattr(
+                                                    self.broker, "working_orders", []
+                                                )
+                                            )
+                                            logger.exception(
+                                                "Backfill failed",
+                                                {
+                                                    "event": "BackfillError",
+                                                    "symbol": self.symbol,
+                                                    "loop_id": self.loop_id,
+                                                    "position": pos_str,
+                                                    "open_orders_count": open_orders_count,
+                                                    "interval": self.interval,
+                                                    "error": str(be),
+                                                },
+                                            )
                         except Exception as ge:
-                            logger.error(f"Error checking for gaps: {ge}")
+                            pos_str = (
+                                self.broker.pos.side if self.broker.pos else "FLAT"
+                            )
+                            open_orders_count = len(
+                                getattr(self.broker, "working_orders", [])
+                            )
+                            logger.exception(
+                                "Error checking for gaps",
+                                {
+                                    "event": "GapCheckError",
+                                    "symbol": self.symbol,
+                                    "loop_id": self.loop_id,
+                                    "position": pos_str,
+                                    "open_orders_count": open_orders_count,
+                                    "interval": self.interval,
+                                    "error": str(ge),
+                                },
+                            )
 
                         if not self.candles or item.ts != self.candles[-1].ts:
                             if self.candles:
@@ -663,7 +735,20 @@ Total Fees: ${total_fees:,.2f}
             except asyncio.CancelledError:
                 break  # Exit cleanly on cancel
             except FatalError as fe:
-                logger.error(f"FATAL_ERROR in market_data_task: {fe}")
+                pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
+                open_orders_count = len(getattr(self.broker, "working_orders", []))
+                logger.exception(
+                    "FATAL_ERROR in market_data_task",
+                    {
+                        "event": "MarketDataFatal",
+                        "symbol": self.symbol,
+                        "loop_id": self.loop_id,
+                        "position": pos_str,
+                        "open_orders_count": open_orders_count,
+                        "interval": self.interval,
+                        "error": str(fe),
+                    },
+                )
                 self.errors = MAX_ERRORS_PER_SESSION
                 self._request_shutdown("fatal_error")
                 break
@@ -674,12 +759,20 @@ Total Fees: ${total_fees:,.2f}
 
                 self.errors += 1
                 self.consecutive_ws_errors += 1
+                pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
+                open_orders_count = len(getattr(self.broker, "working_orders", []))
                 logger.exception(
-                    "Error in market data stream (attempt %s) for %s %s: %s",
-                    self.consecutive_ws_errors,
-                    self.symbol,
-                    self.interval,
-                    e,
+                    "Error in market data stream",
+                    {
+                        "event": "MarketDataError",
+                        "symbol": self.symbol,
+                        "loop_id": self.loop_id,
+                        "position": pos_str,
+                        "open_orders_count": open_orders_count,
+                        "interval": self.interval,
+                        "attempt": self.consecutive_ws_errors,
+                        "error": str(e),
+                    },
                 )
 
                 if self.consecutive_ws_errors >= 10:
@@ -692,6 +785,29 @@ Total Fees: ${total_fees:,.2f}
                 backoff = min(60.0, 2 ** min(self.consecutive_ws_errors, 6))
                 jitter = random.uniform(0.0, 1.0)
                 await asyncio.sleep(backoff + jitter)
+            finally:
+                if listener is not None:
+                    try:
+                        await listener.aclose()
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as close_err:
+                        pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
+                        open_orders_count = len(
+                            getattr(self.broker, "working_orders", [])
+                        )
+                        logger.exception(
+                            "Failed to close market data listener",
+                            {
+                                "event": "MarketDataListenerCloseError",
+                                "symbol": self.symbol,
+                                "loop_id": self.loop_id,
+                                "position": pos_str,
+                                "open_orders_count": open_orders_count,
+                                "interval": self.interval,
+                                "error": str(close_err),
+                            },
+                        )
 
     async def checkpoint_task(self):
         """Periodically saves state to disk for crash recovery."""
@@ -711,7 +827,20 @@ Total Fees: ${total_fees:,.2f}
                     await asyncio.to_thread(do_checkpoint)
                     logger.info("Pulse checkpoint saved.")
                 except Exception as e:
-                    logger.error(f"Checkpoint failed: {e}")
+                    pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
+                    open_orders_count = len(getattr(self.broker, "working_orders", []))
+                    logger.exception(
+                        "Checkpoint failed",
+                        {
+                            "event": "CheckpointError",
+                            "symbol": self.symbol,
+                            "loop_id": self.loop_id,
+                            "position": pos_str,
+                            "open_orders_count": open_orders_count,
+                            "interval": self.interval,
+                            "error": str(e),
+                        },
+                    )
         except asyncio.CancelledError:
             pass
 
@@ -890,8 +1019,19 @@ Total Fees: ${total_fees:,.2f}
                         self.agent_state, candle, skip_broker=True
                     )
                 except Exception as agent_err:
-                    logger.error(
-                        f"AGENT_ERROR: Strategy agent failed, skipping signal: {agent_err}"
+                    pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
+                    open_orders_count = len(getattr(self.broker, "working_orders", []))
+                    logger.exception(
+                        "AGENT_ERROR: Strategy agent failed, skipping signal",
+                        {
+                            "event": "AgentError",
+                            "symbol": self.symbol,
+                            "loop_id": self.loop_id,
+                            "position": pos_str,
+                            "open_orders_count": open_orders_count,
+                            "interval": self.interval,
+                            "error": str(agent_err),
+                        },
                     )
                     append_event(
                         {"event": "AgentError", "error": str(agent_err)}, paper=True
@@ -900,52 +1040,87 @@ Total Fees: ${total_fees:,.2f}
                     return
 
             agent_order = self.agent_state.order if self.strategy_config else {}
+            if (
+                self.kill_switch_triggered
+                or self.shutdown_event.is_set()
+                or self.circuit_breaker.is_tripped()
+            ):
+                agent_order = {}
             if agent_order and agent_order.get("go"):
-                order = {
-                    "go": True,
-                    "side": agent_order.get("side"),
-                    "entry_type": agent_order.get("entry_type", "market"),
-                    "entry": float(agent_order.get("entry", candle.close)),
-                    "qty": float(agent_order.get("qty", 0.0)),
-                    "sl": float(agent_order.get("sl", 0.0)),
-                    "tp": float(agent_order.get("tp", 0.0)),
-                    "equity": self.broker.current_equity,
-                    "client_order_id": f"async_{int(time.time())}_{self.iterations}",
-                }
 
-                if order["side"] not in {"LONG", "SHORT"}:
-                    logger.warning("ORDER_REJECTED: Invalid side")
-                    order = None
-                elif order["sl"] <= 0 or order["tp"] <= 0:
-                    logger.warning("ORDER_REJECTED: Non-positive SL/TP")
-                    order = None
-                elif not all(
-                    math.isfinite(x)
-                    for x in [
-                        order["entry"],
-                        order["qty"],
-                        order["sl"],
-                        order["tp"],
-                    ]
-                ):
-                    logger.warning("ORDER_REJECTED: Non-finite order fields")
-                    order = None
-                elif order["qty"] <= 0:
-                    logger.warning("ORDER_REJECTED: Non-positive quantity")
+                def safe_float(value: Any, default: float) -> float:
+                    try:
+                        if value is None:
+                            return float(default)
+                        return float(value)
+                    except (TypeError, ValueError):
+                        return float(default)
+
+                entry = safe_float(agent_order.get("entry"), candle.close)
+                qty = safe_float(agent_order.get("qty"), 0.0)
+                sl = safe_float(agent_order.get("sl"), 0.0)
+                tp = safe_float(agent_order.get("tp"), 0.0)
+                order_symbol = agent_order.get("symbol") or self.symbol
+
+                if order_symbol != self.symbol:
+                    logger.warning("ORDER_REJECTED: Symbol mismatch")
+                    append_event(
+                        {
+                            "event": "OrderRejected",
+                            "reason": "symbol_mismatch",
+                            "symbol": order_symbol,
+                            "expected_symbol": self.symbol,
+                        },
+                        paper=True,
+                    )
                     order = None
                 else:
-                    if order["side"] == "LONG":
-                        if not (order["sl"] < order["entry"] < order["tp"]):
-                            logger.warning(
-                                "ORDER_REJECTED: Invalid LONG SL/TP ordering"
-                            )
-                            order = None
-                    elif order["side"] == "SHORT":
-                        if not (order["tp"] < order["entry"] < order["sl"]):
-                            logger.warning(
-                                "ORDER_REJECTED: Invalid SHORT SL/TP ordering"
-                            )
-                            order = None
+                    order = {
+                        "go": True,
+                        "side": agent_order.get("side"),
+                        "symbol": order_symbol,
+                        "entry_type": agent_order.get("entry_type", "market"),
+                        "entry": entry,
+                        "qty": qty,
+                        "sl": sl,
+                        "tp": tp,
+                        "equity": self.broker.current_equity,
+                        "client_order_id": f"async_{int(time.time())}_{self.iterations}",
+                    }
+
+                    if order["side"] not in {"LONG", "SHORT"}:
+                        logger.warning("ORDER_REJECTED: Invalid side")
+                        order = None
+                    elif order["sl"] <= 0 or order["tp"] <= 0:
+                        logger.warning("ORDER_REJECTED: Non-positive SL/TP")
+                        order = None
+                    elif not all(
+                        math.isfinite(x)
+                        for x in [
+                            order["entry"],
+                            order["qty"],
+                            order["sl"],
+                            order["tp"],
+                        ]
+                    ):
+                        logger.warning("ORDER_REJECTED: Non-finite order fields")
+                        order = None
+                    elif order["qty"] <= 0:
+                        logger.warning("ORDER_REJECTED: Non-positive quantity")
+                        order = None
+                    else:
+                        if order["side"] == "LONG":
+                            if not (order["sl"] < order["entry"] < order["tp"]):
+                                logger.warning(
+                                    "ORDER_REJECTED: Invalid LONG SL/TP ordering"
+                                )
+                                order = None
+                        elif order["side"] == "SHORT":
+                            if not (order["tp"] < order["entry"] < order["sl"]):
+                                logger.warning(
+                                    "ORDER_REJECTED: Invalid SHORT SL/TP ordering"
+                                )
+                                order = None
 
             # Queue order for async execution (non-blocking)
             if order and order.get("go"):
@@ -1011,6 +1186,7 @@ Total Fees: ${total_fees:,.2f}
                 try:
                     elapsed = time.time() - self.start_time
                     pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
+                    open_orders_count = len(getattr(self.broker, "working_orders", []))
                     price = (
                         self.latest_tick.last
                         if self.latest_tick
@@ -1028,6 +1204,59 @@ Total Fees: ${total_fees:,.2f}
                         else 0
                     )
                     self.max_drawdown = max(self.max_drawdown, dd)
+
+                    max_loss_usd = hard_limits.MAX_DAILY_LOSS_USD
+                    drawdown_usd = self.starting_equity - total_equity
+                    if (
+                        self.starting_equity > 0
+                        and drawdown_usd >= max_loss_usd
+                        and not self.kill_switch_triggered
+                    ):
+                        logger.critical(
+                            "RISK KILL SWITCH TRIPPED",
+                            {
+                                "event": "RiskKillSwitch",
+                                "symbol": self.symbol,
+                                "loop_id": self.loop_id,
+                                "position": pos_str,
+                                "open_orders_count": open_orders_count,
+                                "equity": total_equity,
+                                "drawdown_usd": drawdown_usd,
+                                "limit_usd": max_loss_usd,
+                            },
+                        )
+                        append_event(
+                            {
+                                "event": "RiskKillSwitch",
+                                "symbol": self.symbol,
+                                "loop_id": self.loop_id,
+                                "position": pos_str,
+                                "open_orders_count": open_orders_count,
+                                "equity": total_equity,
+                                "drawdown_usd": drawdown_usd,
+                                "limit_usd": max_loss_usd,
+                            },
+                            paper=True,
+                        )
+                        self.kill_switch_triggered = True
+                        self._request_shutdown("max_loss_usd")
+                        try:
+                            self.broker.cancel_all_open_orders()
+                            if price and price > 0:
+                                self.broker.close_all(price)
+                        except Exception as e:
+                            logger.exception(
+                                "Risk kill switch cleanup failed",
+                                {
+                                    "event": "RiskKillSwitchCleanupError",
+                                    "symbol": self.symbol,
+                                    "loop_id": self.loop_id,
+                                    "position": pos_str,
+                                    "open_orders_count": open_orders_count,
+                                    "interval": self.interval,
+                                    "error": str(e),
+                                },
+                            )
 
                     process = psutil.Process()
                     mem_mb = process.memory_info().rss / 1024 / 1024
@@ -1085,7 +1314,6 @@ Total Fees: ${total_fees:,.2f}
                         f"Elapsed: {elapsed:.0f}s | Remaining: {remaining_str}"
                     )
 
-                    open_orders_count = len(getattr(self.broker, "working_orders", []))
                     append_event(
                         {
                             "event": "AsyncHeartbeat",
@@ -1200,6 +1428,9 @@ Total Fees: ${total_fees:,.2f}
                         self.execution_queue.get(), timeout=1.0
                     )
                 except asyncio.TimeoutError:
+                    continue
+
+                if self.kill_switch_triggered:
                     continue
 
                 client_order_id = None

@@ -244,6 +244,22 @@ class PaperBroker:
 
         # Daily loss check
         equity = float(order.get("equity") or self.current_equity)
+        max_daily_loss_usd = getattr(hard_limits, "MAX_DAILY_LOSS_USD", 50.0)
+        drawdown_usd = self.starting_equity - equity
+        if self.starting_equity and drawdown_usd >= max_daily_loss_usd:
+            logger.warning(
+                f"REJECTED: Daily loss ${drawdown_usd:.2f} >= ${max_daily_loss_usd}"
+            )
+            append_event(
+                {
+                    "event": "OrderRejected",
+                    "reason": "daily_loss_usd_exceeded",
+                    "drawdown_usd": drawdown_usd,
+                    "limit_usd": max_daily_loss_usd,
+                },
+                paper=True,
+            )
+            return None
         drawdown_pct = (self.starting_equity - equity) / self.starting_equity * 100.0
         if drawdown_pct > hard_limits.MAX_DAILY_LOSS_PCT:
             logger.warning(
