@@ -17,6 +17,8 @@ dependencies = [
   "tenacity>=8.5.0",
   "websockets>=12.0",
   "cachetools>=5.3.3",
+  "aiohttp>=3.9.5",
+  "PyYAML>=6.0.1",
 ]
 
 [project.optional-dependencies]

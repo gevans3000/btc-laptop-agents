@@ -115,6 +115,9 @@ def run(ctx: typer.Context):
 
     args = ap.parse_args(ctx.args)
 
+    if args.mode == "live-session" and args.source == "mock":
+        args.source = "bitunix"
+
     if args.quiet:
         logger.setLevel("ERROR")
     elif args.verbose:

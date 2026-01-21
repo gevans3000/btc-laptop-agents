@@ -115,7 +115,8 @@ class BitunixWebsocketClient:
     async def _connect_and_stream(self):
         while self._running:
             try:
-                async with aiohttp.ClientSession() as session:
+                timeout = aiohttp.ClientTimeout(total=10)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.ws_connect(self.ws_url, heartbeat=30) as ws:
                         logger.info(f"WS: Connected to {self.ws_url} [{self.symbol}]")
                         self.reconnect_delay = 1.0
@@ -161,6 +162,8 @@ class BitunixWebsocketClient:
                                     "WS: Connection became zombie (no data >60s). Reconnecting."
                                 )
                                 break
+            except asyncio.TimeoutError as e:
+                logger.warning(f"WS: Connection timeout: {e}")
             except Exception as e:
                 if "getaddrinfo failed" in str(e):
                     logger.warning(
