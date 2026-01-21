@@ -283,6 +283,8 @@ class BitunixWSProvider:
     async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
         self.client.start()
         last_yield_time = time.time()
+        last_tick_ts: Optional[str] = None
+        last_candle_ts: Optional[str] = None
 
         try:
             while True:
@@ -326,13 +328,17 @@ class BitunixWSProvider:
                 t = self.client.get_latest_tick()
                 if t:
                     # Dedupe logic if needed, but for now we trust client clears it or we handle it
-                    yield t
-                    last_yield_time = time.time()
+                    if t.ts != last_tick_ts:
+                        yield t
+                        last_tick_ts = t.ts
+                        last_yield_time = time.time()
 
                 c = self.client.get_latest_candle()
                 if c:
-                    yield c
-                    last_yield_time = time.time()
+                    if c.ts != last_candle_ts:
+                        yield c
+                        last_candle_ts = c.ts
+                        last_yield_time = time.time()
 
                 # Polling interval
                 await asyncio.sleep(0.05)

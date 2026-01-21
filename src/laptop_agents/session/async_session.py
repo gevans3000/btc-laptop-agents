@@ -102,6 +102,11 @@ class AsyncRunner:
         self._last_backfill_time = 0.0
         self.max_equity = starting_balance
         self.max_drawdown = 0.0
+        self.stopped_reason = "completed"
+        self._stop_event_emitted = False
+        self._inflight_order_ids: set[str] = set()
+        self.last_tick_ts: Optional[str] = None
+        self.last_candle_ts: Optional[str] = None
 
         # Create session-specific workspace
         self.state_dir = state_dir or Path("paper")
@@ -222,6 +227,7 @@ class AsyncRunner:
                 logger.warning(
                     f"Circuit breaker was previously TRIPPED ({self.circuit_breaker._trip_reason}). It remains TRIPPED."
                 )
+                self._request_shutdown("circuit_breaker_tripped")
                 # Note: TradingCircuitBreaker doesn't have a direct 'trip()' method but is_tripped() checks state
 
         # Start Threaded Watchdog (independent of event loop)
@@ -300,6 +306,8 @@ class AsyncRunner:
             asyncio.create_task(self.execution_task()),
             asyncio.create_task(self.checkpoint_task()),
         ]
+        for task in tasks:
+            task.add_done_callback(self._handle_task_done)
 
         try:
             await self.shutdown_event.wait()
@@ -309,6 +317,22 @@ class AsyncRunner:
             self._shutting_down = True
             self.status = "shutting_down"
             logger.info("GRACEFUL SHUTDOWN INITIATED")
+
+            if not self._stop_event_emitted:
+                try:
+                    append_event(
+                        {
+                            "event": "SessionStopped",
+                            "reason": self.stopped_reason,
+                            "errors": self.errors,
+                            "symbol": self.symbol,
+                            "interval": self.interval,
+                        },
+                        paper=True,
+                    )
+                    self._stop_event_emitted = True
+                except Exception as e:
+                    logger.error(f"Failed to append SessionStopped event: {e}")
 
             # 2. Cancel all open orders (alias in PaperBroker)
             try:
@@ -422,6 +446,7 @@ class AsyncRunner:
                     "duration_seconds": round(time.time() - self.start_time, 1),
                     "symbol": self.symbol,
                     "trades": self.trades,
+                    "stopped_reason": self.stopped_reason,
                 }
                 with open(report_path, "w") as f:
                     json.dump(report, f, indent=2)
@@ -476,6 +501,21 @@ Total Fees: ${total_fees:,.2f}
             pass
         return 0
 
+    def _request_shutdown(self, reason: str) -> None:
+        if not self.shutdown_event.is_set():
+            if self.stopped_reason == "completed":
+                self.stopped_reason = reason
+            self.shutdown_event.set()
+
+    def _handle_task_done(self, task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error("Background task failed", exc_info=exc)
+            self.errors += 1
+            self._request_shutdown("task_failed")
+
     async def market_data_task(self):
         """Consumes WebSocket data and triggers strategy on candle closure."""
         while not self.shutdown_event.is_set():
@@ -490,20 +530,18 @@ Total Fees: ${total_fees:,.2f}
                     except StopAsyncIteration:
                         break
 
-                    # Reset timeout timer on each successful item
-                    self.last_data_time = time.time()
-                    self.stale_restart_attempts = 0
-
                     if isinstance(item, DataEvent):
                         logger.warning(
                             f"RECEIVED_DATA_EVENT: {item.event} | {item.details}"
                         )
                         if item.event in ["ORDER_BOOK_STALE", "CIRCUIT_TRIPPED"]:
                             write_alert(f"MARKET_DATA_FAILED: {item.event}")
-                            self.shutdown_event.set()
+                            self._request_shutdown("market_data_failed")
                             break
 
                     if isinstance(item, Tick):
+                        if self.last_tick_ts == item.ts:
+                            continue
                         # Robust Validation
                         if (
                             item.last <= 0
@@ -513,6 +551,9 @@ Total Fees: ${total_fees:,.2f}
                             continue
 
                         self.latest_tick = item
+                        self.last_tick_ts = item.ts
+                        self.last_data_time = time.time()
+                        self.stale_restart_attempts = 0
                         self.consecutive_ws_errors = 0
 
                     elif isinstance(item, Candle):
@@ -522,8 +563,13 @@ Total Fees: ${total_fees:,.2f}
                             or math.isinf(item.close)
                         ):
                             continue
+                        if self.last_candle_ts == item.ts:
+                            continue
 
                         self.consecutive_ws_errors = 0
+                        self.last_candle_ts = item.ts
+                        self.last_data_time = time.time()
+                        self.stale_restart_attempts = 0
                         new_ts_sec = self._parse_ts_to_int(item.ts)
 
                         # Item 3 & 12: Fixed Gap-Detection & Rate Limiting
@@ -594,7 +640,7 @@ Total Fees: ${total_fees:,.2f}
             except FatalError as fe:
                 logger.error(f"FATAL_ERROR in market_data_task: {fe}")
                 self.errors = MAX_ERRORS_PER_SESSION
-                self.shutdown_event.set()
+                self._request_shutdown("fatal_error")
                 break
             except Exception as e:
                 # Item 1: Graceful restart instead of hard fail
@@ -614,7 +660,7 @@ Total Fees: ${total_fees:,.2f}
                 if self.consecutive_ws_errors >= 10:
                     if not self.shutdown_event.is_set():
                         logger.critical("Too many consecutive WS errors. Giving up.")
-                        self.shutdown_event.set()
+                        self._request_shutdown("market_data_errors")
                     break
 
                 # Wait a bit before retrying the loop
@@ -653,7 +699,7 @@ Total Fees: ${total_fees:,.2f}
                         else "LA_KILL_SWITCH=TRUE"
                     )
                     logger.warning(f"KILL SWITCH ACTIVATED: {reason}")
-                    self.shutdown_event.set()
+                    self._request_shutdown("kill_switch")
                     if self.kill_file.exists():
                         try:
                             self.kill_file.unlink()  # Remove file after processing
@@ -736,7 +782,7 @@ Total Fees: ${total_fees:,.2f}
                             },
                             paper=True,
                         )
-                        self.shutdown_event.set()
+                        self._request_shutdown("stale_data")
                         break
 
                 # Check data liveness
@@ -780,7 +826,7 @@ Total Fees: ${total_fees:,.2f}
                         logger.error(f"Error in watchdog on_tick: {e}")
                         self.errors += 1
                         if self.errors >= MAX_ERRORS_PER_SESSION:
-                            self.shutdown_event.set()
+                            self._request_shutdown("error_budget")
                 await asyncio.sleep(0.05)
         except asyncio.CancelledError:
             pass
@@ -899,7 +945,7 @@ Total Fees: ${total_fees:,.2f}
                         logger.error(
                             f"ERROR BUDGET EXHAUSTED: {self.errors} errors. Shutting down."
                         )
-                        self.shutdown_event.set()
+                        self._request_shutdown("error_budget")
             else:
                 # Still process candle for exits on existing positions
                 events = self.broker.on_candle(candle, None, tick=self.latest_tick)
@@ -923,7 +969,7 @@ Total Fees: ${total_fees:,.2f}
                 logger.error(
                     f"ERROR BUDGET EXHAUSTED: {self.errors} errors. Shutting down."
                 )
-                self.shutdown_event.set()
+                self._request_shutdown("error_budget")
 
     async def heartbeat_task(self):
         """Logs system status every second."""
@@ -966,7 +1012,7 @@ Total Fees: ${total_fees:,.2f}
                         logger.critical(
                             f"CRITICAL: Memory Limit ({mem_mb:.1f}MB > {max_mem_allowed}MB). Shutting down."
                         )
-                        self.shutdown_event.set()
+                        self._request_shutdown("memory_limit")
 
                     # Save last price cache
                     if self.latest_tick:
@@ -1052,7 +1098,7 @@ Total Fees: ${total_fees:,.2f}
                         self.errors >= MAX_ERRORS_PER_SESSION
                         and not self.shutdown_event.is_set()
                     ):
-                        self.shutdown_event.set()
+                        self._request_shutdown("error_budget")
                 await asyncio.sleep(1.0)
         except asyncio.CancelledError:
             pass
@@ -1063,7 +1109,7 @@ Total Fees: ${total_fees:,.2f}
             while time.time() < end_time:
                 await asyncio.sleep(1.0)
             logger.info("Duration limit reached. Shutting down...")
-            self.shutdown_event.set()
+            self._request_shutdown("duration_limit")
         except asyncio.CancelledError:
             pass
 
@@ -1119,6 +1165,7 @@ Total Fees: ${total_fees:,.2f}
                 except asyncio.TimeoutError:
                     continue
 
+                client_order_id = None
                 try:
                     order = order_payload.get("order")
                     candle = order_payload.get("candle")
@@ -1128,14 +1175,13 @@ Total Fees: ${total_fees:,.2f}
 
                     # Item 8: Immediate ID locking
                     client_order_id = order.get("client_order_id")
-                    if client_order_id and hasattr(self.broker, "processed_order_ids"):
-                        if client_order_id in self.broker.processed_order_ids:
+                    if client_order_id:
+                        if client_order_id in self._inflight_order_ids:
                             logger.warning(
                                 f"Duplicate order {client_order_id} detected. Skipping."
                             )
                             continue
-                        # Reserve ID locally before network delay
-                        self.broker.processed_order_ids.add(client_order_id)
+                        self._inflight_order_ids.add(client_order_id)
 
                     # Simulate network latency WITHOUT blocking main loop
                     if not self.dry_run:
@@ -1178,7 +1224,7 @@ Total Fees: ${total_fees:,.2f}
                         logger.warning(
                             f"CIRCUIT BREAKER TRIPPED: {self.circuit_breaker.get_status()}"
                         )
-                        self.shutdown_event.set()
+                        self._request_shutdown("circuit_breaker_tripped")
 
                     # Save state
                     if not self.dry_run:
@@ -1202,7 +1248,10 @@ Total Fees: ${total_fees:,.2f}
                         self.errors >= MAX_ERRORS_PER_SESSION
                         and not self.shutdown_event.is_set()
                     ):
-                        self.shutdown_event.set()
+                        self._request_shutdown("error_budget")
+                finally:
+                    if client_order_id:
+                        self._inflight_order_ids.discard(client_order_id)
 
         except asyncio.CancelledError:
             pass
@@ -1220,7 +1269,7 @@ Total Fees: ${total_fees:,.2f}
                     f"\n\n!!! WATCHDOG FATAL: Main loop frozen for {age:.1f}s. !!!\n\n"
                 )
                 logger.critical(f"WATCHDOG_FATAL: Main loop frozen for {age:.1f}s.")
-                self.shutdown_event.set()
+                self._request_shutdown("watchdog_frozen")
                 time.sleep(5)  # Give it 5s to shut down gracefully
                 os._exit(1)
 
@@ -1236,6 +1285,7 @@ Total Fees: ${total_fees:,.2f}
                     logger.critical(
                         f"CRITICAL: Memory Limit Exceeded ({mem_rss_mb:.1f} MB). RSS > {max_mem_allowed} MB."
                     )
+                    self._request_shutdown("memory_limit")
                     os._exit(1)
             except Exception:
                 pass
@@ -1353,13 +1403,16 @@ async def run_async_session(
                 except Exception as e:
                     logger.error(f"Failed to close positions on SIGTERM: {e}")
             if runner:
-                runner.shutdown_event.set()
+                runner.stopped_reason = "signal"
+                runner._request_shutdown("signal")
 
         try:
             loop = asyncio.get_running_loop()
             if os.name != "nt":
                 for sig in (signal.SIGINT, signal.SIGTERM):
-                    loop.add_signal_handler(sig, runner.shutdown_event.set)
+                    loop.add_signal_handler(
+                        sig, lambda: runner._request_shutdown("signal")
+                    )
             else:
                 # On Windows, use signal module for basic handlers
                 signal.signal(signal.SIGINT, handle_sigterm)
@@ -1371,7 +1424,7 @@ async def run_async_session(
             await runner.run(duration_min)
         except KeyboardInterrupt:
             logger.info("KeyboardInterrupt received. Initiating graceful shutdown...")
-            runner.shutdown_event.set()
+            runner._request_shutdown("keyboard_interrupt")
             # Give it a moment to clean up
             await asyncio.sleep(1.0)
         except Exception as e:
@@ -1434,6 +1487,7 @@ async def run_async_session(
             ending_equity=runner.broker.current_equity,
             duration_sec=time.time() - runner.start_time,
             max_drawdown=runner.max_drawdown,
+            stopped_reason=runner.stopped_reason,
         )
     else:
         return AsyncSessionResult(stopped_reason="init_failed")
