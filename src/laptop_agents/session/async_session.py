@@ -8,6 +8,7 @@ import time
 import threading
 import os
 import psutil
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,6 +81,7 @@ class AsyncRunner:
         self.dry_run = dry_run
         self.duration_min = 0  # set in run()
         self.start_time = time.time()
+        self.loop_id = uuid.uuid4().hex
         self.last_data_time = self.start_time
         self.last_heartbeat_time = self.start_time
         self.errors = 0
@@ -352,8 +354,9 @@ class AsyncRunner:
                     item = self.execution_queue.get_nowait()
                     order = item.get("order")
                     if order:
-                        if hasattr(self.broker, "working_orders"):
-                            self.broker.working_orders.append(order)
+                        working_orders = getattr(self.broker, "working_orders", None)
+                        if isinstance(working_orders, list):
+                            working_orders.append(order)
                         logger.info(
                             f"Drained pending order {order.get('client_order_id')} to broker state"
                         )
@@ -540,7 +543,18 @@ Total Fees: ${total_fees:,.2f}
                             break
 
                     if isinstance(item, Tick):
-                        if self.last_tick_ts == item.ts:
+                        ts_sec = self._parse_ts_to_int(item.ts)
+                        last_ts_sec = (
+                            self._parse_ts_to_int(self.last_tick_ts)
+                            if self.last_tick_ts
+                            else 0
+                        )
+                        if ts_sec <= last_ts_sec:
+                            continue
+                        if (
+                            ts_sec
+                            and (time.time() - ts_sec) > self.stale_data_timeout_sec
+                        ):
                             continue
                         # Robust Validation
                         if (
@@ -557,20 +571,31 @@ Total Fees: ${total_fees:,.2f}
                         self.consecutive_ws_errors = 0
 
                     elif isinstance(item, Candle):
+                        ts_sec = self._parse_ts_to_int(item.ts)
+                        last_ts_sec = (
+                            self._parse_ts_to_int(self.last_candle_ts)
+                            if self.last_candle_ts
+                            else 0
+                        )
+                        if ts_sec <= last_ts_sec:
+                            continue
+                        if (
+                            ts_sec
+                            and (time.time() - ts_sec) > self.stale_data_timeout_sec
+                        ):
+                            continue
                         if (
                             item.close <= 0
                             or math.isnan(item.close)
                             or math.isinf(item.close)
                         ):
                             continue
-                        if self.last_candle_ts == item.ts:
-                            continue
 
                         self.consecutive_ws_errors = 0
                         self.last_candle_ts = item.ts
                         self.last_data_time = time.time()
                         self.stale_restart_attempts = 0
-                        new_ts_sec = self._parse_ts_to_int(item.ts)
+                        new_ts_sec = ts_sec
 
                         # Item 3 & 12: Fixed Gap-Detection & Rate Limiting
                         try:
@@ -663,8 +688,10 @@ Total Fees: ${total_fees:,.2f}
                         self._request_shutdown("market_data_errors")
                     break
 
-                # Wait a bit before retrying the loop
-                await asyncio.sleep(5.0)
+                # Exponential backoff + jitter (cap at 60s)
+                backoff = min(60.0, 2 ** min(self.consecutive_ws_errors, 6))
+                jitter = random.uniform(0.0, 1.0)
+                await asyncio.sleep(backoff + jitter)
 
     async def checkpoint_task(self):
         """Periodically saves state to disk for crash recovery."""
@@ -716,6 +743,7 @@ Total Fees: ${total_fees:,.2f}
     async def stale_data_task(self):
         """Detects stale market data and triggers task restart or shutdown."""
         try:
+            restart_threshold = min(30.0, self.stale_data_timeout_sec)
             while not self.shutdown_event.is_set():
                 age = time.time() - self.last_data_time
 
@@ -726,7 +754,7 @@ Total Fees: ${total_fees:,.2f}
                     # We can't easily restart just the task without refactoring, so we treat it as an early warning.
                     # If it persists to stale_data_timeout_sec, we shut down.
 
-                if age > self.stale_data_timeout_sec:
+                if age > restart_threshold:
                     if self.shutdown_event.is_set():
                         break  # Already shutting down
                     if self.stale_restart_attempts < self.max_stale_restarts:
@@ -765,7 +793,7 @@ Total Fees: ${total_fees:,.2f}
                         except Exception as re:
                             logger.error(f"Provider restart failed: {re}")
                             self.errors += 1
-                    else:
+                    elif age > self.stale_data_timeout_sec:
                         error_msg = (
                             f"STALE DATA: No market data for {age:.0f}s. "
                             "Restart attempts exhausted."
@@ -797,7 +825,7 @@ Total Fees: ${total_fees:,.2f}
                 if self.latest_tick and self.broker.pos:
                     # Item 4: Exception guard for watchdog logic
                     try:
-                        events = self.broker.on_tick(self.latest_tick)
+                        events = self.broker.on_tick(self.latest_tick) or {}
                         for exit_event in events.get("exits", []):
                             self.trades += 1
                             logger.info(
@@ -1057,11 +1085,15 @@ Total Fees: ${total_fees:,.2f}
                         f"Elapsed: {elapsed:.0f}s | Remaining: {remaining_str}"
                     )
 
+                    open_orders_count = len(getattr(self.broker, "working_orders", []))
                     append_event(
                         {
                             "event": "AsyncHeartbeat",
+                            "symbol": self.symbol,
+                            "loop_id": self.loop_id,
+                            "position": pos_str,
+                            "open_orders_count": open_orders_count,
                             "price": price,
-                            "pos": pos_str,
                             "equity": total_equity,
                             "unrealized": unrealized,
                             "elapsed": elapsed,
@@ -1085,11 +1117,16 @@ Total Fees: ${total_fees:,.2f}
                 except Exception as e:
                     logger.exception(f"Heartbeat task error: {e}")
                     self.errors += 1
+                    pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
+                    open_orders_count = len(getattr(self.broker, "working_orders", []))
                     append_event(
                         {
                             "event": "HeartbeatTaskError",
                             "error": str(e),
                             "symbol": self.symbol,
+                            "loop_id": self.loop_id,
+                            "position": pos_str,
+                            "open_orders_count": open_orders_count,
                             "interval": self.interval,
                         },
                         paper=True,
@@ -1235,11 +1272,16 @@ Total Fees: ${total_fees:,.2f}
                 except Exception as e:
                     logger.exception(f"Execution task error: {e}")
                     self.errors += 1
+                    pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
+                    open_orders_count = len(getattr(self.broker, "working_orders", []))
                     append_event(
                         {
                             "event": "ExecutionTaskError",
                             "error": str(e),
                             "symbol": self.symbol,
+                            "loop_id": self.loop_id,
+                            "position": pos_str,
+                            "open_orders_count": open_orders_count,
                             "interval": self.interval,
                         },
                         paper=True,

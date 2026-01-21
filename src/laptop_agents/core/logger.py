@@ -64,7 +64,10 @@ class SensitiveDataFilter(logging.Filter):
 
 class JsonFormatter(logging.Formatter):
     def format(self, record):
+        import traceback
+
         log_entry = {
+            "ts": datetime.fromtimestamp(record.created).isoformat(),
             "timestamp": datetime.fromtimestamp(record.created).isoformat(),
             "level": record.levelname,
             "component": record.name,
@@ -75,6 +78,13 @@ class JsonFormatter(logging.Formatter):
         elif record.args and isinstance(record.args, dict):
             # Support for logger.info("msg", {"extra": "data"}) style if meta not used
             log_entry["meta"] = record.args
+
+        if isinstance(log_entry.get("meta"), dict) and "event" in log_entry["meta"]:
+            log_entry["event"] = log_entry["meta"]["event"]
+        if record.exc_info:
+            log_entry["exception"] = "".join(
+                traceback.format_exception(*record.exc_info)
+            )
 
         return scrub_secrets(json.dumps(log_entry, separators=(",", ":")))
 

@@ -261,7 +261,9 @@ class PaperBroker:
 
         # Position Cap Check
         qty_requested = float(order.get("qty", 0))
-        symbol_cap = self.max_position_per_symbol.get(self.symbol, float("inf"))
+        symbol_cap = self.max_position_per_symbol.get(
+            self.symbol, hard_limits.MAX_POSITION_ABS
+        )
         if qty_requested > symbol_cap:
             logger.warning(
                 f"REJECTED: Position limit exceeded for {self.symbol}. Requested {qty_requested} > Cap {symbol_cap}"

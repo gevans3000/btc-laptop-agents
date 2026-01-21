@@ -25,22 +25,6 @@ LOCK_FILE = REPO_ROOT / ".agent" / "lockfile.pid"
 def run(ctx: typer.Context):
     """Wrapper for the main run logic."""
 
-    def signal_handler(sig, frame):
-        console.print("\n[bold red]!!! SHUTTING DOWN !!![/bold red]")
-        logger.info("Signal received, initiating graceful shutdown...")
-
-        def force_exit():
-            time.sleep(3)
-            console.print("[red]Shutdown stuck. Forced exit.[/red]")
-            os._exit(0)
-
-        threading.Thread(target=force_exit, daemon=True).start()
-        logger.info("Clean shutdown triggered. Closing positions...")
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
     lock = LockManager(LOCK_FILE)
     if not lock.acquire():
         console.print(f"[red]Already running. Check {LOCK_FILE}[/red]")
@@ -114,6 +98,26 @@ def run(ctx: typer.Context):
     ap.add_argument("--verbose", action="store_true")
 
     args = ap.parse_args(ctx.args)
+
+    def signal_handler(sig, frame):
+        console.print("\n[bold red]!!! SHUTTING DOWN !!![/bold red]")
+        logger.info("Signal received, initiating graceful shutdown...")
+        if args.mode == "live-session" and args.async_mode:
+            os.environ["LA_KILL_SWITCH"] = "TRUE"
+            logger.info("Async session kill switch set; waiting for graceful shutdown.")
+            return
+
+        def force_exit():
+            time.sleep(3)
+            console.print("[red]Shutdown stuck. Forced exit.[/red]")
+            os._exit(0)
+
+        threading.Thread(target=force_exit, daemon=True).start()
+        logger.info("Clean shutdown triggered. Closing positions...")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
     if args.mode == "live-session" and args.source == "mock":
         args.source = "bitunix"
