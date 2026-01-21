@@ -359,6 +359,16 @@ class AsyncRunner:
             except Exception as e:
                 logger.exception(f"Broker shutdown failed: {e}")
 
+            try:
+                self.state_manager.set_circuit_breaker_state(
+                    self.circuit_breaker.get_status()
+                )
+                self.state_manager.set("starting_equity", self.starting_equity)
+                self.state_manager.save()
+                logger.info("Final unified state saved.")
+            except Exception as e:
+                logger.error(f"Failed to save unified state on shutdown: {e}")
+
             logger.info("AsyncRunner shutdown complete.")
 
             # Export Metrics
