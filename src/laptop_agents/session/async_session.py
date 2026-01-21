@@ -102,6 +102,7 @@ class AsyncRunner:
         self.status = "initializing"
         self._shutting_down = False
         self._last_backfill_time = 0.0
+        self._last_rest_poll_time = 0.0
         self.max_equity = starting_balance
         self.max_drawdown = 0.0
         self.stopped_reason = "completed"
@@ -910,10 +911,62 @@ Total Fees: ${total_fees:,.2f}
 
                 # Soft restart if data is hanging for more than 15 seconds
                 # Soft restart if data is hanging for more than 15 seconds
-                if age > 15.0 and self.consecutive_ws_errors == 0:
+                if age > 15.0:
                     logger.warning(f"STALE DATA: No market data for {age:.1f}s.")
-                    # We can't easily restart just the task without refactoring, so we treat it as an early warning.
-                    # If it persists to stale_data_timeout_sec, we shut down.
+                    # Attempt REST poll as a fallback signal when WS is unhealthy
+                    now = time.time()
+                    if now - self._last_rest_poll_time >= 15.0:
+                        try:
+                            from laptop_agents.data.loader import load_bitunix_candles
+
+                            candles = await asyncio.to_thread(
+                                load_bitunix_candles,
+                                self.symbol,
+                                self.interval,
+                                2,
+                            )
+                            candles = normalize_candle_order(candles)
+                            if candles:
+                                latest = candles[-1]
+                                latest_ts = self._parse_ts_to_int(latest.ts)
+                                last_ts = (
+                                    self._parse_ts_to_int(self.last_candle_ts)
+                                    if self.last_candle_ts
+                                    else 0
+                                )
+                                if latest_ts > last_ts:
+                                    self.candles.append(latest)
+                                    if (
+                                        len(self.candles)
+                                        > hard_limits.MAX_CANDLE_BUFFER
+                                    ):
+                                        self.candles = self.candles[
+                                            -hard_limits.MAX_CANDLE_BUFFER :
+                                        ]
+                                    self.last_candle_ts = latest.ts
+                                self.last_data_time = time.time()
+                                self._last_rest_poll_time = now
+                                logger.info(
+                                    "REST_POLL_SUCCESS: refreshed candle from REST",
+                                    {
+                                        "event": "RestPollSuccess",
+                                        "symbol": self.symbol,
+                                        "loop_id": self.loop_id,
+                                        "position": (
+                                            self.broker.pos.side
+                                            if self.broker.pos
+                                            else "FLAT"
+                                        ),
+                                        "open_orders_count": len(
+                                            getattr(self.broker, "working_orders", [])
+                                        ),
+                                        "interval": self.interval,
+                                    },
+                                )
+                        except Exception as re:
+                            logger.warning(f"REST poll failed during stale data: {re}")
+                        finally:
+                            self._last_rest_poll_time = now
 
                 if age > restart_threshold:
                     if self.shutdown_event.is_set():
