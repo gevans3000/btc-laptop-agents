@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any, Dict, List, Optional
 from ..core import hard_limits
 from ..trading.helpers import apply_slippage
@@ -321,6 +322,13 @@ class PaperBroker:
         qty = float(order["qty"])
         sl = float(order["sl"])
         tp = float(order["tp"])
+
+        if not all(math.isfinite(x) for x in [entry, qty, sl, tp]):
+            logger.warning("REJECTED: Non-finite order fields")
+            return None
+        if qty <= 0 or entry <= 0:
+            logger.warning("REJECTED: Non-positive entry/qty")
+            return None
 
         # Single Trade Loss Cap
         risk_dollars = abs(entry - sl) * qty

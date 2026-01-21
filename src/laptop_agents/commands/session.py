@@ -104,7 +104,7 @@ def run(ctx: typer.Context):
     )
     ap.add_argument("--async", dest="async_mode", action="store_true", default=True)
     ap.add_argument("--sync", dest="async_mode", action="store_false")
-    ap.add_argument("--stale-timeout", type=int, default=60)
+    ap.add_argument("--stale-timeout", type=int, default=120)
     ap.add_argument("--execution-latency-ms", type=int, default=200)
     ap.add_argument("--dashboard", action="store_true")
     ap.add_argument("--preflight", action="store_true")

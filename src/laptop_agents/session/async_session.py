@@ -61,7 +61,7 @@ class AsyncRunner:
         tp_r: float = 1.5,
         fees_bps: float = 2.0,
         slip_bps: float = 0.5,
-        stale_timeout: int = 30,
+        stale_timeout: int = 120,
         execution_latency_ms: int = 200,
         dry_run: bool = False,
         provider: Any = None,
@@ -339,8 +339,14 @@ class AsyncRunner:
             await asyncio.gather(*tasks, return_exceptions=True)
 
             # Final cleanup
-            if self.broker.pos and self.latest_tick:
-                self.broker.close_all(self.latest_tick.last)
+            if self.broker.pos:
+                price = None
+                if self.latest_tick:
+                    price = self.latest_tick.last
+                elif self.candles:
+                    price = self.candles[-1].close
+                if price and price > 0:
+                    self.broker.close_all(price)
 
             try:
                 # Item 9: Use task wrapper for shutdown to ensure it completes
@@ -738,7 +744,6 @@ Total Fees: ${total_fees:,.2f}
         try:
             # Generate signal
             order = None
-            raw_signal = None
 
             if self.strategy_config:
                 try:
@@ -747,13 +752,6 @@ Total Fees: ${total_fees:,.2f}
                     self.agent_state = self.supervisor.step(
                         self.agent_state, candle, skip_broker=True
                     )
-
-                    if self.agent_state.setup.get("side") in ["LONG", "SHORT"]:
-                        raw_signal = (
-                            "BUY"
-                            if self.agent_state.setup["side"] == "LONG"
-                            else "SELL"
-                        )
                 except Exception as agent_err:
                     logger.error(
                         f"AGENT_ERROR: Strategy agent failed, skipping signal: {agent_err}"
@@ -761,34 +759,50 @@ Total Fees: ${total_fees:,.2f}
                     append_event(
                         {"event": "AgentError", "error": str(agent_err)}, paper=True
                     )
-                    raw_signal = None  # Suppress trade on agent failure
+                    self.errors += 1
+                    return
 
-            if raw_signal:
-                signal_side = "LONG" if raw_signal == "BUY" else "SHORT"
-                risk_amount = self.broker.current_equity * (self.risk_pct / 100.0)
-                stop_distance = float(candle.close) * (self.stop_bps / 10000.0)
+            agent_order = self.agent_state.order if self.strategy_config else {}
+            if agent_order and agent_order.get("go"):
+                order = {
+                    "go": True,
+                    "side": agent_order.get("side"),
+                    "entry_type": agent_order.get("entry_type", "market"),
+                    "entry": float(agent_order.get("entry", candle.close)),
+                    "qty": float(agent_order.get("qty", 0.0)),
+                    "sl": float(agent_order.get("sl", 0.0)),
+                    "tp": float(agent_order.get("tp", 0.0)),
+                    "equity": self.broker.current_equity,
+                    "client_order_id": f"async_{int(time.time())}_{self.iterations}",
+                }
 
-                if stop_distance > 0:
-                    qty = risk_amount / stop_distance
-                    order = {
-                        "go": True,
-                        "side": signal_side,
-                        "entry_type": "market",
-                        "entry": float(candle.close),
-                        "qty": qty,
-                        "sl": (
-                            float(candle.close) - stop_distance
-                            if signal_side == "LONG"
-                            else float(candle.close) + stop_distance
-                        ),
-                        "tp": (
-                            float(candle.close) + (stop_distance * self.tp_r)
-                            if signal_side == "LONG"
-                            else float(candle.close) - (stop_distance * self.tp_r)
-                        ),
-                        "equity": self.broker.current_equity,
-                        "client_order_id": f"async_{int(time.time())}_{self.iterations}",
-                    }
+                if not all(
+                    math.isfinite(x)
+                    for x in [
+                        order["entry"],
+                        order["qty"],
+                        order["sl"],
+                        order["tp"],
+                    ]
+                ):
+                    logger.warning("ORDER_REJECTED: Non-finite order fields")
+                    order = None
+                elif order["qty"] <= 0:
+                    logger.warning("ORDER_REJECTED: Non-positive quantity")
+                    order = None
+                else:
+                    if order["side"] == "LONG":
+                        if not (order["sl"] < order["entry"] < order["tp"]):
+                            logger.warning(
+                                "ORDER_REJECTED: Invalid LONG SL/TP ordering"
+                            )
+                            order = None
+                    elif order["side"] == "SHORT":
+                        if not (order["tp"] < order["entry"] < order["sl"]):
+                            logger.warning(
+                                "ORDER_REJECTED: Invalid SHORT SL/TP ordering"
+                            )
+                            order = None
 
             # Queue order for async execution (non-blocking)
             if order and order.get("go"):
@@ -808,6 +822,15 @@ Total Fees: ${total_fees:,.2f}
                     append_event(
                         {"event": "OrderDropped", "reason": "queue_full"}, paper=True
                     )
+                    self.errors += 1
+                    if (
+                        self.errors >= MAX_ERRORS_PER_SESSION
+                        and not self.shutdown_event.is_set()
+                    ):
+                        logger.error(
+                            f"ERROR BUDGET EXHAUSTED: {self.errors} errors. Shutting down."
+                        )
+                        self.shutdown_event.set()
             else:
                 # Still process candle for exits on existing positions
                 events = self.broker.on_candle(candle, None, tick=self.latest_tick)
@@ -842,107 +865,124 @@ Total Fees: ${total_fees:,.2f}
 
         try:
             while not self.shutdown_event.is_set():
-                elapsed = time.time() - self.start_time
-                pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
-                price = (
-                    self.latest_tick.last
-                    if self.latest_tick
-                    else (self.candles[-1].close if self.candles else 0.0)
-                )
-
-                unrealized = self.broker.get_unrealized_pnl(price)
-                total_equity = self.broker.current_equity + unrealized
-
-                # Update max drawdown tracking
-                self.max_equity = max(self.max_equity, total_equity)
-                dd = (
-                    (self.max_equity - total_equity) / self.max_equity
-                    if self.max_equity > 0
-                    else 0
-                )
-                self.max_drawdown = max(self.max_drawdown, dd)
-
-                process = psutil.Process()
-                mem_mb = process.memory_info().rss / 1024 / 1024
-                cpu_pct = process.cpu_percent()
-
-                # Phase 4.1: Memory Tuning from Env
-                max_mem_allowed = float(os.getenv("LA_MAX_MEMORY_MB", "1500"))
-
-                if mem_mb > max_mem_allowed:
-                    logger.critical(
-                        f"CRITICAL: Memory Limit ({mem_mb:.1f}MB > {max_mem_allowed}MB). Shutting down."
+                try:
+                    elapsed = time.time() - self.start_time
+                    pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
+                    price = (
+                        self.latest_tick.last
+                        if self.latest_tick
+                        else (self.candles[-1].close if self.candles else 0.0)
                     )
-                    self.shutdown_event.set()
 
-                # Save last price cache
-                if self.latest_tick:
-                    try:
-                        price_cache_path = Path("paper/last_price_cache.json")
-                        price_cache_path.parent.mkdir(exist_ok=True)
-                        with open(price_cache_path, "w") as f:
-                            json.dump(
-                                {
-                                    "last": self.latest_tick.last,
-                                    "ts": self.latest_tick.ts,
-                                },
-                                f,
-                            )
-                    except Exception:
-                        pass
+                    unrealized = self.broker.get_unrealized_pnl(price)
+                    total_equity = self.broker.current_equity + unrealized
 
-                # Write heartbeat file for watchdog
-                with heartbeat_path.open("w") as f:
-                    json.dump(
+                    # Update max drawdown tracking
+                    self.max_equity = max(self.max_equity, total_equity)
+                    dd = (
+                        (self.max_equity - total_equity) / self.max_equity
+                        if self.max_equity > 0
+                        else 0
+                    )
+                    self.max_drawdown = max(self.max_drawdown, dd)
+
+                    process = psutil.Process()
+                    mem_mb = process.memory_info().rss / 1024 / 1024
+                    cpu_pct = process.cpu_percent()
+
+                    # Phase 4.1: Memory Tuning from Env
+                    max_mem_allowed = float(os.getenv("LA_MAX_MEMORY_MB", "1500"))
+
+                    if mem_mb > max_mem_allowed:
+                        logger.critical(
+                            f"CRITICAL: Memory Limit ({mem_mb:.1f}MB > {max_mem_allowed}MB). Shutting down."
+                        )
+                        self.shutdown_event.set()
+
+                    # Save last price cache
+                    if self.latest_tick:
+                        try:
+                            price_cache_path = Path("paper/last_price_cache.json")
+                            price_cache_path.parent.mkdir(exist_ok=True)
+                            with open(price_cache_path, "w") as f:
+                                json.dump(
+                                    {
+                                        "last": self.latest_tick.last,
+                                        "ts": self.latest_tick.ts,
+                                    },
+                                    f,
+                                )
+                        except Exception:
+                            pass
+
+                    # Write heartbeat file for watchdog
+                    with heartbeat_path.open("w") as f:
+                        json.dump(
+                            {
+                                "ts": datetime.now(timezone.utc).isoformat(),
+                                "unix_ts": time_module.time(),
+                                "last_updated_ts": time_module.time(),
+                                "elapsed": elapsed,
+                                "equity": total_equity,
+                                "symbol": self.symbol,
+                                "ram_mb": round(mem_mb, 2),
+                                "cpu_pct": cpu_pct,
+                            },
+                            f,
+                        )
+
+                    remaining = max(
+                        0, (self.start_time + (self.duration_min * 60)) - time.time()
+                    )
+                    remaining_str = f"{int(remaining // 60)}:{int(remaining % 60):02d}"
+
+                    logger.info(
+                        f"[ASYNC] {self.symbol} | Price: {price:,.2f} | Pos: {pos_str:5} | "
+                        f"Equity: ${total_equity:,.2f} | "
+                        f"Elapsed: {elapsed:.0f}s | Remaining: {remaining_str}"
+                    )
+
+                    append_event(
+                        {
+                            "event": "AsyncHeartbeat",
+                            "price": price,
+                            "pos": pos_str,
+                            "equity": total_equity,
+                            "unrealized": unrealized,
+                            "elapsed": elapsed,
+                        },
+                        paper=True,
+                    )
+
+                    # Collect metric data point
+                    self.metrics.append(
                         {
                             "ts": datetime.now(timezone.utc).isoformat(),
-                            "unix_ts": time_module.time(),
-                            "last_updated_ts": time_module.time(),
                             "elapsed": elapsed,
                             "equity": total_equity,
-                            "symbol": self.symbol,
-                            "ram_mb": round(mem_mb, 2),
-                            "cpu_pct": cpu_pct,
-                        },
-                        f,
+                            "price": price,
+                            "unrealized": unrealized,
+                            "errors": self.errors,
+                        }
                     )
 
-                remaining = max(
-                    0, (self.start_time + (self.duration_min * 60)) - time.time()
-                )
-                remaining_str = f"{int(remaining // 60)}:{int(remaining % 60):02d}"
-
-                logger.info(
-                    f"[ASYNC] {self.symbol} | Price: {price:,.2f} | Pos: {pos_str:5} | "
-                    f"Equity: ${total_equity:,.2f} | "
-                    f"Elapsed: {elapsed:.0f}s | Remaining: {remaining_str}"
-                )
-
-                append_event(
-                    {
-                        "event": "AsyncHeartbeat",
-                        "price": price,
-                        "pos": pos_str,
-                        "equity": total_equity,
-                        "unrealized": unrealized,
-                        "elapsed": elapsed,
-                    },
-                    paper=True,
-                )
-
-                # Collect metric data point
-                self.metrics.append(
-                    {
-                        "ts": datetime.now(timezone.utc).isoformat(),
-                        "elapsed": elapsed,
-                        "equity": total_equity,
-                        "price": price,
-                        "unrealized": unrealized,
-                        "errors": self.errors,
-                    }
-                )
-
-                self.last_heartbeat_time = time.time()
+                    self.last_heartbeat_time = time.time()
+                except Exception as e:
+                    logger.exception(f"Heartbeat task error: {e}")
+                    self.errors += 1
+                    append_event(
+                        {
+                            "event": "HeartbeatTaskError",
+                            "error": str(e),
+                            "symbol": self.symbol,
+                        },
+                        paper=True,
+                    )
+                    if (
+                        self.errors >= MAX_ERRORS_PER_SESSION
+                        and not self.shutdown_event.is_set()
+                    ):
+                        self.shutdown_event.set()
                 await asyncio.sleep(1.0)
         except asyncio.CancelledError:
             pass
@@ -1009,68 +1049,89 @@ Total Fees: ${total_fees:,.2f}
                 except asyncio.TimeoutError:
                     continue
 
-                order = order_payload.get("order")
-                candle = order_payload.get("candle")
+                try:
+                    order = order_payload.get("order")
+                    candle = order_payload.get("candle")
 
-                if not order or not order.get("go"):
-                    continue
-
-                # Item 8: Immediate ID locking
-                client_order_id = order.get("client_order_id")
-                if client_order_id and hasattr(self.broker, "processed_order_ids"):
-                    if client_order_id in self.broker.processed_order_ids:
-                        logger.warning(
-                            f"Duplicate order {client_order_id} detected. Skipping."
-                        )
+                    if not order or not order.get("go"):
                         continue
-                    # Reserve ID locally before network delay
-                    self.broker.processed_order_ids.add(client_order_id)
 
-                # Simulate network latency WITHOUT blocking main loop
-                if not self.dry_run:
-                    latency = order_payload.get("latency_ms", 200)
-                    logger.debug(f"Executing order with {latency}ms simulated latency")
-                    await asyncio.sleep(latency / 1000.0)
+                    # Item 8: Immediate ID locking
+                    client_order_id = order.get("client_order_id")
+                    if client_order_id and hasattr(self.broker, "processed_order_ids"):
+                        if client_order_id in self.broker.processed_order_ids:
+                            logger.warning(
+                                f"Duplicate order {client_order_id} detected. Skipping."
+                            )
+                            continue
+                        # Reserve ID locally before network delay
+                        self.broker.processed_order_ids.add(client_order_id)
 
-                # Get the CURRENT tick after latency (realistic fill price)
-                current_tick = self.latest_tick
+                    # Simulate network latency WITHOUT blocking main loop
+                    if not self.dry_run:
+                        latency = order_payload.get("latency_ms", 200)
+                        logger.debug(
+                            f"Executing order with {latency}ms simulated latency"
+                        )
+                        await asyncio.sleep(latency / 1000.0)
 
-                # Execute via broker
-                events = self.broker.on_candle(candle, order, tick=current_tick)
+                    # Get the CURRENT tick after latency (realistic fill price)
+                    current_tick = self.latest_tick
 
-                for fill in events.get("fills", []):
-                    self.trades += 1
-                    logger.info(f"EXECUTION FILL: {fill['side']} @ {fill['price']}")
-                    append_event({"event": "ExecutionFill", **fill}, paper=True)
+                    # Execute via broker
+                    events = self.broker.on_candle(candle, order, tick=current_tick)
 
-                for exit_event in events.get("exits", []):
-                    self.trades += 1
-                    logger.info(
-                        f"EXECUTION EXIT: {exit_event['reason']} @ {exit_event['price']}"
+                    for fill in events.get("fills", []):
+                        self.trades += 1
+                        logger.info(f"EXECUTION FILL: {fill['side']} @ {fill['price']}")
+                        append_event({"event": "ExecutionFill", **fill}, paper=True)
+
+                    for exit_event in events.get("exits", []):
+                        self.trades += 1
+                        logger.info(
+                            f"EXECUTION EXIT: {exit_event['reason']} @ {exit_event['price']}"
+                        )
+                        append_event(
+                            {"event": "ExecutionExit", **exit_event}, paper=True
+                        )
+
+                    # Update circuit breaker
+                    trade_pnl = None
+                    for exit_event in events.get("exits", []):
+                        trade_pnl = exit_event.get("pnl", 0)
+
+                    self.circuit_breaker.update_equity(
+                        self.broker.current_equity, trade_pnl
                     )
-                    append_event({"event": "ExecutionExit", **exit_event}, paper=True)
 
-                # Update circuit breaker
-                trade_pnl = None
-                for exit_event in events.get("exits", []):
-                    trade_pnl = exit_event.get("pnl", 0)
+                    if self.circuit_breaker.is_tripped():
+                        logger.warning(
+                            f"CIRCUIT BREAKER TRIPPED: {self.circuit_breaker.get_status()}"
+                        )
+                        self.shutdown_event.set()
 
-                self.circuit_breaker.update_equity(
-                    self.broker.current_equity, trade_pnl
-                )
-
-                if self.circuit_breaker.is_tripped():
-                    logger.warning(
-                        f"CIRCUIT BREAKER TRIPPED: {self.circuit_breaker.get_status()}"
+                    # Save state
+                    if not self.dry_run:
+                        self.state_manager.set_circuit_breaker_state(
+                            self.circuit_breaker.get_status()
+                        )
+                        self.state_manager.save()
+                except Exception as e:
+                    logger.exception(f"Execution task error: {e}")
+                    self.errors += 1
+                    append_event(
+                        {
+                            "event": "ExecutionTaskError",
+                            "error": str(e),
+                            "symbol": self.symbol,
+                        },
+                        paper=True,
                     )
-                    self.shutdown_event.set()
-
-                # Save state
-                if not self.dry_run:
-                    self.state_manager.set_circuit_breaker_state(
-                        self.circuit_breaker.get_status()
-                    )
-                    self.state_manager.save()
+                    if (
+                        self.errors >= MAX_ERRORS_PER_SESSION
+                        and not self.shutdown_event.is_set()
+                    ):
+                        self.shutdown_event.set()
 
         except asyncio.CancelledError:
             pass
@@ -1122,7 +1183,7 @@ async def run_async_session(
     fees_bps: float = 2.0,
     slip_bps: float = 0.5,
     strategy_config: Optional[Dict[str, Any]] = None,
-    stale_timeout: int = 30,
+    stale_timeout: int = 120,
     execution_latency_ms: int = 200,
     dry_run: bool = False,
     replay_path: Optional[str] = None,
@@ -1138,11 +1199,25 @@ async def run_async_session(
         with open(lock_path, "x") as f:
             f.write(str(os.getpid()))
     except FileExistsError:
-        logger.error(
-            "Session already running (lock file exists: paper/async_session.lock)"
-        )
-        # Return a result indicating it didn't run
-        return AsyncSessionResult(stopped_reason="already_running")
+        try:
+            existing_pid = None
+            with open(lock_path, "r") as f:
+                pid_str = f.read().strip()
+                if pid_str.isdigit():
+                    existing_pid = int(pid_str)
+            if existing_pid and not psutil.pid_exists(existing_pid):
+                lock_path.unlink(missing_ok=True)
+                with open(lock_path, "x") as f:
+                    f.write(str(os.getpid()))
+            else:
+                logger.error(
+                    "Session already running (lock file exists: paper/async_session.lock)"
+                )
+                # Return a result indicating it didn't run
+                return AsyncSessionResult(stopped_reason="already_running")
+        except Exception as e:
+            logger.error(f"Failed to validate existing lock file: {e}")
+            return AsyncSessionResult(stopped_reason="already_running")
     except Exception as e:
         logger.warning(f"Could not create PID lock file: {e}")
 
