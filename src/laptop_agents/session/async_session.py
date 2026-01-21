@@ -182,6 +182,38 @@ class AsyncRunner:
         self.state_manager.set("starting_equity", self.starting_equity)
         self.state_manager.save()
 
+        # Reset stale drawdown state if no open exposure (avoid immediate kill switch)
+        try:
+            has_open_orders = bool(getattr(self.broker, "working_orders", []))
+            if (
+                self.broker.pos is None
+                and not has_open_orders
+                and self.starting_equity > 0
+            ):
+                drawdown_usd = self.starting_equity - float(self.broker.current_equity)
+                if drawdown_usd >= hard_limits.MAX_DAILY_LOSS_USD:
+                    logger.warning(
+                        "STARTUP_DRAWDOWN_RESET: resetting starting equity after stale drawdown",
+                        {
+                            "event": "StartupDrawdownReset",
+                            "symbol": self.symbol,
+                            "loop_id": self.loop_id,
+                            "position": "FLAT",
+                            "open_orders_count": 0,
+                            "starting_equity": self.starting_equity,
+                            "current_equity": self.broker.current_equity,
+                            "drawdown_usd": drawdown_usd,
+                        },
+                    )
+                    self.starting_equity = float(self.broker.current_equity)
+                    self.broker.starting_equity = self.starting_equity
+                    self.circuit_breaker.set_starting_equity(self.starting_equity)
+                    self.state_manager.set("starting_equity", self.starting_equity)
+                    self.state_manager.set_circuit_breaker_state({})
+                    self.state_manager.save()
+        except Exception as e:
+            logger.error(f"Failed to normalize startup equity: {e}")
+
         # 2.3 Config Validation on Startup
         if self.strategy_config:
             try:
