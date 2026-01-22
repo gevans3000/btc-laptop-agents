@@ -72,8 +72,8 @@ $Global:TestID = 1
 function Write-Log {
     param(
         [string]$Message,
-        [string]$Level="INFO",
-        [ConsoleColor]$Color="White",
+        [string]$Level = "INFO",
+        [ConsoleColor]$Color = "White",
         [switch]$NoFile
     )
     $time = Get-Date -Format "HH:mm:ss"
@@ -90,13 +90,13 @@ function Write-Log {
 function New-TestResult {
     param($Name, $Result, $DurationMs, $Details, $Artifacts)
     $obj = [PSCustomObject]@{
-        pId = $Global:TestID++
-        Name = $Name
-        Result = $Result
+        pId        = $Global:TestID++
+        Name       = $Name
+        Result     = $Result
         DurationMs = $DurationMs
-        Details = $Details
-        Artifacts = $Artifacts
-        Timestamp = Get-Date -Format "o"
+        Details    = $Details
+        Artifacts  = $Artifacts
+        Timestamp  = Get-Date -Format "o"
     }
     $Global:TestResults.Add($obj)
     return $obj
@@ -126,7 +126,8 @@ function Invoke-Test {
 
         $sw.Stop()
         Write-Host "PASS ($($sw.ElapsedMilliseconds)ms)" -ForegroundColor Green
-    } catch {
+    }
+    catch {
         $sw.Stop()
         $status = "FAIL"
         $details = $_.Exception.Message
@@ -143,17 +144,28 @@ Write-Log "--- Phase 1: App Discovery ---" -Color Magenta
 $AppEntry = $null
 $AppType = "Unknown"
 
+# Strategy 0: Known Repo Structure
+if (-not $AppEntry) {
+    $KnownPath = Join-Path $ScriptRoot "src\laptop_agents\main.py"
+    if (Test-Path $KnownPath) {
+        $AppEntry = $KnownPath
+        $Discovery["Method"] = "Known Project Path"
+        $AppType = "Python"
+    }
+}
+
 # Strategy 1: Override
 if ($AppPathOverride) {
     if (Test-Path $AppPathOverride) {
         $AppEntry = $AppPathOverride
         $Discovery["Method"] = "Override"
-    } else {
+    }
+    else {
         Write-Log "AppPathOverride provided but not found: $AppPathOverride" -Level WARN -Color Yellow
     }
 }
 
-# Strategy 2: Parse test.ps1
+# Strategy 2: Parse test.ps1 (Legacy)
 if (-not $AppEntry) {
     $TestPs1Path = Join-Path $ScriptRoot "test.ps1"
     if (Test-Path $TestPs1Path) {
@@ -172,24 +184,18 @@ if (-not $AppEntry) {
                 $AppType = "Python"
             }
         }
-        # Fallback regex for common python main
-        if (-not $AppEntry -and $content -match 'src\\laptop_agents\\main\.py') {
-             $rel = Join-Path $ScriptRoot "src\laptop_agents\main.py"
-             if (Test-Path $rel) {
-                 $AppEntry = $rel
-                 $Discovery["Method"] = "Inferred from test.ps1 partial"
-                 $AppType = "Python"
-             }
-        }
     }
 }
 
-# Strategy 3: Scan
+# Strategy 3: Scan (Safeguarded)
 if (-not $AppEntry) {
-    $candidates = Get-ChildItem -Path $ScriptRoot -Recurse -Depth 3 -Include "main.py","app.py","start.ps1" -ErrorAction SilentlyContinue
+    $ExcludeDirs = @(".venv", "venv", "node_modules", ".git", "__pycache__", ".pytest_cache")
+    $candidates = Get-ChildItem -Path $ScriptRoot -Recurse -Depth 3 -Include "main.py", "app.py", "start.ps1" -ErrorAction SilentlyContinue |
+    Where-Object { $path = $_.FullName; $fail = $false; foreach ($ex in $ExcludeDirs) { if ($path -like "*\$ex\*") { $fail = $true; break } }; -not $fail }
+
     if ($candidates) {
         $AppEntry = $candidates[0].FullName
-        $Discovery["Method"] = "File Scan"
+        $Discovery["Method"] = "File Scan (Filtered)"
         $AppType = "Heuristic"
     }
 }
@@ -198,7 +204,8 @@ if ($AppEntry) {
     Write-Log "App Found: $AppEntry" -Color Green
     $Discovery["Path"] = $AppEntry
     $Discovery["Type"] = $AppType
-} else {
+}
+else {
     Write-Log "Could not locate application entry point." -Level ERROR -Color Red
     $Discovery["Status"] = "Failed"
 }
@@ -219,7 +226,8 @@ $info["CWD"] = (Get-Location).Path
 # Checks Dependencies
 if (Get-Command "python" -ErrorAction SilentlyContinue) {
     $info["Python"] = (python --version 2>&1 | Out-String).Trim()
-} else {
+}
+else {
     $info["Python"] = "Not Found"
 }
 
@@ -233,7 +241,8 @@ Write-Log "--- Phase 3: Test Matrix ---" -Color Magenta
 Invoke-Test "Permission Check" {
     if ($SystemInfo.IsAdmin) {
         return "Running as Admin (Note: App should also support Non-Admin)"
-    } else {
+    }
+    else {
         return "Running as User (Standard Mode)"
     }
 }
@@ -252,11 +261,13 @@ if (-not $NoNetworkTests) {
     Invoke-Test "Network Connectivity" {
         if (Test-Connection "8.8.8.8" -Count 1 -Quiet) {
             return "Internet Reachable"
-        } else {
+        }
+        else {
             throw "Offline or DNS failing"
         }
     }
-} else {
+}
+else {
     New-TestResult -Name "Network Connectivity" -Result "SKIP" -Details "User requested skip"
 }
 
@@ -384,15 +395,15 @@ Invoke-Test "Resource Check" {
 Write-Log "--- Phase 4: Reporting ---" -Color Magenta
 
 $ReportData = @{
-    run_id = $RunID
-    timestamp = Get-Date -Format "o"
+    run_id      = $RunID
+    timestamp   = Get-Date -Format "o"
     system_info = $SystemInfo
-    discovery = $Discovery
-    results = $TestResults
-    summary = @{
-        total = $TestResults.Count
-        passed = @($TestResults | Where-Object { $_.Result -eq "PASS" }).Count
-        failed = @($TestResults | Where-Object { $_.Result -eq "FAIL" }).Count
+    discovery   = $Discovery
+    results     = $TestResults
+    summary     = @{
+        total   = $TestResults.Count
+        passed  = @($TestResults | Where-Object { $_.Result -eq "PASS" }).Count
+        failed  = @($TestResults | Where-Object { $_.Result -eq "FAIL" }).Count
         skipped = @($TestResults | Where-Object { $_.Result -eq "SKIP" }).Count
     }
 }
