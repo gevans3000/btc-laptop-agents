@@ -85,7 +85,7 @@ def doctor(
         workspace_dir = REPO_ROOT / ".workspace"
         for sub in ["runs", "logs", "paper"]:
             (workspace_dir / sub).mkdir(parents=True, exist_ok=True)
-        console.print("[green]✓ Verified .workspace/ structure.[/green]")
+        console.print("[green]Verified .workspace/ structure.[/green]")
 
         env_path = REPO_ROOT / ".env"
         env_example = REPO_ROOT / ".env.example"
