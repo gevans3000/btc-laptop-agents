@@ -186,7 +186,7 @@ if (-not $AppEntry) {
 
 # Strategy 3: Scan
 if (-not $AppEntry) {
-    $candidates = Get-ChildItem -Path $ScriptRoot -Recurse -Depth 3 -Include "main.py","app.py","start.ps1"
+    $candidates = Get-ChildItem -Path $ScriptRoot -Recurse -Depth 3 -Include "main.py","app.py","start.ps1" -ErrorAction SilentlyContinue
     if ($candidates) {
         $AppEntry = $candidates[0].FullName
         $Discovery["Method"] = "File Scan"
