@@ -100,3 +100,126 @@ python -m laptop_agents run --mode live-session --duration 1 --symbol BTCUSDT --
 - la/pytest/mypy/pip-audit executables not on PATH; consider fixing PATH or installing with a writable Scripts directory.
 - python -m build failed because build is missing; install build when network/permissions allow.
 - Smoke test `python -m laptop_agents run` timed out after startup; consider rerunning with a longer timeout if needed.
+
+## Run 2026-01-22 10:45 (local)
+
+### Repo Map
+- Entry point: la -> laptop_agents.main:app
+
+### CI Contract
+- python -m pip install --upgrade pip
+- python --version
+- python -m pip check
+- pip install -e .[test]
+- python -c "import laptop_agents; print('ok')"
+- pip install build mypy pip-audit
+- python -m build
+- python -m compileall src
+- pytest -q --tb=short
+- mypy src/laptop_agents --ignore-missing-imports --no-error-summary
+- pip-audit
+- la --help
+
+### Makefile Targets
+- bootstrap
+- test
+- harden
+- review
+- fix
+- build
+- run-paper
+- clean
+
+### Commands Run
+- git status --porcelain (rc=0) clean
+- git branch --show-current (rc=0) autofix/MAINT-2026-01-22
+- Get-Date -Format "yyyy-MM-dd HH:mm" (rc=0) 2026-01-22 10:45
+- Test-Path docs/MAINTENANCE_REPORT.md (rc=0) exists
+- Test-Path docs/SMOKE_TEST.md (rc=0) exists
+- python3.11 --version (rc=1) not found; using python 3.12
+- python --version (rc=0) Python 3.12.7
+- Test-Path .venv (rc=0) exists
+- New-Item -ItemType Directory -Force .tmp; .pip-cache (rc=0)
+- python -m pip install --upgrade pip setuptools wheel (rc=124) timed out; network blocked
+- python -m pip check (rc=0) no broken requirements in venv
+- python -m pip install -e ".[test]" (rc=1) permission denied in temp dir
+- New-Item -ItemType Directory -Force .workspace\tmp\pip (rc=0)
+- python -m pip install -e ".[test]" (rc=1) permission denied in temp dir
+- python -m pip install -e . --no-deps --no-build-isolation --no-use-pep517 (rc=1) option not supported
+- python -m pip install -e . --no-deps --no-build-isolation --config-settings editable_mode=compat (rc=1) permission denied in temp dir
+- New-Item -ItemType Directory -Force .t (rc=0)
+- New-Item -ItemType Directory -Force .c (rc=0)
+- python -m pip install -e ".[test]" (rc=1) permission denied in temp dir
+- python -m pip install build mypy pip-audit (rc=124) network blocked
+- python -m pip install -e . --no-deps (rc=1) permission denied in temp dir
+- python -m pytest --version (rc=0) pytest 9.0.2 in venv
+- python -m mypy --version (rc=0) mypy 1.19.1 in venv
+- python -m build --version (rc=1) build missing
+- python -m pip_audit --version (rc=1) pip-audit missing
+- Test-Path .venv\Scripts\pip-audit.exe (rc=0) False
+- Test-Path .venv\Scripts\la.exe (rc=0) True
+- python -m pip check (rc=0) no broken requirements in venv
+- python -c "import laptop_agents; print('ok')" (rc=0)
+- python -m build (rc=1) build missing
+- python -m compileall src (rc=0)
+- python -m pytest -q --tb=short (rc=124) timed out
+- python -m pytest -q --tb=short (rc=1) hung in test_async_integration after stress tests
+- python -m pytest -q --tb=short -rA (rc=1) hung in test_async_integration after stress tests
+- python -m pytest --tb=short -vv (rc=1) hung in test_async_integration after stress tests
+- python -m pytest tests/test_async_integration.py::test_async_integration -vv --tb=short (rc=0)
+- python -m mypy src/laptop_agents --ignore-missing-imports --no-error-summary (rc=0)
+- .venv\Scripts\pip-audit.exe (rc=1) not found
+- .venv\Scripts\la.exe --help (rc=1) missing laptop_agents.cli
+- rg -n "laptop_agents\.cli|cli.py" src/laptop_agents (rc=1) no matches
+- Get-Content src/laptop_agents/main.py (rc=0)
+- .venv\Scripts\la.exe --help (rc=0) after adding cli shim
+- python -m pytest --tb=short -vv (rc=1) hung in test_async_integration after stress tests
+- python -m pytest tests/stress/test_long_run.py::test_memory_leak_long_run tests/test_async_integration.py::test_async_integration -vv --tb=short (rc=1) CancelledError in test_memory_leak_long_run
+- Get-Content tests/stress/test_long_run.py (rc=0)
+- python -m pytest tests/stress/test_long_run.py::test_memory_leak_long_run tests/test_async_integration.py::test_async_integration -vv --tb=short (rc=0)
+- python -m pytest -q --tb=short (rc=1) temp dir permission errors
+- Get-Content tests/test_paper_journal.py (rc=0)
+- Get-Content tests/test_smoke.py (rc=0)
+- Get-Content tests/test_state_manager.py (rc=0)
+- Get-Content tests/test_pipeline_smoke.py (rc=0)
+- python -c "from pathlib import Path; p=Path('local_pytest_temp')/'probe.txt'; ..." (rc=0) write probe ok
+- Get-ChildItem -Force local_pytest_temp (rc=0)
+- python -c "import tempfile; tempfile.tempdir='local_pytest_temp'; ..." (rc=1) PermissionError from mkdtemp dir
+- python -c "from pathlib import Path; d=Path('local_pytest_temp')/'manual_dir'; ..." (rc=0)
+- Get-Acl local_pytest_temp\manual_dir (rc=0)
+- Get-Acl local_pytest_temp\* (rc=1) unauthorized on tempfile dirs
+- python -m pytest -q --tb=short (rc=0) 56 passed
+- python -m compileall src (rc=0)
+- python -m mypy src/laptop_agents --ignore-missing-imports --no-error-summary (rc=0)
+- python -m pip check (rc=0)
+- python -m build (rc=1) build missing
+- .venv\Scripts\pip-audit.exe (rc=1) not found
+- .venv\Scripts\la.exe --help (rc=0)
+- .venv\Scripts\la.exe doctor --fix (rc=0)
+- python -m laptop_agents run --mode live-session --duration 1 --symbol BTCUSDT --source mock --execution-mode paper --dry-run --async (rc=0)
+- Get-ChildItem .workspace (rc=0) listed workspace
+
+### Findings & Fixes
+- Added `src/laptop_agents/cli.py` to provide legacy entrypoint compatibility for `la`.
+- Stabilized stress tests by seeding mock history and shutting down AsyncRunner cleanly.
+- Added `tests/conftest.py` local temp fixture and migrated tests to use `local_tmp_path` to avoid Windows temp ACL failures.
+- Smoke test commands updated to venv paths in docs/SMOKE_TEST.md.
+
+### Remaining Issues & Recommendations
+- Python 3.11 not available locally; using Python 3.12 (CI uses 3.11).
+- pip editable installs fail due to permission errors creating pip build tracker files; may need elevated permissions or a different temp directory policy.
+- `python -m build` and `pip-audit` unavailable because installs are blocked by network policy.
+- pytest cache warnings persist due to `.pytest_cache` permission issues (tests still pass).
+
+## Run 2026-01-22 11:32 (local)
+
+### Commands Run
+- git checkout -- .agent/memory/known_errors.jsonl (rc=0) reverted local artifact
+- python -m compileall src -q (rc=0)
+- .venv\Scripts\la.exe --help (rc=0)
+
+### Findings & Fixes
+- Tests previously passed (56 passed); not re-running full suite to avoid redundancy.
+
+### Remaining Issues & Recommendations
+- `python -m build` and `pip-audit` remain blocked by network policy; rerun when network access is available.
