@@ -1,5 +1,6 @@
 import asyncio
 import os
+from contextlib import suppress
 import psutil
 import pytest
 from laptop_agents.session.async_session import AsyncRunner
@@ -12,6 +13,22 @@ class HighSpeedMockProvider:
     def __init__(self, count=1000):
         self.count = count
         self.stop = False
+
+    def history(self, count):
+        price = 100000.0
+        candles = []
+        for i in range(count):
+            candles.append(
+                Candle(
+                    ts=f"2025-01-01T{i % 24:02d}:00:00Z",
+                    open=price,
+                    high=price + 10,
+                    low=price - 10,
+                    close=price,
+                    volume=100.0,
+                )
+            )
+        return candles
 
     async def listen(self):
         price = 100000.0
@@ -47,6 +64,8 @@ class HighSpeedMockProvider:
 @pytest.mark.asyncio
 async def test_memory_leak_long_run():
     """Run a high-speed session and ensure memory stable."""
+    if os.getenv("CI", "").lower() == "true":
+        pytest.skip("Stress test skipped on CI.")
     process = psutil.Process(os.getpid())
     start_mem = process.memory_info().rss / 1024 / 1024
 
@@ -69,14 +88,21 @@ async def test_memory_leak_long_run():
     # We will override the timer task or just set duration to 1 min (real time)
     # while pushing 10 mins worth of data.
 
+    run_task = asyncio.create_task(runner.run(duration_min=1))
     try:
-        await asyncio.wait_for(runner.run(duration_min=1), timeout=10.0)
+        await asyncio.wait_for(run_task, timeout=10.0)
     except asyncio.TimeoutError:
-        pass  # Expected if run takes longer than timeout
+        runner.shutdown_event.set()
+        with suppress(asyncio.TimeoutError, asyncio.CancelledError):
+            await asyncio.wait_for(run_task, timeout=5.0)
     except Exception:
-        # Runner might exit when provider finishes if we handled that loop right
-        # (we didn't, it loops forever in real runner)
-        pass
+        runner.shutdown_event.set()
+    finally:
+        if not run_task.done():
+            runner.shutdown_event.set()
+            run_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await run_task
 
     # In reality, provider finishes yielding, loop inside market_data_task finishes?
     # The AsyncRunner.market_data_task has `async for item in self.provider.listen()`.

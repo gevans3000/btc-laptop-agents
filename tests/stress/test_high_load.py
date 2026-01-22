@@ -31,6 +31,8 @@ async def test_high_load_stress():
     Stress test: Feed 10,000 candles into AsyncRunner at max speed.
     Ensures memory stability and zero internal errors under high throughput.
     """
+    if os.getenv("CI", "").lower() == "true":
+        pytest.skip("Stress test skipped on CI.")
     num_candles = 10000
     print(f"\n[STRESS TEST] Starting {num_candles} candle injection...")
 

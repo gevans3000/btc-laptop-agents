@@ -1,21 +1,11 @@
 from unittest.mock import patch
 from laptop_agents.core.runner import Runner
-import tempfile
-import shutil
 
 
-def test_runner_smoke():
-    # Use explicit temp directory handling to avoid pytest fixture permission issues on Windows
-    temp_dir = tempfile.mkdtemp()
-    try:
-        r = Runner(data_dir=temp_dir)
-        out = r.run("planner", "Create a checklist for backing up files")
-        assert "PLAN for:" in out
-    finally:
-        try:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        except Exception:
-            pass
+def test_runner_smoke(local_tmp_path):
+    r = Runner(data_dir=str(local_tmp_path))
+    out = r.run("planner", "Create a checklist for backing up files")
+    assert "PLAN for:" in out
 
 
 def test_timed_session_mock():

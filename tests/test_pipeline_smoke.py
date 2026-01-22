@@ -3,8 +3,8 @@ from laptop_agents.agents import State as AgentState, Supervisor
 from laptop_agents.indicators import Candle
 
 
-def test_pipeline_smoke(tmp_path):
-    temp_dir = tmp_path
+def test_pipeline_smoke(local_tmp_path):
+    temp_dir = local_tmp_path
     from laptop_agents.core.config_models import (
         StrategyConfig,
         EngineConfig,
