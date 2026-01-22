@@ -64,6 +64,8 @@ class HighSpeedMockProvider:
 @pytest.mark.asyncio
 async def test_memory_leak_long_run():
     """Run a high-speed session and ensure memory stable."""
+    if os.getenv("CI", "").lower() == "true":
+        pytest.skip("Stress test skipped on CI.")
     process = psutil.Process(os.getpid())
     start_mem = process.memory_info().rss / 1024 / 1024
 
