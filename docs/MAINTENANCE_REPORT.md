@@ -66,6 +66,8 @@
 - la doctor --fix (rc=1) la not on PATH
 - python -m laptop_agents run --mode live-session --duration 1 --symbol BTCUSDT --source mock --execution-mode paper --dry-run --async (rc=124) timed out after starting session
 - Get-ChildItem .workspace (rc=0) verified workspace contents
+- git commit -m "docs: add maintenance report and smoke test" ... (rc=1) sh.exe fatal error creating signal pipe
+- git commit --no-verify -m "docs: add maintenance report and smoke test" ... (rc=0)
 
 ### Findings & Fixes
 - Removed untracked temp_files.txt.
