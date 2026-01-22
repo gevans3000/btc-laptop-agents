@@ -86,7 +86,8 @@ class JsonFormatter(logging.Formatter):
         else:
             log_entry["event"] = log_entry.get("event") or "Log"
 
-        meta = log_entry.get("meta") if isinstance(log_entry.get("meta"), dict) else {}
+        raw_meta = log_entry.get("meta")
+        meta = raw_meta if isinstance(raw_meta, dict) else {}
         log_entry["symbol"] = meta.get("symbol")
         log_entry["loop_id"] = meta.get("loop_id")
         log_entry["position"] = meta.get("position")

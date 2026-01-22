@@ -91,13 +91,13 @@ class TestSafetyManual(unittest.TestCase):
         candle = MockCandle()
 
         # Simulate a LONG fill at market (90500)
-        # Input qty is 0.01 BTC. Notional = 0.01 * 90500 = 905 USD.
+        # Input qty is 0.005 BTC. Notional = 0.005 * 90500 = 452.5 USD.
         order = {
             "go": True,
             "side": "LONG",
             "entry_type": "market",
             "entry": 90500.0,
-            "qty": 0.01,
+            "qty": 0.005,
             "sl": 89500.0,
             "tp": 92000.0,
             "equity": 10000.0,

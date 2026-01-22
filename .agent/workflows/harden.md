@@ -11,4 +11,5 @@ Constraints: emphasize invariants, config precedence, state persistence, and err
 Output format:
 1) Blockers (if none, say "None")
 2) High risks (bullets with file:line)
-3) Suggested verification steps
+3) Risk rating (low/medium/high + brief rationale)
+4) Suggested verification steps

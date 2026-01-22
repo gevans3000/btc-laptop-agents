@@ -8,8 +8,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def run_command(cmd_args: list[str]) -> subprocess.CompletedProcess:
     """Run command from REPO_ROOT and return result."""
+    import os
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
     return subprocess.run(
-        [sys.executable] + cmd_args, cwd=REPO_ROOT, capture_output=True, text=True
+        [sys.executable] + cmd_args,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        env=env,
     )
 
 

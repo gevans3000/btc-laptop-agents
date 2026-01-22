@@ -30,7 +30,7 @@ class TestTrailingStop(unittest.TestCase):
             "side": "LONG",
             "entry_type": "market",
             "entry": 50000.0,
-            "qty": 0.05,
+            "qty": 0.005,
             "sl": 48000.0,
             "tp": 60000.0,
         }
@@ -78,7 +78,7 @@ class TestTrailingStop(unittest.TestCase):
             "side": "SHORT",
             "entry_type": "market",
             "entry": 50000.0,
-            "qty": 0.05,
+            "qty": 0.005,
             "sl": 52000.0,
             "tp": 40000.0,
         }

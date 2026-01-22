@@ -1,6 +1,7 @@
 param(
     [int]$MaxIterations = 3,
-    [string]$ReportPath = ".codex/fix-report.md"
+    [string]$ReportPath = ".codex/fix-report.md",
+    [switch]$AutoApprove
 )
 
 $ErrorActionPreference = "Continue"
@@ -48,13 +49,13 @@ $report.Add("- Max iterations: $MaxIterations")
 $report.Add("- Generated: $(Get-Date -Format o)")
 $report.Add("")
 
-$defaultFixCmd = "codex -p .agent/workflows/fix.md"
 $fixCmd = $env:CODEX_FIX_CMD
-if (-not $fixCmd -and (Get-CommandExists "codex")) {
-    $fixCmd = $defaultFixCmd
-}
+$codexCmd = Get-Command codex.cmd -ErrorAction SilentlyContinue
+$promptPath = Join-Path $repoRoot ".agent/workflows/fix.md"
+$useCodexPrompt = (-not $fixCmd) -and $null -ne $codexCmd -and (Test-Path $promptPath)
 
 $status = "blocked"
+$autoApprove = $AutoApprove -or ($env:CODEX_FIX_AUTO_APPROVE -in @("1", "true", "True", "YES", "yes"))
 for ($i = 1; $i -le $MaxIterations; $i++) {
     $report.Add("## Iteration $i")
     $testResult = Run-Tests
@@ -62,11 +63,11 @@ for ($i = 1; $i -le $MaxIterations; $i++) {
 
     $testLines = Take-Lines ($testResult.Output -split "`r?`n") 200
     $report.Add("")
-    $report.Add("```")
+    $report.Add('```')
     foreach ($line in $testLines) {
         $report.Add($line)
     }
-    $report.Add("```")
+    $report.Add('```')
     $report.Add("")
 
     if ($testResult.ExitCode -eq 0) {
@@ -75,19 +76,29 @@ for ($i = 1; $i -le $MaxIterations; $i++) {
         break
     }
 
-    if (-not $fixCmd) {
-        $report.Add("- Status: blocked (no CODEX_FIX_CMD and codex not found).")
+    if (-not $fixCmd -and -not $useCodexPrompt) {
+        $report.Add("- Status: blocked (no CODEX_FIX_CMD and codex.cmd not found).")
         break
     }
 
-    $confirm = Read-Host "Tests failed. Run fix command? (y/N)"
-    if ($confirm -ne "y" -and $confirm -ne "Y") {
-        $report.Add("- Status: blocked (user declined fix command).")
-        break
+    if (-not $autoApprove) {
+        $confirm = Read-Host "Tests failed. Run fix command? (y/N)"
+        if ($confirm -ne "y" -and $confirm -ne "Y") {
+            $report.Add("- Status: blocked (user declined fix command).")
+            break
+        }
+    } else {
+        $report.Add("- Auto-approve enabled; running fix command.")
     }
 
-    $report.Add("- Running fix command: $fixCmd")
-    Invoke-Expression $fixCmd
+    if ($useCodexPrompt) {
+        $report.Add("- Running Codex fix workflow via codex.cmd.")
+        $prompt = Get-Content $promptPath -Raw
+        $prompt | & $codexCmd.Source exec -
+    } else {
+        $report.Add("- Running fix command: $fixCmd")
+        Invoke-Expression $fixCmd
+    }
     $report.Add("- Fix command completed.")
     $report.Add("")
 }

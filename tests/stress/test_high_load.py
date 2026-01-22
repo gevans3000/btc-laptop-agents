@@ -124,6 +124,11 @@ async def test_high_load_stress():
         else:
             runner.candles[-1] = candle
 
+        # Drain execution queue to prevent QueueFull errors in stress test
+        while not runner.execution_queue.empty():
+            item = runner.execution_queue.get_nowait()
+            runner.broker.on_candle(item["candle"], item["order"])
+
     duration = time.time() - start_time
     process = psutil.Process(os.getpid())
     mem_mb = process.memory_info().rss / 1024 / 1024

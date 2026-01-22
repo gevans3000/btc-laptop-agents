@@ -3,7 +3,7 @@
 This repo stores Codex custom prompts in `.agent/workflows/`. The workflows below pair those prompts with local scripts for one-command review and fix loops.
 
 ## Local Review (no changes)
-Use when you want a read-only review report plus basic checks.
+Use when you want a read-only review report plus basic checks (pytest, mypy, flake8).
 
 ```powershell
 .\scripts\codex_review.ps1
@@ -15,7 +15,6 @@ Output: `.codex/review.md`
 Use when tests fail and you want a safe loop that can call Codex to fix and re-run.
 
 ```powershell
-$env:CODEX_FIX_CMD="codex -p .agent/workflows/fix.md"
 .\scripts\codex_fix_loop.ps1
 ```
 
@@ -53,6 +52,7 @@ make harden
 - Fix: `.agent/workflows/fix.md`
 - Harden: `.agent/workflows/harden.md`
 
+## Windows vs macOS/Linux
 On macOS/Linux, run the PowerShell scripts with `pwsh`:
 ```bash
 pwsh ./scripts/codex_review.ps1
