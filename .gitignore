@@ -67,3 +67,11 @@ pytest_temp/
 out.txt
 local_pytest_temp/
 tests/stress/run_data/
+
+# Generated Test Artifacts
+test_state_broker.db
+test_out.txt
+test_out_utf8.txt
+testall-report.json
+testall-report.txt
+go_temp.ps1
