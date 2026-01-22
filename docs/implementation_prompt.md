@@ -1,6 +1,6 @@
 # PROMPT: Execute Top 5 DX & Maintainability Wins
 
-You are an expert Devex Engineer. Your goal is to autonomously execute the "Top 5 Wins" from the recent codebase audit. 
+You are an expert Devex Engineer. Your goal is to autonomously execute the "Top 5 Wins" from the recent codebase audit.
 
 These tasks address critical blockers, dual entrypoints, logging fragmentation, type safety, and script hygiene.
 
