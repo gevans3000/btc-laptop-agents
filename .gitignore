@@ -59,6 +59,10 @@ htmlcov/
 Thumbs.db
 
 # Project-specific ignores
+.tmp/
+.t/
+.c/
+.pip-cache/
 pytest_temp/
 .gemini/
 .agent/rules/
