@@ -1799,10 +1799,14 @@ async def run_async_session(
         # Generate HTML report
         try:
             LATEST_DIR.mkdir(parents=True, exist_ok=True)
+            summary_source = "bitunix"
+            if strategy_config:
+                summary_source = strategy_config.get("source") or summary_source
+
             summary = {
                 "run_id": f"async_{int(runner.start_time)}",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "source": "bitunix",
+                "source": summary_source,
                 "symbol": symbol,
                 "interval": interval,
                 "candle_count": len(runner.candles),

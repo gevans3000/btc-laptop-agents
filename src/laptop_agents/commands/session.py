@@ -119,9 +119,6 @@ def run(ctx: typer.Context):
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    if args.mode == "live-session" and args.source == "mock":
-        args.source = "bitunix"
-
     if args.quiet:
         logger.setLevel("ERROR")
     elif args.verbose:
