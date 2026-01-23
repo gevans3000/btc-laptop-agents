@@ -8,7 +8,6 @@ from __future__ import annotations
 import signal
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from laptop_agents.core.logger import logger

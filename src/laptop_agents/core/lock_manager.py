@@ -33,7 +33,10 @@ class LockManager:
                             # Check if it's actually a python process (optional but safer)
                             try:
                                 proc = psutil.Process(old_pid)
-                                if "python" in proc.name().lower() and self._is_our_process(proc):
+                                if (
+                                    "python" in proc.name().lower()
+                                    and self._is_our_process(proc)
+                                ):
                                     return False
                             except (psutil.NoSuchProcess, psutil.AccessDenied):
                                 pass

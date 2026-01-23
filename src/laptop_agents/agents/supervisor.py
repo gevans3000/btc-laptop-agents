@@ -15,6 +15,18 @@ from .risk_gate import RiskGateAgent
 
 
 class Supervisor:
+    """
+    The Supervisor orchestrates the linear agent pipeline.
+
+    It is responsible for:
+    1. Initializing all sub-agents.
+    2. Managing the shared `State` object transition through the pipeline.
+    3. Ensuring the sequence: Data -> Context -> Signal -> Risk -> Execution -> Logging.
+    4. Interfacing with the Broker for final execution.
+
+    The pipeline is strictly synchronous and deterministic per step.
+    """
+
     def __init__(
         self,
         provider: Any,

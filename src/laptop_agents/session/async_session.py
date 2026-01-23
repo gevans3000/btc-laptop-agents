@@ -5,7 +5,6 @@ import signal
 import time
 import threading
 import os
-import psutil
 import uuid
 from datetime import datetime
 from pathlib import Path

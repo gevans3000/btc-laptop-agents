@@ -1,20 +1,9 @@
 # ENGINEER.md — The Integrated Operations & Specification Manual
 
 > **Status**: ACTIVE & AUTHORITATIVE
-> **Version**: 1.1.0 (Structural Polish)
+> **Version**: 1.2.0 (Consolidated Architecture)
 
 This document is the **Single Source of Truth** for the BTC Laptop Agents system. It integrates the operational runbook, technical specifications, agent architecture, and API reference.
-
----
-
-## Table of Contents
-1. [Quick Start](#1-quick-start)
-2. [System Specification](#2-system-specification)
-3. [Operational Modes](#3-operational-modes)
-4. [Architecture & Agents](#4-architecture--agents)
-5. [API Reference](#5-api-reference)
-6. [Resilience & Safety](#6-resilience--safety)
-7. [Logs & Artifacts](#7-logs--artifacts)
 
 ---
 
@@ -29,119 +18,80 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
   BITUNIX_API_SECRET=your_secret
   ```
 
-### C. Configuration Files
-
-| File | Purpose |
-|------|---------|
-| `config/strategies/default.json` | Default strategy parameters |
-| `config/strategies/*.json` | Named strategy presets |
-| `LA_KILL_SWITCH=TRUE` | Env variable to halt all trading |
-| `config/symbol_overrides.json` | Symbol-specific overrides (optional) |
-
-All strategy configs follow this schema:
-- `meta`: name, author, timeframe
-- `engine`: timing parameters
-- `derivatives_gates`: funding rate limits
-- `setups`: strategy-specific parameters
-- `risk`: equity, risk_pct, rr_min
-- `cvd`: CVD indicator settings
-
 ### B. Standard Commands
-| Action | Command |
-| :--- | :--- |
-| **Verify System** | `la doctor --fix` |
-| **Start Session** | `la start --mode live-session --duration 10` |
-| **Monitor** | `la status` |
-| **Stop** | `la stop` |
-| **Watch/Supervise**| `la watch --mode live-session --duration 10` |
-
----
-
-## 2. System Specification
-
-BTC Laptop Agents is a local-first, privacy-focused trading system designed to run on a standard laptop.
-
-### Core Principles
-1.  **Safety First**: Hard-coded risk limits cannot be overridden.
-2.  **Determinism**: Replaying a run with the same data must yield the same result.
-3.  **Artifact-Driven**: Every stage produced verifiable JSON/CSV artifacts.
-
-### Interface & Modes
-The canonical entrypoint is `la` (or `python -m laptop_agents`).
-
-| Mode | CLI Argument | Description |
+| Action | Command | Description |
 | :--- | :--- | :--- |
-| **Verify** | `la doctor` | Runs environment and connection checks. |
-| **Backtest** | `la run --mode backtest` | Simulates trading over historical data. |
-| **Live Session** | `la run --mode live-session` | Autonomous loop for timed trading. |
-| **Watch** | `la watch` | Process supervisor for auto-restart. |
+| **Verify System** | `la doctor --fix` | Runs diagnostics and fixes common issues. |
+| **Live Session** | `la run --mode live-session` | Starts autonomous trading loop. |
+| **Backtest** | `la backtest --days 2` | Runs historical simulation. |
+| **Monitor** | `la status` | Checks process health and heartbeat. |
+| **Supervisor**| `la watch` | wrapper ensuring auto-restart on crash. |
+
+### C. Configuration & Safety
+**Hard Limits** are defined in `src/laptop_agents/constants.py` and CANNOT be overridden by config files.
+
+| Config File | Purpose |
+|------|---------|
+| `config/strategies/default.json` | Base strategy logic |
+| `src/laptop_agents/constants.py` | **Immutable Safety Limits** (Max Loss, Max Pos) |
+| `.workspace/runs/<id>/` | Artifacts (HTML reports, CSV logs) |
 
 ---
 
-## 3. Operational Modes
+## 2. Operational Modes
 
 ### A. Live Session (Autonomous)
-The standard mode for running the agent for a fixed duration.
+The standard mode for running the agent against real-time data (Paper or Real).
 ```bash
 la run --mode live-session --symbol BTCUSDT --duration 10 --async
 ```
 
 ### B. Backtesting
-Run historical simulations to test strategy performance.
+Dedicated command for historical validation.
 ```bash
-la run --mode backtest --backtest 500 --risk-pct 1.0
+la backtest --symbol BTCUSDT --days 5 --risk-pct 1.0
 ```
-- `--backtest-mode`: `position` (default) or `bar`.
-- `--intrabar-mode`: `conservative` (stop first) or `optimistic`.
 
 ---
 
-## 4. Architecture & Agents
+## 3. Architecture & Agents
 
-The system uses a **MODULAR PIPELINE** in orchestrated modes.
+The system uses a **MODULAR PIPELINE** managed by `src/laptop_agents/agents/supervisor.py`.
 
-### Active Modular Agents
-- **MarketIntakeAgent**: Data normalization.
-- **SetupSignalAgent**: Trend Ribbon + Sweep logic.
-- **ExecutionRiskSentinelAgent**: Risk sizing & safety gates.
-- **JournalCoachAgent**: Trade logging.
+### Active Agent Pipeline (Order of Execution)
+1.  **MarketIntakeAgent**: Normalizes candles and computes volatility (ATR).
+2.  **DerivativesFlowsAgent**: Checks Funding Rates & Open Interest.
+3.  **TrendFilterAgent**: Determines market regime (Trending vs Ranging).
+4.  **CvdDivergenceAgent**: Detects Order Flow divergences.
+5.  **SetupSignalAgent**: Generates trade setups (Pullback, Sweep).
+6.  **ExecutionRiskSentinelAgent**: Sizes positions based on risk % and Stop Loss.
+7.  **RiskGateAgent**: Final hard-limit check before execution.
+8.  **JournalCoachAgent**: Logs trade lifecycle and manages state interaction.
 
-### Critical Invariants
-- **Candle Integrity**: Data must be chronological.
-- **Risk Invariant**: Max risk 1.0% per trade, REQUIRED stop loss.
-
----
-
-## 5. API Reference
-
-### Brokers
-- `PaperBroker`: Simulated fills for backtesting and paper trading.
-- `BitunixBroker`: Real-money orders for Bitunix Futures. Includes `shutdown()` to cancel all orders and close positions.
-
-### Providers
-- `BitunixFuturesProvider`: API client for Bitunix (Klines, Orders, Positions).
+### Data Invariants
+- **Warmup**: System requires **51 candles** minimum to initialize indicators.
+- **Provider**: `BitunixFuturesProvider` handles **BOTH** REST (History) and WebSocket (Real-time) data.
 
 ---
 
-## 6. Resilience & Safety
+## 4. Resilience & Safety
 
-### A. Process Watchdog (`la watch`)
-The supervisor monitors the trading process and restarts it if it crashes.
-- **Delay**: 10 seconds between restarts.
-- **Log**: `.workspace/logs/supervisor.log`.
+### A. Hard Limits (`constants.py`)
+| Limit | Value | Enforcement |
+| :--- | :--- | :--- |
+| `MAX_POSITION_SIZE_USD` | $500.00 | Rejected at `RiskGateAgent` |
+| `MAX_DAILY_LOSS_USD` | $50.00 | Session Kill Switch |
+| `MAX_ERRORS_PER_SESSION` | 20 | Process Exit |
 
-### B. Failsafes
-- **Kill Switch**: Set `LA_KILL_SWITCH=TRUE` in environment to halt all orders.
-- **Daily Loss**: Hard-coded limit of $50 USD.
-- **Max Position**: $200,000 USD.
+### B. Failure Modes
+- **Zombie Connection**: WebSocket checks for "Pong" every 60s. If failed, it reconnects.
+- **Circuit Breaker**: 5 consecutive losses trip the `ErrorCircuitBreaker`, halting new entries.
 
 ---
 
-## 7. Logs & Artifacts
-
-All runs generate artifacts in `.workspace/runs/<id>/`.
-
-- `summary.html`: Interactive dashboard.
-- `trades.csv`: Detailed trade log.
-- `events.jsonl`: Machine-readable event stream.
-- `system.jsonl`: Global system logs/errors.
+## 5. Artifacts
+Every run produces:
+- `summary.html`: Interactive performance dashboard.
+- `trades.csv`: Row-by-row trade log.
+- `events.jsonl`: Machine-readable event stream (NDJSON).
+- `equity.csv`: Time-series equity curve.
