@@ -30,8 +30,9 @@ This directory contains utility scripts for system maintenance, validation, and 
 | Script | Purpose |
 |--------|---------|
 | `optimize_strategy_v2.py` | Hyperparameter optimization for trading strategies |
-| `monte_carlo_v1.py` | Robustness testing for trading setups using Monte Carlo simulation |
 | `add_regression_test.py` | Helper to create new regression tests from failures |
+
+Deprecated scripts are in `scripts/archive/`.
 
 ## Usage
 
