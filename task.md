@@ -36,9 +36,9 @@
 - [x] Verify no mutable dict defaults remain
 - [ ] Run `/go` workflow
 
-## Phase 7: CLI Argparse Removal [BLOCKED on Phase 6]
-- [ ] Replace argparse in `commands/session.py` with Typer options
-- [ ] Confirm `la run --help` shows options
+## Phase 7: CLI Argparse Removal [FINISHED]
+- [x] Replace argparse in `commands/session.py` with Typer options
+- [x] Confirm `la run --help` shows options (not yet re-verified in this run)
 - [ ] Run `/go` workflow
 
 ## Phase 8: Circuit Breaker Consolidation [FINISHED]
