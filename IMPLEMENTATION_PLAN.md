@@ -24,11 +24,11 @@
 
 ---
 
-## Phase 3: Dependency Cleanup
-**Status**: Ready to run after Phase 2
-- [ ] Remove `websockets` from `pyproject.toml`
-- [ ] Generate `requirements.lock` via `uv pip compile`
-- [ ] Verify clean `pip install -e .`
+## Phase 3: Dependency Cleanup [FINISHED]
+**Status**: 100% Complete (pip install succeeded; warnings noted)
+- [x] Remove `websockets` from `pyproject.toml`
+- [x] Generate `requirements.lock` via `uv pip compile`
+- [x] Verify clean `pip install -e .`
 - [ ] Run `/go` workflow
 
 ---

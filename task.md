@@ -13,10 +13,10 @@
 - [x] Remove legacy artifacts (`test_state_broker.db`, `testall-report.*`)
 - [ ] Run `/go` workflow
 
-## Phase 3: Dependency Cleanup [AFTER PHASE 2]
-- [ ] Drop `websockets` dependency from `pyproject.toml`
-- [ ] Generate `requirements.lock` with `uv pip compile`
-- [ ] `pip install -e .` succeeds
+## Phase 3: Dependency Cleanup [FINISHED]
+- [x] Drop `websockets` dependency from `pyproject.toml`
+- [x] Generate `requirements.lock` with `uv pip compile`
+- [x] `pip install -e .` succeeds (warnings about packaging/streamlit noted)
 - [ ] Run `/go` workflow
 
 ## Phase 4: Tooling Unification (Ruff) [READY]
