@@ -22,6 +22,7 @@ ENV/
 *.pid
 *.lock
 /.workspace/
+.workspace/
 /data/
 /src/data/
 temp_journal.jsonl
