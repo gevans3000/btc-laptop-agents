@@ -601,7 +601,9 @@ def run_legacy_orchestration(
     validate_max_candidates: int = 200,
 ) -> int:
     """Legacy orchestration logic moved from run.py for backward compatibility."""
-    from laptop_agents.data.loader import get_candles_for_mode
+    from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
+
+    get_candles_for_mode = BitunixFuturesProvider.get_candles_for_mode
 
     run_id = str(uuid.uuid4())
     starting_balance = 10_000.0
@@ -692,9 +694,9 @@ def run_legacy_orchestration(
         else:
             # single mode or unknown
             from laptop_agents.trading.helpers import simulate_trade_one_bar
-            from laptop_agents.trading.signal import generate_signal
+            from laptop_agents.trading.strategy import SMACrossoverStrategy
 
-            signal = generate_signal(candles[:-1])
+            signal = SMACrossoverStrategy().generate_signal(candles[:-1])
 
             if signal:
                 res = simulate_trade_one_bar(

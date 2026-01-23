@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from typing import Any, Dict, List, Optional
-from ..core import hard_limits
+from laptop_agents import constants as hard_limits
 from ..trading.helpers import apply_slippage
 from laptop_agents.core.events import append_event
 from laptop_agents.core.logger import logger

@@ -7,8 +7,8 @@ from .errors import (
     AuthProviderError,
     UnknownProviderError,
 )
-from .retry import with_retry, retry_with_backoff
-from .error_circuit_breaker import ErrorCircuitBreaker
+from .retry import with_retry, retry_with_backoff, RetryPolicy
+from .error_circuit_breaker import ErrorCircuitBreaker, CircuitBreakerOpenError
 from .log import log_event, log_provider_error
 
 # Aliases for backward compatibility
@@ -24,7 +24,9 @@ __all__ = [
     "UnknownProviderError",
     "with_retry",
     "retry_with_backoff",
+    "RetryPolicy",
     "ErrorCircuitBreaker",
+    "CircuitBreakerOpenError",
     "TradingCircuitBreaker",
     "CircuitBreaker",
     "log_event",

@@ -6,8 +6,6 @@ from laptop_agents.core.logger import logger
 class CircuitBreakerOpenError(Exception):
     """Raised when circuit breaker is open."""
 
-    pass
-
 
 class ErrorCircuitBreaker:
     """

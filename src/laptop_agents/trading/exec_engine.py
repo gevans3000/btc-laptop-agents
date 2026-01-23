@@ -159,10 +159,10 @@ def run_live_paper_trading(
         current_high = float(candle.high)
         current_low = float(candle.low)
 
-        from laptop_agents.trading.signal import generate_signal
+        from laptop_agents.trading.strategy import SMACrossoverStrategy
 
         candles_subset = [c for c in candles if c.ts <= candle.ts]
-        signal = generate_signal(candles_subset)
+        signal = SMACrossoverStrategy().generate_signal(candles_subset)
 
         if signal is None:
             # Update state with no position change

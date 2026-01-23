@@ -10,7 +10,7 @@ import time
 from typing import Any, Dict, List, Optional
 from ..data.providers.bitunix_futures import BitunixFuturesProvider
 from ..resilience.errors import SafetyException
-from ..core import hard_limits
+from laptop_agents import constants as hard_limits
 import os
 from pathlib import Path
 

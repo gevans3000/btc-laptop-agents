@@ -1,46 +1,30 @@
 import unittest
 from unittest.mock import MagicMock
-from laptop_agents.resilience.circuit import CircuitBreaker, CircuitBreakerOpenError
+from laptop_agents.resilience import ErrorCircuitBreaker as CircuitBreaker
 from laptop_agents.execution.bitunix_broker import BitunixBroker
 import time
 
 
 class TestSafetyManual(unittest.TestCase):
     def test_circuit_breaker_failures(self):
-        cb = CircuitBreaker(max_failures=2, reset_timeout=1)
-
-        def failing_func():
-            raise ValueError("Failed")
-
-        def success_func():
-            return "Success"
+        cb = CircuitBreaker(failure_threshold=2, time_window=60, recovery_timeout=1)
 
         # First fail
-        try:
-            cb.guarded_call(failing_func)
-        except ValueError:
-            pass
+        cb.record_failure()
         self.assertEqual(cb.state, "CLOSED")
-        self.assertEqual(cb.failures, 1)
+        self.assertTrue(cb.allow_request())
 
         # Second fail -> Open
-        try:
-            cb.guarded_call(failing_func)
-        except ValueError:
-            pass
+        cb.record_failure()
         self.assertEqual(cb.state, "OPEN")
-        self.assertEqual(cb.failures, 2)
-
-        # Call while open
-        with self.assertRaises(CircuitBreakerOpenError):
-            cb.guarded_call(success_func)
+        self.assertFalse(cb.allow_request())
 
         # Recovery
         time.sleep(1.1)
-        # Should be HALF_OPEN now upon call
-        self.assertEqual(cb.guarded_call(success_func), "Success")
+        # Should be CLOSED now upon successful request
+        self.assertTrue(cb.allow_request())
+        cb.record_success()
         self.assertEqual(cb.state, "CLOSED")
-        self.assertEqual(cb.failures, 0)
 
     def test_hard_limit_max_notional(self):
         # Mock Provider

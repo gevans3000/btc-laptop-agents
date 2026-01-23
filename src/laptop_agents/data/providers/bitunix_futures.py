@@ -9,7 +9,6 @@ import aiohttp
 import random
 import math
 import os
-from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable, Dict, Iterable, List, Optional, AsyncGenerator, Union
 import tenacity
@@ -34,7 +33,7 @@ from ...resilience.error_circuit_breaker import (
 )
 from ...core.rate_limiter import exchange_rate_limiter
 from ...core.logger import logger
-from ...trading.helpers import Tick, DataEvent
+from ...trading.helpers import Tick, DataEvent, Candle
 
 # Bitunix Futures REST primary domain is documented as https://fapi.bitunix.com
 # Market endpoints used:
@@ -84,16 +83,6 @@ def sign_ws(
     """Bitunix WS signature: digest=sha256(nonce+timestamp+apiKey+params); sign=sha256(digest+secretKey)."""
     digest = _sha256_hex(nonce + str(timestamp_ms) + api_key + params_string)
     return _sha256_hex(digest + secret_key)
-
-
-@dataclass(frozen=True)
-class Candle:
-    ts: str  # ISO string timestamp for compatibility
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float
 
 
 class FatalError(Exception):
@@ -658,6 +647,33 @@ class BitunixFuturesProvider:
             pass
 
         return out
+
+    @classmethod
+    def get_candles_for_mode(
+        cls,
+        source: str,
+        symbol: str,
+        interval: str,
+        mode: str,
+        limit: int = 200,
+        validate_train: int = 600,
+        validate_test: int = 200,
+        validate_splits: int = 5,
+        **kwargs,
+    ) -> List[Candle]:
+        """Entry point for many orchestration flows to get candle history."""
+        if source == "mock":
+            if mode == "validate":
+                return cls.load_mock_candles(validate_train + validate_test)
+            return cls.load_mock_candles(limit)
+
+        # For Bitunix live/rest
+        provider = cls(symbol=symbol)
+        if mode == "validate":
+            total = validate_train + validate_test
+            # Bitunix public REST max is 200, so we use klines_paged
+            return provider.klines_paged(interval=interval, total=total)
+        return provider.klines(interval=interval, limit=limit)
 
     def fetch_instrument_info(self, symbol: Optional[str] = None) -> Dict[str, Any]:
         """Fetch precision and size limits for the symbol."""

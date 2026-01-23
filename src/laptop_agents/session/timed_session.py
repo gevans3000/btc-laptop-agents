@@ -16,7 +16,7 @@ from laptop_agents.core.orchestrator import append_event, PAPER_DIR
 from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
 from laptop_agents.paper.broker import PaperBroker
 from laptop_agents.resilience.error_circuit_breaker import ErrorCircuitBreaker
-from laptop_agents.trading.signal import generate_signal
+from laptop_agents.trading.strategy import SMACrossoverStrategy
 from laptop_agents.trading.helpers import normalize_candle_order
 
 
@@ -244,7 +244,7 @@ def run_timed_session(
                         raw_signal = None
                 else:
                     # Fallback to legacy signal generation
-                    raw_signal = generate_signal(candles[:-1])
+                    raw_signal = SMACrossoverStrategy().generate_signal(candles[:-1])
 
                 # Build order if signal present
                 order = None

@@ -149,7 +149,7 @@ class Supervisor:
         qty = risk_dollars / stop_dist
 
         # --- HARD LIMIT ENFORCEMENT ---
-        from ..core import hard_limits
+        from laptop_agents import constants as hard_limits
 
         # 1. Cap by absolute Max Position Size ($)
         max_notional_abs = hard_limits.MAX_POSITION_SIZE_USD
