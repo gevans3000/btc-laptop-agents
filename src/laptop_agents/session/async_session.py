@@ -9,7 +9,6 @@ import threading
 import os
 import psutil
 import uuid
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import math
@@ -33,20 +32,11 @@ from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
 from laptop_agents import constants as hard_limits
 from laptop_agents.constants import MAX_ERRORS_PER_SESSION
 from laptop_agents.constants import DEFAULT_SYMBOL
-
-
-@dataclass
-class AsyncSessionResult:
-    """Result of an async trading session."""
-
-    iterations: int = 0
-    trades: int = 0
-    errors: int = 0
-    starting_equity: float = 10000.0
-    ending_equity: float = 10000.0
-    duration_sec: float = 0.0
-    max_drawdown: float = 0.0
-    stopped_reason: str = "completed"
+from laptop_agents.session.session_state import (
+    AsyncSessionResult,
+    build_session_result,
+    restore_starting_balance,
+)
 
 
 class AsyncRunner:
@@ -1480,18 +1470,7 @@ async def run_async_session(
 
     # Reference Persistence: Restore starting_equity from local state if available
     unified_state_path = Path("paper/unified_state.json")
-    if unified_state_path.exists():
-        try:
-            with open(unified_state_path, "r") as f:
-                state = json.load(f)
-                restored_equity = state.get("starting_equity")
-                if restored_equity:
-                    logger.info(
-                        f"RECOVERY: Restored starting_equity from state: ${restored_equity:,.2f}"
-                    )
-                    starting_balance = float(restored_equity)
-        except Exception as e:
-            logger.warning(f"Failed to restore starting_equity from state: {e}")
+    starting_balance = restore_starting_balance(unified_state_path, starting_balance)
 
     runner = None
     try:
@@ -1621,15 +1600,6 @@ async def run_async_session(
                 pass
 
     if runner:
-        return AsyncSessionResult(
-            iterations=runner.iterations,
-            trades=runner.trades,
-            errors=runner.errors,
-            starting_equity=runner.starting_equity,
-            ending_equity=runner.broker.current_equity,
-            duration_sec=time.time() - runner.start_time,
-            max_drawdown=runner.max_drawdown,
-            stopped_reason=runner.stopped_reason,
-        )
+        return build_session_result(runner)
     else:
         return AsyncSessionResult(stopped_reason="init_failed")
