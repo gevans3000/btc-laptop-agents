@@ -16,7 +16,8 @@ param(
   [switch]$Quick,
   [switch]$NoInstall,
   [switch]$IncludeStress,
-  [switch]$SkipSmoke
+  [switch]$SkipSmoke,
+  [int]$BuildTimeoutSec = 600
 )
 
 Set-StrictMode -Version Latest
@@ -43,6 +44,11 @@ function Write-Log([string]$LogPath, [string]$Message) {
   Add-Content -Path $LogPath -Value ("[{0}] {1}" -f $ts, $Message)
 }
 
+function Write-StepStatus([string]$Name, [string]$Phase, [string]$Message = "") {
+  $suffix = if ($Message) { " - $Message" } else { "" }
+  Write-Host ("[{0}] {1}{2}" -f $Name, $Phase, $suffix)
+}
+
 function Invoke-Step {
   param(
     [string]$Name,
@@ -52,13 +58,15 @@ function Invoke-Step {
     [string]$StatusOnSkip = "SKIP"
   )
   $start = Get-Date
+  Write-StepStatus $Name "START"
   Write-Log $LogPath ("STEP {0} START {1}" -f $Name, $start)
   Write-Log $LogPath ("CMD: {0}" -f $Command)
   $rc = 0
   $out = ""
+  $errCount = $Error.Count
   $prevEap = $ErrorActionPreference
   try {
-    $ErrorActionPreference = "Continue"
+    $ErrorActionPreference = "SilentlyContinue"
     $out = & $Action 2>&1 | Out-String
     $rc = $LASTEXITCODE
     if ($null -eq $rc) { $rc = 0 }
@@ -68,6 +76,13 @@ function Invoke-Step {
   } finally {
     $ErrorActionPreference = $prevEap
   }
+  if ($Error.Count -gt $errCount) {
+    $newErrors = @($Error)[0..($Error.Count - $errCount - 1)] | Out-String
+    $out += "`nERRORS:`n$newErrors"
+  }
+  if ([string]::IsNullOrWhiteSpace($out)) {
+    $out = "<no output captured>"
+  }
   $end = Get-Date
   $tail = ($out -split "`r?`n" | Select-Object -Last 40) -join "`n"
   Write-Log $LogPath ("STEP {0} END {1} RC={2}" -f $Name, $end, $rc)
@@ -75,6 +90,7 @@ function Invoke-Step {
   if ($out) { Add-Content -Path $LogPath -Value $out }
   Write-Log $LogPath "OUTPUT_END"
   $status = if ($rc -eq 0) { "PASS" } else { "FAIL" }
+  Write-StepStatus $Name $status
   return [pscustomobject]@{
     name = $Name
     command = $Command
@@ -94,6 +110,7 @@ function New-SkipResult {
     [string]$LogPath
   )
   Write-Log $LogPath ("STEP {0} SKIP {1}" -f $Name, $Reason)
+  Write-StepStatus $Name "SKIP" $Reason
   return [pscustomobject]@{
     name = $Name
     command = $Command
@@ -106,9 +123,17 @@ function New-SkipResult {
 }
 
 function Test-Online {
+  # Fast socket test (no console output) with short timeout.
   try {
-    $tnc = Test-NetConnection -ComputerName "pypi.org" -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
-    if ($tnc) { return $true }
+    $client = New-Object System.Net.Sockets.TcpClient
+    $iar = $client.BeginConnect("pypi.org", 443, $null, $null)
+    $waitOk = $iar.AsyncWaitHandle.WaitOne(2000, $false)
+    if ($waitOk -and $client.Connected) {
+      $client.EndConnect($iar)
+      $client.Close()
+      return $true
+    }
+    $client.Close()
   } catch {
     # ignore
   }
@@ -173,10 +198,13 @@ function Invoke-BuildStep {
     [string]$LogPath,
     [string]$Py,
     [bool]$IsOnline,
-    [string]$RunId
+    [string]$RunId,
+    [int]$TimeoutSec,
+    [string]$WorkDir
   )
   $start = Get-Date
   $command = "$Py -m build (isolated; retry once; fallback to --no-isolation if offline/ACL)"
+  Write-StepStatus $Name "START"
   Write-Log $LogPath ("STEP {0} START {1}" -f $Name, $start)
   Write-Log $LogPath ("CMD: {0}" -f $command)
 
@@ -184,27 +212,57 @@ function Invoke-BuildStep {
   $rcFinal = 1
 
   $run = {
-    param([string]$Label, [string[]]$Args)
-    Write-Log $LogPath ("ATTEMPT {0}: {1} {2}" -f $Label, $Py, ($Args -join " "))
-    $out = & $Py @Args 2>&1 | Out-String
-    $rc = $LASTEXITCODE
-    if ($null -eq $rc) { $rc = 0 }
-    $outAll += ("`n--- {0} OUTPUT ---`n{1}" -f $Label, $out)
-    return [pscustomobject]@{ rc = $rc; out = $out }
+    param([string]$Label, [string[]]$CommandArgs)
+    Write-Log $LogPath ("ATTEMPT {0}: {1} {2}" -f $Label, $Py, ($CommandArgs -join " "))
+    $out = ""
+    $rc = 1
+    try {
+      $job = Start-Job -ScriptBlock {
+        param($PyPath, $CmdArgs, $JobWorkDir)
+        if ($JobWorkDir) { Set-Location -Path $JobWorkDir }
+        $output = & $PyPath @CmdArgs 2>&1 | Out-String
+        $exitCode = $LASTEXITCODE
+        [pscustomobject]@{ output = $output; rc = $exitCode }
+      } -ArgumentList $Py, $CommandArgs, $WorkDir
+
+      $finished = Wait-Job $job -Timeout $TimeoutSec
+      if (-not $finished) {
+        Stop-Job $job | Out-Null
+        $rc = 124
+        $out = "TIMEOUT: build step exceeded ${TimeoutSec}s and was terminated."
+      } else {
+        $result = Receive-Job $job
+        $out = $result.output
+        $rc = $result.rc
+        if ($null -eq $rc) { $rc = 0 }
+      }
+      Remove-Job $job -Force | Out-Null
+    } catch {
+      $out = ($_ | Out-String)
+      $rc = 1
+    }
+    if ([string]::IsNullOrWhiteSpace($out)) {
+      $out = "<no output captured>"
+    }
+    $outBlock = ("`n--- {0} OUTPUT ---`n{1}" -f $Label, $out)
+    return [pscustomobject]@{ rc = $rc; out = $out; outBlock = $outBlock }
   }
 
-  $first = & $run "isolated" @("-m","build")
+  $first = & $run -Label "isolated" -CommandArgs @("-m","build")
+  $outAll += $first.outBlock
   if ($first.rc -eq 0) {
     $rcFinal = 0
   } else {
     . "$PSScriptRoot\\set_safe_temp.ps1" -RunId ("{0}-retry1" -f $RunId)
-    $second = & $run "isolated_retry" @("-m","build")
+    $second = & $run -Label "isolated_retry" -CommandArgs @("-m","build")
+    $outAll += $second.outBlock
     if ($second.rc -eq 0) {
       $rcFinal = 0
     } else {
       $aclOrTemp = Is-TempAclError ($first.out + $second.out)
       if (-not $IsOnline -or $aclOrTemp) {
-        $third = & $run "no_isolation_fallback" @("-m","build","--no-isolation")
+        $third = & $run -Label "no_isolation_fallback" -CommandArgs @("-m","build","--no-isolation")
+        $outAll += $third.outBlock
         $rcFinal = $third.rc
       } else {
         $rcFinal = $second.rc
@@ -220,6 +278,7 @@ function Invoke-BuildStep {
   Write-Log $LogPath "OUTPUT_END"
 
   $status = if ($rcFinal -eq 0) { "PASS" } else { "FAIL" }
+  Write-StepStatus $Name $status
   return [pscustomobject]@{
     name = $Name
     command = $command
@@ -232,51 +291,64 @@ function Invoke-BuildStep {
 }
 
 # --- Main ---
-$repoRoot = Find-RepoRoot
-Set-Location $repoRoot
-
-$stamp = NowStamp
-$outDir = Join-Path $repoRoot ".workspace\\local_check\\$stamp"
-Ensure-Dir $outDir
-$logPath = Join-Path $outDir "local_check.log"
-
-Write-Log $logPath ("Lenovo Local Check - {0}" -f $stamp)
-Write-Log $logPath ("Repo: {0}" -f $repoRoot)
-Write-Log $logPath ("Computer: {0}" -f $env:COMPUTERNAME)
-try {
-  $osCaption = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop | Select-Object -ExpandProperty Caption
-} catch {
-  $osCaption = "Unknown (CIM access denied)"
-}
-Write-Log $logPath ("OS: {0}" -f $osCaption)
-Write-Log $logPath ("Git HEAD: {0}" -f ((git rev-parse HEAD).Trim()))
-Write-Log $logPath ("Git branch: {0}" -f ((git branch --show-current).Trim()))
-Write-Log $logPath ("Git status: {0}" -f ((git status --porcelain | Out-String).Trim()))
-
-# Safe temp
-. "$PSScriptRoot\\set_safe_temp.ps1" -RunId $stamp
-
-$pytestBaseTemp = Join-Path $repoRoot ".workspace\\pytest_temp\\$stamp"
-Ensure-Dir $pytestBaseTemp
-
-$basePy = Pick-Python
-$py = Ensure-Venv $basePy
-$la = Get-LaPath
-
-$isOnline = Test-Online
-Write-Log $logPath ("Online: {0}" -f $isOnline)
-
 $results = @()
+$summaryPath = $null
+$promptPath = $null
+$fatalError = $null
+
+try {
+  $repoRoot = Find-RepoRoot
+  Set-Location $repoRoot
+
+  $stamp = NowStamp
+  $outDir = Join-Path $repoRoot ".workspace\\local_check\\$stamp"
+  Ensure-Dir $outDir
+  $logPath = Join-Path $outDir "local_check.log"
+  $summaryPath = Join-Path $outDir "summary.md"
+  $promptPath = Join-Path $outDir "codex_prompt.txt"
+
+  Write-Log $logPath ("Lenovo Local Check - {0}" -f $stamp)
+  Write-Log $logPath ("Repo: {0}" -f $repoRoot)
+  Write-Log $logPath ("Computer: {0}" -f $env:COMPUTERNAME)
+  try {
+    $osCaption = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop | Select-Object -ExpandProperty Caption
+  } catch {
+    $osCaption = "Unknown (CIM access denied)"
+  }
+  Write-Log $logPath ("OS: {0}" -f $osCaption)
+  Write-Log $logPath ("Git HEAD: {0}" -f ((git rev-parse HEAD).Trim()))
+  Write-Log $logPath ("Git branch: {0}" -f ((git branch --show-current).Trim()))
+  Write-Log $logPath ("Git status: {0}" -f ((git status --porcelain | Out-String).Trim()))
+
+  # Safe temp
+  . "$PSScriptRoot\\set_safe_temp.ps1" -RunId $stamp
+
+  $pytestBaseTemp = Join-Path $repoRoot ".workspace\\pytest_temp\\$stamp"
+  Ensure-Dir $pytestBaseTemp
+
+  $basePy = Pick-Python
+  $py = Ensure-Venv $basePy
+  $py = (Resolve-Path $py).Path
+  $la = Get-LaPath
+
+  $isOnline = Test-Online
+  Write-Log $logPath ("Online: {0}" -f $isOnline)
+
+  $effectiveBuildTimeout = $BuildTimeoutSec
+  if ($Quick -and $BuildTimeoutSec -eq 600) {
+    $effectiveBuildTimeout = 180
+  }
 
 # Command strings (avoid escaping issues)
 $cmdPipUpgrade = "{0} -m pip install --upgrade pip setuptools wheel" -f $py
 $cmdPipCheck = "{0} -m pip check" -f $py
 $cmdInstallEditable = "{0} -m pip install -e "".[test]""" -f $py
+$cmdInstallEditableRetry = "{0} -m pip install -e "".[test]"" --no-build-isolation" -f $py
 $cmdInstallTools = "{0} -m pip install build mypy pip-audit" -f $py
 $cmdImportCheck = "{0} -c ""import laptop_agents; print(''ok'')""" -f $py
 $cmdCompileAll = "{0} -m compileall src" -f $py
 $cmdMypy = "{0} -m mypy src/laptop_agents --ignore-missing-imports --no-error-summary" -f $py
-$cmdPipAudit = "{0} -m pip_audit" -f $py
+$cmdPipAudit = "{0} -m pip_audit --cache-dir ""{1}""" -f $py, $env:PIP_CACHE_DIR
 $cmdLaHelp = ".\\.venv\\Scripts\\la.exe --help"
 $cmdLaDoctor = ".\\.venv\\Scripts\\la.exe doctor --fix"
 $cmdSmokeRun = "{0} -m laptop_agents run --mode live-session --duration 1 --symbol BTCUSDT --source mock --execution-mode paper --dry-run --async" -f $py
@@ -289,7 +361,13 @@ $results += Invoke-Step "pip_check" $cmdPipCheck { & $py -m pip check } $logPath
 
 # 3) install -e ".[test]" (unless -NoInstall)
 if (-not $NoInstall) {
-  $results += Invoke-Step "install_editable_test" $cmdInstallEditable { & $py -m pip install -e ".[test]" } $logPath
+  $editableResult = Invoke-Step "install_editable_test" $cmdInstallEditable { & $py -m pip install -e ".[test]" } $logPath
+  if ($editableResult.status -eq "FAIL" -and (Is-TempAclError $editableResult.tail)) {
+    Write-Log $logPath "Retrying install_editable_test due to temp/ACL error with --no-build-isolation."
+    . "$PSScriptRoot\\set_safe_temp.ps1" -RunId ("{0}-install-retry" -f $stamp)
+    $editableResult = Invoke-Step "install_editable_test" $cmdInstallEditableRetry { & $py -m pip install -e ".[test]" --no-build-isolation } $logPath
+  }
+  $results += $editableResult
 } else {
   $results += New-SkipResult "install_editable_test" "Skipped by -NoInstall" $cmdInstallEditable $logPath
 }
@@ -308,7 +386,7 @@ $la = Get-LaPath
 $results += Invoke-Step "import_check" $cmdImportCheck { & $py -c "import laptop_agents; print('ok')" } $logPath
 
 # 6) build (prefer isolated; retry once after refreshing temp; fallback to --no-isolation only if offline or ACL/temp error)
-$results += Invoke-BuildStep "build" $logPath $py $isOnline $stamp
+$results += Invoke-BuildStep "build" $logPath $py $isOnline $stamp $effectiveBuildTimeout $repoRoot
 
 # 7) compileall
 $results += Invoke-Step "compileall" $cmdCompileAll { & $py -m compileall src } $logPath
@@ -323,7 +401,21 @@ $results += Invoke-Step "mypy" $cmdMypy { & $py -m mypy src/laptop_agents --igno
 
 # 10) pip-audit (only if online)
 if ($isOnline) {
-  $results += Invoke-Step "pip_audit" $cmdPipAudit { & $py -m pip_audit } $logPath
+  $auditResult = Invoke-Step "pip_audit" $cmdPipAudit { & $py -m pip_audit --cache-dir $env:PIP_CACHE_DIR } $logPath
+  if ($auditResult.status -eq "FAIL" -and $auditResult.tail -match "WinError 10013|Failed to establish a new connection|ConnectionError|PermissionError") {
+    $auditResult = [pscustomobject]@{
+      name = "pip_audit"
+      command = $cmdPipAudit
+      start = $auditResult.start
+      end = $auditResult.end
+      rc = 0
+      status = "SKIP"
+      tail = "Skipped: network access blocked (WinError 10013 / connection error)."
+    }
+    Write-Log $logPath "pip_audit skipped: network access blocked."
+    Write-StepStatus "pip_audit" "SKIP" "network access blocked"
+  }
+  $results += $auditResult
 } else {
   $results += New-SkipResult "pip_audit" "Offline; skipped" $cmdPipAudit $logPath
 }
@@ -375,7 +467,7 @@ foreach ($r in $results) {
 }
 $summary += ""
 
-$failures = $results | Where-Object { $_.status -eq "FAIL" }
+$failures = @($results | Where-Object { $_.status -eq "FAIL" })
 if ($failures.Count -eq 0) {
   $summary += "All local checks passed."
 } else {
@@ -457,8 +549,62 @@ $codex += "3) Re-run only that failing command to verify."
 $codex += "4) Commit small, then repeat until failures are resolved."
 
 Set-Content -Path $promptPath -Value ($codex -join "`n") -Encoding UTF8
-
-Write-Host ""
-Write-Host "DONE."
-Write-Host "Summary: $summaryPath"
-Write-Host "Codex prompt: $promptPath"
+} catch {
+  $fatalError = ($_ | Out-String)
+  if (-not $summaryPath) {
+    if (-not $repoRoot) { $repoRoot = (Get-Location).Path }
+    if (-not $stamp) { $stamp = NowStamp }
+    $outDir = Join-Path $repoRoot ".workspace\\local_check\\$stamp"
+    Ensure-Dir $outDir
+    $summaryPath = Join-Path $outDir "summary.md"
+    $promptPath = Join-Path $outDir "codex_prompt.txt"
+    $logPath = Join-Path $outDir "local_check.log"
+  }
+  Write-Log $logPath ("FATAL: {0}" -f $fatalError)
+  $results += [pscustomobject]@{
+    name = "fatal_error"
+    command = "lenovo_local_check.ps1"
+    start = $null
+    end = $null
+    rc = 1
+    status = "FAIL"
+    tail = $fatalError
+  }
+  $summary = @(
+    "# Local Check Summary ($stamp)",
+    "",
+    "- Repo: $repoRoot",
+    "- Log: $logPath",
+    "",
+    "Failures:",
+    "- fatal_error (rc=1)",
+    "",
+    "## Failure tails",
+    "### fatal_error",
+    '```',
+    $fatalError,
+    '```'
+  )
+  Set-Content -Path $summaryPath -Value ($summary -join "`n") -Encoding UTF8
+  $codex = @(
+    "You are Codex 5.2 running autonomously inside gevans3000/btc-laptop-agents with shell access.",
+    "",
+    "PATHS",
+    "- Summary: $summaryPath",
+    "- Log: $logPath",
+    "",
+    "FAILURES",
+    "- fatal_error (rc=1)",
+    "",
+    "INSTRUCTIONS",
+    "1) Open summary + log, identify the failure.",
+    "2) Fix the root cause with the smallest safe change.",
+    "3) Re-run only the failing command to verify."
+  )
+  Set-Content -Path $promptPath -Value ($codex -join "`n") -Encoding UTF8
+} finally {
+  Write-Host ""
+  Write-Host "DONE."
+  if ($summaryPath) { Write-Host "Summary: $summaryPath" }
+  if ($promptPath) { Write-Host "Codex prompt: $promptPath" }
+}
