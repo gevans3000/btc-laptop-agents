@@ -11,7 +11,7 @@ from rich.console import Console
 from laptop_agents.constants import AGENT_PID_FILE, DEFAULT_SYMBOL
 from laptop_agents.core.lock_manager import LockManager
 from laptop_agents.core.orchestrator import LATEST_DIR
-from laptop_agents.core.config import load_session_config
+from laptop_agents.core.config import load_session_config, load_strategy_config
 from laptop_agents.core.orchestrator import (
     run_orchestrated_mode,
     run_legacy_orchestration,
@@ -220,22 +220,14 @@ def run(
                 import asyncio
                 from laptop_agents.session.async_session import run_async_session
 
-                strat_config = session_config.model_dump()
-                strat_config.update(
-                    {
-                        "risk": {
-                            "risk_pct": args.risk_pct,
-                            "stop_bps": args.stop_bps,
-                            "tp_r": args.tp_r,
-                            "max_leverage": args.max_leverage,
-                            "equity": 10000.0,
-                        },
-                        "setups": {
-                            "default": {"active": True, "params": {}},
-                            "pullback_ribbon": {"enabled": False},
-                            "sweep_invalidation": {"enabled": False},
-                        },
-                    }
+                # Strategy config is distinct from SessionConfig; preserve documented precedence
+                # (CLI overrides > config/strategies/<name>.json > built-in defaults).
+                strat_config = load_strategy_config(
+                    args.strategy,
+                    overrides={
+                        "risk": {"risk_pct": args.risk_pct},
+                        "source": session_config.source,
+                    },
                 )
 
                 session_result = asyncio.run(

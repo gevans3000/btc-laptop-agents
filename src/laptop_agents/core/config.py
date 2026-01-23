@@ -107,3 +107,54 @@ class RunResult(BaseModel):
     errors: List[str] = Field(default_factory=list)
     artifacts: Dict[str, str] = Field(default_factory=dict)
     summary: Dict[str, Any] = Field(default_factory=dict)
+
+
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merge dicts (override wins)."""
+    out: Dict[str, Any] = dict(base)
+    for k, v in override.items():
+        if (
+            k in out
+            and isinstance(out[k], dict)
+            and isinstance(v, dict)
+        ):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def load_strategy_config(
+    strategy_name: str,
+    *,
+    overrides: Optional[Dict[str, Any]] = None,
+    repo_root: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """
+    Load a strategy config dict with precedence:
+      overrides > config/strategies/<name>.json > built-in defaults
+
+    Note: session config precedence (SessionConfig) is handled separately.
+    """
+    root = repo_root or Path(__file__).resolve().parent.parent.parent.parent
+    strat_path = root / "config" / "strategies" / f"{strategy_name}.json"
+
+    # Built-in defaults (minimal schema that passes StrategyConfig validation).
+    data: Dict[str, Any] = {
+        "engine": {},
+        "derivatives_gates": {},
+        "setups": {"default": {"active": True, "params": {}}},
+        "risk": {"equity": 10000.0, "risk_pct": 1.0, "rr_min": 1.5},
+        "cvd": {},
+    }
+
+    if strat_path.exists():
+        with open(strat_path) as f:
+            loaded = json.load(f)
+        if isinstance(loaded, dict):
+            data = _deep_merge(data, loaded)
+
+    if overrides:
+        data = _deep_merge(data, {k: v for k, v in overrides.items() if v is not None})
+
+    return data
