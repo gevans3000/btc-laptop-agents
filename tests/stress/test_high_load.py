@@ -136,7 +136,7 @@ async def test_high_load_stress():
     mem_mb = process.memory_info().rss / 1024 / 1024
 
     print(f"[STRESS TEST] Processed {count} candles in {duration:.2f}s")
-    print(f"[STRESS TEST] Throughput: {count/duration:.1f} candles/sec")
+    print(f"[STRESS TEST] Throughput: {count / duration:.1f} candles/sec")
     print(f"[STRESS TEST] Memory: {mem_mb:.2f} MB")
     print(f"[STRESS TEST] Errors: {runner.errors}")
     print(f"[STRESS TEST] Trades: {runner.trades}")

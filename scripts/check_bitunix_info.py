@@ -1,4 +1,5 @@
 """Utility to dump BTCUSDT instrument info from Bitunix."""
+
 from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
 import json
 

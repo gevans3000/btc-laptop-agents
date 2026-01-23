@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 """Generate PDF-like performance report from run results."""
+
 import json
 import csv
 from pathlib import Path
 from datetime import datetime
 
 RUNS_DIR = Path(__file__).parent.parent / "runs" / "latest"
+
 
 def generate_report():
     trades_csv = RUNS_DIR / "trades.csv"
@@ -26,11 +28,12 @@ def generate_report():
     if trades_csv.exists():
         with trades_csv.open() as f:
             trades = list(csv.DictReader(f))
-        total_pnl = sum(float(t.get('pnl', 0)) for t in trades)
+        total_pnl = sum(float(t.get("pnl", 0)) for t in trades)
         print(f"Total PnL: ${total_pnl:.2f}")
         print(f"Trade Count: {len(trades)}")
 
     print("=" * 50)
+
 
 if __name__ == "__main__":
     generate_report()

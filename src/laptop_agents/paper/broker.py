@@ -420,7 +420,7 @@ class PaperBroker:
 
             if impact_pct > 0.00001:  # 0.1 bps
                 logger.info(
-                    f"Market Impact Penalty: {impact_pct*10000.0:.2f} bps (${impact_pct*order_notional:.2f})"
+                    f"Market Impact Penalty: {impact_pct * 10000.0:.2f} bps (${impact_pct * order_notional:.2f})"
                 )
 
         # Apply slippage and fees to entry
@@ -958,7 +958,7 @@ class PaperBroker:
         self.current_equity -= cost
 
         logger.info(
-            f"FUNDING APPLIED: Rate {rate*100:.4f}% | Cost: ${cost:,.2f} | Equity: ${self.current_equity:,.2f}"
+            f"FUNDING APPLIED: Rate {rate * 100:.4f}% | Cost: ${cost:,.2f} | Equity: ${self.current_equity:,.2f}"
         )
         append_event(
             {

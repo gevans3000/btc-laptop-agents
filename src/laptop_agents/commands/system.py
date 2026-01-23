@@ -76,7 +76,7 @@ def clean(days: int = typer.Option(7, help="Delete runs older than this many day
 def doctor(
     fix: bool = typer.Option(
         False, "--fix", help="Attempt to fix missing directories and environment"
-    )
+    ),
 ):
     """Verify system readiness and environment."""
     console.print("[bold blue]Laptop Agents Doctor[/bold blue]\n")

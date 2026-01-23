@@ -14,6 +14,7 @@ Output:
     - .workspace/harness_report.json (Machine readable)
     - .workspace/harness_context.md (LLM prompt context)
 """
+
 import sys
 import json
 import subprocess
@@ -30,9 +31,9 @@ REPORT_MD = WORKSPACE / "harness_context.md"
 
 
 def print_header(title: str):
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f" {title}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
 
 def run_command(

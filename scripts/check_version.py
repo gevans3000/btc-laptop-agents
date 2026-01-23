@@ -6,6 +6,7 @@ if sys.version_info >= (3, 11):
 else:
     tomllib = None
 
+
 def get_pyproject_version():
     path = Path("pyproject.toml")
     if not path.exists():
@@ -17,6 +18,7 @@ def get_pyproject_version():
                 return line.split(b"=")[1].strip().decode().strip('"').strip("'")
     return None
 
+
 def get_init_version():
     path = Path("src/laptop_agents/__init__.py")
     if not path.exists():
@@ -27,16 +29,18 @@ def get_init_version():
                 return line.split("=")[1].strip().strip('"').strip("'")
     return None
 
+
 def main():
     v1 = get_pyproject_version()
     v2 = get_init_version()
-    
+
     if v1 == v2:
         print(f"Versions match: {v1}")
         sys.exit(0)
     else:
         print(f"Version mismatch! pyproject.toml: {v1}, __init__.py: {v2}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

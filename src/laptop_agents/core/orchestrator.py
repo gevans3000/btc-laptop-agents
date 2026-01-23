@@ -311,9 +311,6 @@ def run_orchestrated_mode(
                     "Live execution currently only supports bitunix source"
                 )
 
-            from laptop_agents.data.providers.bitunix_futures import (
-                BitunixFuturesProvider,
-            )
             from laptop_agents.execution.bitunix_broker import BitunixBroker
 
             api_key = os.environ.get("BITUNIX_API_KEY")
@@ -334,8 +331,6 @@ def run_orchestrated_mode(
 
         journal_path = run_dir / "journal.jsonl"
         if broker is None:
-            from laptop_agents.paper.broker import PaperBroker
-
             broker = PaperBroker(symbol=symbol)  # type: ignore
 
         supervisor = Supervisor(
@@ -601,8 +596,6 @@ def run_legacy_orchestration(
     validate_max_candidates: int = 200,
 ) -> int:
     """Legacy orchestration logic moved from run.py for backward compatibility."""
-    from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
-
     get_candles_for_mode = BitunixFuturesProvider.get_candles_for_mode
 
     run_id = str(uuid.uuid4())

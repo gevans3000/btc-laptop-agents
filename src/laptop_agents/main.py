@@ -61,7 +61,7 @@ def main(
         callback=version_callback,
         is_eager=True,
         help="Show version and exit",
-    )
+    ),
 ):
     pass
 

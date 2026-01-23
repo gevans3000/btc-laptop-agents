@@ -27,9 +27,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def print_header(title: str, char="="):
-    print(f"\n{char*60}")
+    print(f"\n{char * 60}")
     print(f" {title}")
-    print(f"{char*60}")
+    print(f"{char * 60}")
 
 
 def run_step(

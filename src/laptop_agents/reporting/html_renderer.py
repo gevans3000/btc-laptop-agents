@@ -157,15 +157,15 @@ def render_html(
         <div class="cards">
             <div class="card">
                 <div class="card-label">Total Trades</div>
-                <div class="card-value">{stats.get('trades', 0)}</div>
+                <div class="card-value">{stats.get("trades", 0)}</div>
             </div>
             <div class="card">
                 <div class="card-label">Wins</div>
-                <div class="card-value">{stats.get('wins', 0)}</div>
+                <div class="card-value">{stats.get("wins", 0)}</div>
             </div>
             <div class="card">
                 <div class="card-label">Losses</div>
-                <div class="card-value">{stats.get('losses', 0)}</div>
+                <div class="card-value">{stats.get("losses", 0)}</div>
             </div>
             <div class="card">
                 <div class="card-label">Win Rate</div>
@@ -177,11 +177,11 @@ def render_html(
             </div>
             <div class="card">
                 <div class="card-label">Sharpe Ratio</div>
-                <div class="card-value">{stats.get('sharpe', 0.0):.2f}</div>
+                <div class="card-value">{stats.get("sharpe", 0.0):.2f}</div>
             </div>
             <div class="card">
                 <div class="card-label">Total Fees</div>
-                <div class="card-value">${stats.get('fees_total', 0.0):.2f}</div>
+                <div class="card-value">${stats.get("fees_total", 0.0):.2f}</div>
             </div>
         </div>
     </div>
@@ -206,19 +206,19 @@ def render_html(
             </div>
             <div class="card">
                 <div class="card-label">Realized PnL</div>
-                <div class="card-value">${summary.get('net_pnl', 0.0):.2f}</div>
+                <div class="card-value">${summary.get("net_pnl", 0.0):.2f}</div>
             </div>
             <div class="card">
                 <div class="card-label">Trade Count</div>
-                <div class="card-value">{summary.get('trades', 0)}</div>
+                <div class="card-value">{summary.get("trades", 0)}</div>
             </div>
             <div class="card">
                 <div class="card-label">Max Drawdown</div>
-                <div class="card-value" style="color: #e74c3c;">{summary.get('max_drawdown', 0.0) * 100:.2f}%</div>
+                <div class="card-value" style="color: #e74c3c;">{summary.get("max_drawdown", 0.0) * 100:.2f}%</div>
             </div>
             <div class="card">
-                <span class="stat-value">{summary.get('symbol', 'N/A')}</span>
-                <span class="stat-value">{summary.get('mode', 'N/A')}</span>
+                <span class="stat-value">{summary.get("symbol", "N/A")}</span>
+                <span class="stat-value">{summary.get("mode", "N/A")}</span>
             </div>
         </div>
     </div>
@@ -239,9 +239,9 @@ def render_html(
     <div class="card">
         <div class="card-label">Best Parameters</div>
         <div class="card-value" style="font-size: 0.9em;">
-            SMA: {best_params.get('fast_sma', 'N/A')},{best_params.get('slow_sma', 'N/A')}<br>
-            Stop: {best_params.get('stop_bps', 'N/A')} bps<br>
-            TP: {best_params.get('tp_r', 'N/A')}
+            SMA: {best_params.get("fast_sma", "N/A")},{best_params.get("slow_sma", "N/A")}<br>
+            Stop: {best_params.get("stop_bps", "N/A")} bps<br>
+            TP: {best_params.get("tp_r", "N/A")}
         </div>
     </div>
 """
@@ -251,16 +251,16 @@ def render_html(
             for entry in validate_data.get("leaderboard", [])[:10]:
                 leaderboard_rows += f"""
     <tr>
-        <td>{entry.get('rank', 'N/A')}</td>
-        <td>{entry.get('fast_sma', 'N/A')},{entry.get('slow_sma', 'N/A')}</td>
-        <td>{entry.get('stop_bps', 'N/A')}</td>
-        <td>{entry.get('tp_r', 'N/A')}</td>
-        <td>${entry.get('net_pnl', 0):.2f}</td>
-        <td>{entry.get('max_drawdown', 0):.2%}</td>
-        <td>{entry.get('win_rate', 0):.2%}</td>
-        <td>{entry.get('trades', 0)}</td>
-        <td>${entry.get('fees_total', 0):.2f}</td>
-        <td>{entry.get('objective', 0):.2f}</td>
+        <td>{entry.get("rank", "N/A")}</td>
+        <td>{entry.get("fast_sma", "N/A")},{entry.get("slow_sma", "N/A")}</td>
+        <td>{entry.get("stop_bps", "N/A")}</td>
+        <td>{entry.get("tp_r", "N/A")}</td>
+        <td>${entry.get("net_pnl", 0):.2f}</td>
+        <td>{entry.get("max_drawdown", 0):.2%}</td>
+        <td>{entry.get("win_rate", 0):.2%}</td>
+        <td>{entry.get("trades", 0)}</td>
+        <td>${entry.get("fees_total", 0):.2f}</td>
+        <td>{entry.get("objective", 0):.2f}</td>
     </tr>
 """
 
@@ -271,32 +271,32 @@ def render_html(
         <div class="cards">
             <div class="card">
                 <div class="card-label">Out-of-Sample Net PnL</div>
-                <div class="card-value">${validate_data.get('total_os_pnl', 0):.2f}</div>
+                <div class="card-value">${validate_data.get("total_os_pnl", 0):.2f}</div>
             </div>
             <div class="card">
                 <div class="card-label">Avg Fold PnL</div>
-                <div class="card-value">${validate_data.get('avg_os_pnl', 0):.2f}</div>
+                <div class="card-value">${validate_data.get("avg_os_pnl", 0):.2f}</div>
             </div>
             <div class="card">
                 <div class="card-label">Win Rate</div>
-                <div class="card-value">{validate_data.get('win_rate', 0):.2%}</div>
+                <div class="card-value">{validate_data.get("win_rate", 0):.2%}</div>
             </div>
             <div class="card">
                 <div class="card-label">Profit Factor</div>
-                <div class="card-value">{validate_data.get('profit_factor', 0):.2f}</div>
+                <div class="card-value">{validate_data.get("profit_factor", 0):.2f}</div>
             </div>
             {best_params_card}
             <div class="card">
                 <div class="card-label">Candles Required</div>
                 <div class="card-value" style="font-size: 0.9em;">
-                    {validate_data.get('candle_requirements', {}).get('required', 'N/A')} required<br>
-                    {validate_data.get('candle_requirements', {}).get('actual', 'N/A')} actual
+                    {validate_data.get("candle_requirements", {}).get("required", "N/A")} required<br>
+                    {validate_data.get("candle_requirements", {}).get("actual", "N/A")} actual
                 </div>
             </div>
             <div class="card">
                 <div class="card-label">Grid Combinations</div>
                 <div class="card-value" style="font-size: 0.9em;">
-                    {validate_data.get('grid_parsed', {}).get('total_combinations', 0)} total<br>
+                    {validate_data.get("grid_parsed", {}).get("total_combinations", 0)} total<br>
                     Top 10 shown
                 </div>
             </div>
@@ -334,23 +334,23 @@ def render_html(
         <div class="cards">
             <div class="card">
                 <div class="card-label">Risk %</div>
-                <div class="card-value">{summary.get('risk_pct', 1.0)}%</div>
+                <div class="card-value">{summary.get("risk_pct", 1.0)}%</div>
             </div>
             <div class="card">
                 <div class="card-label">Stop (bps)</div>
-                <div class="card-value">{summary.get('stop_bps', 30.0)} bps</div>
+                <div class="card-value">{summary.get("stop_bps", 30.0)} bps</div>
             </div>
             <div class="card">
                 <div class="card-label">TP Ratio</div>
-                <div class="card-value">{summary.get('tp_r', 1.5)}</div>
+                <div class="card-value">{summary.get("tp_r", 1.5)}</div>
             </div>
             <div class="card">
                 <div class="card-label">Max Leverage</div>
-                <div class="card-value">{summary.get('max_leverage', 1.0)}x</div>
+                <div class="card-value">{summary.get("max_leverage", 1.0)}x</div>
             </div>
             <div class="card">
                 <div class="card-label">Intrabar Mode</div>
-                <div class="card-value">{summary.get('intrabar_mode', 'conservative')}</div>
+                <div class="card-value">{summary.get("intrabar_mode", "conservative")}</div>
             </div>
         </div>
     </div>
@@ -366,23 +366,23 @@ def render_html(
         <div class="cards">
             <div class="card">
                 <div class="card-label">Side</div>
-                <div class="card-value">{position['side']}</div>
+                <div class="card-value">{position["side"]}</div>
             </div>
             <div class="card">
                 <div class="card-label">Entry</div>
-                <div class="card-value">${position['entry_price']:.2f}</div>
+                <div class="card-value">${position["entry_price"]:.2f}</div>
             </div>
             <div class="card">
                 <div class="card-label">Stop</div>
-                <div class="card-value">${position['stop_price']:.2f}</div>
+                <div class="card-value">${position["stop_price"]:.2f}</div>
             </div>
             <div class="card">
                 <div class="card-label">TP</div>
-                <div class="card-value">${position['tp_price']:.2f}</div>
+                <div class="card-value">${position["tp_price"]:.2f}</div>
             </div>
             <div class="card">
                 <div class="card-label">Quantity</div>
-                <div class="card-value">{position['quantity']:.8f}</div>
+                <div class="card-value">{position["quantity"]:.8f}</div>
             </div>
         </div>
     </div>
@@ -430,7 +430,7 @@ def _generate_html_template(
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Run Summary - {summary.get('run_id', '')[:8]}</title>
+  <title>Run Summary - {summary.get("run_id", "")[:8]}</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -524,10 +524,10 @@ def _generate_html_template(
   <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px;">
     <div>
       <h1 style="margin-bottom: 4px;">Run Summary</h1>
-      <div style="color: #666; font-size: 14px;">Run ID: {summary.get('run_id')} | {summary.get('timestamp')}</div>
+      <div style="color: #666; font-size: 14px;">Run ID: {summary.get("run_id")} | {summary.get("timestamp")}</div>
     </div>
-    <div class="status-badge status-{summary.get('mode', 'backtest')}">
-      {summary.get('mode', 'backtest').upper()} MODE
+    <div class="status-badge status-{summary.get("mode", "backtest")}">
+      {summary.get("mode", "backtest").upper()} MODE
     </div>
   </div>
 
@@ -535,25 +535,25 @@ def _generate_html_template(
 
   <div class="section">
     <div class="cards">
-      <div class="card"><div class="card-label">Symbol</div><div class="card-value">{summary['symbol']}</div></div>
-      <div class="card"><div class="card-label">Interval</div><div class="card-value">{summary['interval']}</div></div>
-      <div class="card"><div class="card-label">Source</div><div class="card-value">{summary['source']}</div></div>
+      <div class="card"><div class="card-label">Symbol</div><div class="card-value">{summary["symbol"]}</div></div>
+      <div class="card"><div class="card-label">Interval</div><div class="card-value">{summary["interval"]}</div></div>
+      <div class="card"><div class="card-label">Source</div><div class="card-value">{summary["source"]}</div></div>
       <div class="card">
         <div class="card-label">Starting</div>
-        <div class="card-value">${summary['starting_balance']:.2f}</div>
+        <div class="card-value">${summary["starting_balance"]:.2f}</div>
       </div>
       <div class="card">
         <div class="card-label">Ending</div>
         <div
           class="card-value"
-          style="color: {'#2f9e44' if summary['ending_balance'] >= summary['starting_balance'] else '#e03131'}"
+          style="color: {"#2f9e44" if summary["ending_balance"] >= summary["starting_balance"] else "#e03131"}"
         >
-          ${summary['ending_balance']:.2f}
+          ${summary["ending_balance"]:.2f}
         </div>
       </div>
       <div class="card"><div class="card-label">Net PnL</div>
-        <div class="card-value" style="color: {'#2f9e44' if summary['net_pnl'] >= 0 else '#e03131'}">
-          ${summary['net_pnl']:.2f}
+        <div class="card-value" style="color: {"#2f9e44" if summary["net_pnl"] >= 0 else "#e03131"}">
+          ${summary["net_pnl"]:.2f}
         </div>
       </div>
     </div>

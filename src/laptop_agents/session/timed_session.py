@@ -356,7 +356,7 @@ def run_timed_session(
                     f"[{iteration:03d}] {symbol} @ {float(latest_candle.close):,.2f} | "
                     f"Signal: {signal_str:5} | Pos: {position_str:5} | "
                     f"Equity: ${total_equity:,.2f} | "
-                    f"Remaining: {remaining/60:.1f}m"
+                    f"Remaining: {remaining / 60:.1f}m"
                 )
 
             except Exception as e:

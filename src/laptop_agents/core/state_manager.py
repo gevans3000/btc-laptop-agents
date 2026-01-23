@@ -77,7 +77,7 @@ class StateManager:
                     if i == max_retries - 1:
                         raise
                     logger.warning(
-                        f"PermissionError saving state (retry {i+1}/{max_retries}): {e}"
+                        f"PermissionError saving state (retry {i + 1}/{max_retries}): {e}"
                     )
                     time.sleep(0.1)
         except (OSError, PermissionError) as e:
