@@ -61,7 +61,8 @@ class PositionStore:
                 )
             conn.close()
         except Exception as e:
-            logger.error(f"Failed to save state to DB: {e}")
+            logger.critical(f"FATAL: Failed to save state to DB: {e}")
+            raise
 
     def load_state(self, symbol: str) -> Optional[Dict[str, Any]]:
         """

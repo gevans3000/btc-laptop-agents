@@ -8,6 +8,19 @@ class LockManager:
     def __init__(self, lock_file: Path):
         self.lock_file = lock_file
 
+    def _is_our_process(self, proc: psutil.Process) -> bool:
+        """
+        Best-effort check to avoid blocking on unrelated Python processes if a PID
+        gets reused or a stale lock points at a different command.
+        """
+        try:
+            cmdline = proc.cmdline()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return False
+
+        # Our CLI launches via `python -m laptop_agents ...`
+        return any("laptop_agents" in str(arg) for arg in cmdline)
+
     def acquire(self) -> bool:
         """Acquire the lock. Returns True if successful, False if already locked."""
         if self.lock_file.exists():
@@ -20,7 +33,7 @@ class LockManager:
                             # Check if it's actually a python process (optional but safer)
                             try:
                                 proc = psutil.Process(old_pid)
-                                if "python" in proc.name().lower():
+                                if "python" in proc.name().lower() and self._is_our_process(proc):
                                     return False
                             except (psutil.NoSuchProcess, psutil.AccessDenied):
                                 pass
@@ -54,6 +67,8 @@ class LockManager:
                 pid = int(content)
                 if psutil.pid_exists(pid):
                     proc = psutil.Process(pid)
+                    if not self._is_our_process(proc):
+                        return {"running": False}
                     return {
                         "running": True,
                         "pid": pid,
