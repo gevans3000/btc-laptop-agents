@@ -2,7 +2,7 @@
 
 > **Status**: Phase 2 Complete (Resilience & Hardening)
 > **Current Capability**: 10-minute+ Autonomous Paper Trading with Real-Time Safety
-> **Engine**: Python 3.12+ / Asyncio / WebSocket
+> **Engine**: Python 3.11+ / Asyncio / WebSocket
 
 ## 📖 Introduction
 
@@ -76,7 +76,7 @@ btc-laptop-agents/
 │   ├── paper/              # Live Trading State (SQLite/JSON)
 │   └── logs/               # System Logs
 ├── config/
-│   └── strategies/         # Strategy YAML Configurations
+│   └── strategies/         # Strategy JSON Configurations
 └── docs/                   # The Engineer's Bible
 ```
 
