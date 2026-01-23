@@ -42,12 +42,12 @@
 
 ---
 
-## Phase 5: Scripts Cleanup
-**Status**: Pending (independent)
-- [ ] Create `scripts/archive/` directory
-- [ ] Move `scripts/monte_carlo_v1.py` and `scripts/optimize_strategy.py` into archive
-- [ ] Delete `la.ps1`
-- [ ] Add `scripts/README.md` documenting canonical scripts table
+## Phase 5: Scripts Cleanup [FINISHED]
+**Status**: 100% Complete
+- [x] Create `scripts/archive/` directory
+- [x] Move `scripts/monte_carlo_v1.py` and `scripts/optimize_strategy.py` into archive
+- [x] Delete `la.ps1`
+- [x] Add `scripts/README.md` documenting canonical scripts table
 - [ ] Run `/go` workflow
 
 ---

@@ -25,10 +25,10 @@
 - [x] Remove black/flake8 mentions
 - [ ] Run `/go` workflow
 
-## Phase 5: Scripts Cleanup [READY]
-- [ ] Create `scripts/archive/`; move `monte_carlo_v1.py`, `optimize_strategy.py`
-- [ ] Delete `la.ps1`
-- [ ] Add `scripts/README.md` with canonical tools table
+## Phase 5: Scripts Cleanup [FINISHED]
+- [x] Create `scripts/archive/`; move `monte_carlo_v1.py`, `optimize_strategy.py`
+- [x] Delete `la.ps1`
+- [x] Add `scripts/README.md` with canonical tools table
 - [ ] Run `/go` workflow
 
 ## Phase 6: Config Mutable Default Fix [READY]
