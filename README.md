@@ -29,6 +29,13 @@ It unifies high-frequency event processing with robust safety guardrails, allowi
 
 The entire system is controlled via the `la` (Linear Agent) CLI, designed for zero-friction operation.
 
+### 0. Install
+```powershell
+pip install -e .
+# Optional: dashboard support
+pip install -e .[dashboard]
+```
+
 ### 1. Doctor & Setup
 Verify your environment, API keys, and network connectivity.
 ```powershell

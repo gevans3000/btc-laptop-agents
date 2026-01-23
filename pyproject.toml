@@ -27,6 +27,9 @@ test = [
   "types-PyYAML>=6.0.12.20240808",
   "types-cachetools>=5.5.0.20240820",
 ]
+dashboard = [
+  "Flask>=3.0.0",
+]
 
 [project.scripts]
 la = "laptop_agents.main:app"
