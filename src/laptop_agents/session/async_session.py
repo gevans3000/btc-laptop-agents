@@ -120,14 +120,11 @@ class AsyncRunner:
         self.state_manager = StateManager(self.state_dir)
 
         # Components
-        from laptop_agents.resilience.trading_circuit_breaker import (
-            TradingCircuitBreaker,
-        )
+        from laptop_agents.resilience.error_circuit_breaker import ErrorCircuitBreaker
 
-        self.circuit_breaker = TradingCircuitBreaker(
-            max_daily_drawdown_pct=5.0, max_consecutive_losses=5
+        self.circuit_breaker = ErrorCircuitBreaker(
+            failure_threshold=5, recovery_timeout=120, time_window=60
         )
-        self.circuit_breaker.set_starting_equity(starting_balance)
 
         self.provider: Any = provider
         state_path = str(self.state_dir / "async_broker_state.json")
@@ -173,11 +170,9 @@ class AsyncRunner:
                 f"Restoring starting equity from broker state: ${self.broker.starting_equity:,.2f}"
             )
             self.starting_equity = self.broker.starting_equity
-            self.circuit_breaker.set_starting_equity(self.starting_equity)
         else:
             # Sync broker to our master starting_equity
             self.broker.starting_equity = self.starting_equity
-            self.circuit_breaker.set_starting_equity(self.starting_equity)
 
         # Ensure starting_equity is in state_manager for unified restoration
         self.state_manager.set("starting_equity", self.starting_equity)
@@ -208,9 +203,7 @@ class AsyncRunner:
                     )
                     self.starting_equity = float(self.broker.current_equity)
                     self.broker.starting_equity = self.starting_equity
-                    self.circuit_breaker.set_starting_equity(self.starting_equity)
                     self.state_manager.set("starting_equity", self.starting_equity)
-                    self.state_manager.set_circuit_breaker_state({})
                     self.state_manager.save()
         except Exception as e:
             logger.error(f"Failed to normalize startup equity: {e}")
@@ -253,17 +246,10 @@ class AsyncRunner:
         end_time = self.start_time + (duration_min * 60)
         self.status = "running"
 
-        # Restore circuit breaker state
-        cb_state = self.state_manager.get_circuit_breaker_state()
-        if cb_state:
-            logger.info("Restoring circuit breaker state...")
-            self.circuit_breaker.restore_state(cb_state)
-            if self.circuit_breaker.is_tripped():
-                logger.warning(
-                    f"Circuit breaker was previously TRIPPED ({self.circuit_breaker._trip_reason}). It remains TRIPPED."
-                )
-                self._request_shutdown("circuit_breaker_tripped")
-                # Note: TradingCircuitBreaker doesn't have a direct 'trip()' method but is_tripped() checks state
+        # Check circuit breaker state
+        if not self.circuit_breaker.allow_request():
+            logger.warning("Circuit breaker is OPEN. It remains OPEN.")
+            self._request_shutdown("circuit_breaker_open")
 
         # Start Threaded Watchdog (independent of event loop)
         watchdog_thread = threading.Thread(target=self._threaded_watchdog, daemon=True)
@@ -423,7 +409,7 @@ class AsyncRunner:
 
             try:
                 self.state_manager.set_circuit_breaker_state(
-                    self.circuit_breaker.get_status()
+                    {"state": self.circuit_breaker.state}
                 )
                 self.state_manager.set("starting_equity", self.starting_equity)
                 self.state_manager.save()
@@ -1128,7 +1114,7 @@ Total Fees: ${total_fees:,.2f}
             if (
                 self.kill_switch_triggered
                 or self.shutdown_event.is_set()
-                or self.circuit_breaker.is_tripped()
+                or not self.circuit_breaker.allow_request()
             ):
                 agent_order = {}
             if agent_order and agent_order.get("go"):

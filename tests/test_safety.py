@@ -1,13 +1,14 @@
-import pytest
+from laptop_agents.resilience.error_circuit_breaker import (
+    ErrorCircuitBreaker,
+)
 from unittest.mock import MagicMock
-from laptop_agents.resilience.circuit import CircuitBreaker, CircuitBreakerOpenError
 from laptop_agents.core import hard_limits
 from laptop_agents.execution.bitunix_broker import BitunixBroker
 import time
 
 
 def test_circuit_breaker_failures():
-    cb = CircuitBreaker(max_failures=2, reset_timeout=1)
+    cb = ErrorCircuitBreaker(failure_threshold=2, recovery_timeout=1, time_window=1)
 
     def failing_func():
         raise ValueError("Failed")
@@ -16,27 +17,23 @@ def test_circuit_breaker_failures():
         return "Success"
 
     # First fail
-    with pytest.raises(ValueError):
-        cb.guarded_call(failing_func)
+    cb.record_failure()
     assert cb.state == "CLOSED"
-    assert cb.failures == 1
 
     # Second fail -> Open
-    with pytest.raises(ValueError):
-        cb.guarded_call(failing_func)
+    cb.record_failure()
     assert cb.state == "OPEN"
-    assert cb.failures == 2
 
     # Call while open
-    with pytest.raises(CircuitBreakerOpenError):
-        cb.guarded_call(success_func)
+    assert not cb.allow_request()
 
-    # Recovery
+    # Wait for recovery
     time.sleep(1.1)
-    # Should be HALF_OPEN now upon call
-    assert cb.guarded_call(success_func) == "Success"
+    assert cb.allow_request()  # Should be in HALF_OPEN state now
+
+    # Success in half-open -> Close
+    cb.record_success()
     assert cb.state == "CLOSED"
-    assert cb.failures == 0
 
 
 def test_hard_limit_max_notional(monkeypatch):

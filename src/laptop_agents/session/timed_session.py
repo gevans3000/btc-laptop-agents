@@ -15,7 +15,7 @@ from laptop_agents.core.logger import logger
 from laptop_agents.core.orchestrator import append_event, PAPER_DIR
 from laptop_agents.data.loader import load_bitunix_candles, load_mock_candles
 from laptop_agents.paper.broker import PaperBroker
-from laptop_agents.resilience.trading_circuit_breaker import TradingCircuitBreaker
+from laptop_agents.resilience.error_circuit_breaker import ErrorCircuitBreaker
 from laptop_agents.trading.signal import generate_signal
 from laptop_agents.trading.helpers import normalize_candle_order
 
@@ -129,10 +129,9 @@ def run_timed_session(
             state_path=state_path,
         )
 
-    circuit_breaker = TradingCircuitBreaker(
-        max_daily_drawdown_pct=5.0, max_consecutive_losses=5
+    circuit_breaker = ErrorCircuitBreaker(
+        failure_threshold=5, recovery_timeout=120, time_window=60
     )
-    circuit_breaker.set_starting_equity(starting_balance)
 
     current_equity = starting_balance
 
@@ -187,12 +186,12 @@ def run_timed_session(
                 break
 
             # Check circuit breaker
-            if circuit_breaker.is_tripped():
-                result.stopped_reason = "circuit_breaker_tripped"
+            if not circuit_breaker.allow_request():
+                result.stopped_reason = "circuit_breaker_open"
                 append_event(
                     {
                         "event": "SessionStoppedByCircuitBreaker",
-                        "status": circuit_breaker.get_status(),
+                        "status": {"state": circuit_breaker.state},
                     },
                     paper=True,
                 )
@@ -235,6 +234,7 @@ def run_timed_session(
                         instrument=symbol, timeframe=interval, candles=candles[:-1]
                     )
                     state = supervisor.step(state, candles[-1], skip_broker=True)
+                    circuit_breaker.record_success()
 
                     # Extract signal from agent state
                     if state.setup.get("side") in ["LONG", "SHORT"]:
@@ -315,7 +315,6 @@ def run_timed_session(
                 for exit_event in events.get("exits", []):
                     pnl = float(exit_event.get("pnl", 0.0))
                     current_equity += pnl
-                    circuit_breaker.update_equity(current_equity, pnl)
                     append_event(
                         {
                             "event": "TradeExit",
@@ -340,7 +339,7 @@ def run_timed_session(
                         "realized_equity": current_equity,
                         "unrealized_pnl": unrealized,
                         "position": broker.pos.side if broker.pos else "FLAT",
-                        "circuit_breaker": circuit_breaker.get_status(),
+                        "circuit_breaker": {"state": circuit_breaker.state},
                         "signal": raw_signal,
                         "elapsed_sec": time.time() - start_time,
                         "remaining_sec": end_time - time.time(),
@@ -361,6 +360,7 @@ def run_timed_session(
 
             except Exception as e:
                 result.errors += 1
+                circuit_breaker.record_failure()
                 logger.error(f"Iteration {iteration} error: {e}")
                 append_event(
                     {

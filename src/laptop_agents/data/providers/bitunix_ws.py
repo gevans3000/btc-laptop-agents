@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import random
 from laptop_agents.core.logger import logger
 from laptop_agents.trading.helpers import Candle, Tick, DataEvent
-from laptop_agents.resilience.circuit import ErrorCircuitBreaker
+from laptop_agents.resilience.error_circuit_breaker import ErrorCircuitBreaker
 
 
 class FatalError(Exception):
@@ -286,7 +286,7 @@ class BitunixWSProvider:
         self.symbol = symbol
         self.client = get_ws_client(symbol)
         self.circuit_breaker = ErrorCircuitBreaker(
-            max_errors=5, reset_window_sec=120, name=f"WSProvider_{symbol}"
+            failure_threshold=5, recovery_timeout=120, time_window=60
         )
 
     async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
@@ -299,8 +299,8 @@ class BitunixWSProvider:
             while True:
                 # Check liveness (Zombie Detection)
                 if not self.client.is_healthy():
-                    self.circuit_breaker.record_error("WS_LIVENESS_FAILURE")
-                    if self.circuit_breaker.is_tripped():
+                    self.circuit_breaker.record_failure()
+                    if not self.circuit_breaker.allow_request():
                         logger.critical(
                             f"WS circuit breaker TRIPPED for {self.symbol}. Shutting down provider."
                         )

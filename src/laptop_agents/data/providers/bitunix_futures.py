@@ -18,9 +18,12 @@ from ...resilience import (
     UnknownProviderError,
     RetryPolicy,
     with_retry,
-    CircuitBreaker,
     log_event,
     log_provider_error,
+)
+from ...resilience.error_circuit_breaker import (
+    ErrorCircuitBreaker,
+    CircuitBreakerOpenError,
 )
 from ...core.rate_limiter import exchange_rate_limiter
 
@@ -112,7 +115,9 @@ class BitunixFuturesProvider:
 
         # Resilience components
         self.retry_policy = RetryPolicy(max_attempts=3, base_delay=0.1)
-        self.circuit_breaker = CircuitBreaker(max_failures=3, reset_timeout=60)
+        self.circuit_breaker = ErrorCircuitBreaker(
+            failure_threshold=3, recovery_timeout=60, time_window=60
+        )
         self.rate_limiter = exchange_rate_limiter
 
     def _assert_allowed(self) -> None:
@@ -301,7 +306,16 @@ class BitunixFuturesProvider:
                 raise error
 
         # Apply circuit breaker
-        return self.circuit_breaker.guarded_call(execute_with_resilience)
+        if not self.circuit_breaker.allow_request():
+            raise CircuitBreakerOpenError("Circuit breaker is open")
+
+        try:
+            result = execute_with_resilience()
+            self.circuit_breaker.record_success()
+            return result
+        except Exception:
+            self.circuit_breaker.record_failure()
+            raise
 
     def trading_pairs(self) -> List[Dict[str, Any]]:
         payload = self._get(
@@ -341,9 +355,7 @@ class BitunixFuturesProvider:
         item = (
             data[0]
             if isinstance(data, list) and data
-            else data
-            if isinstance(data, dict)
-            else {}
+            else data if isinstance(data, dict) else {}
         )
         fr = item.get("fundingRate")
 

@@ -7,10 +7,14 @@ from .errors import (
     AuthProviderError,
     UnknownProviderError,
 )
-from .retry import RetryPolicy, with_retry
-from .circuit import CircuitBreaker, CircuitBreakerOpenError
+from .retry import with_retry, retry_with_backoff
+from .error_circuit_breaker import ErrorCircuitBreaker
 from .log import log_event, log_provider_error
-from .rate_limiter import SimpleRateLimiter
+
+# Aliases for backward compatibility
+TradingCircuitBreaker = ErrorCircuitBreaker
+CircuitBreaker = ErrorCircuitBreaker
+ResilientLogger = log_event
 
 __all__ = [
     "ProviderError",
@@ -18,12 +22,12 @@ __all__ = [
     "RateLimitProviderError",
     "AuthProviderError",
     "UnknownProviderError",
-    "RetryPolicy",
     "with_retry",
+    "retry_with_backoff",
+    "ErrorCircuitBreaker",
+    "TradingCircuitBreaker",
     "CircuitBreaker",
-    "CircuitBreakerOpenError",
-    "guarded_call",
     "log_event",
     "log_provider_error",
-    "SimpleRateLimiter",
+    "ResilientLogger",
 ]

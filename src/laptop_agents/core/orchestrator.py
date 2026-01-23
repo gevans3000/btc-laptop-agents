@@ -239,13 +239,9 @@ def run_orchestrated_mode(
         }
     )
 
-    from laptop_agents.resilience.trading_circuit_breaker import TradingCircuitBreaker
     from laptop_agents.resilience.error_circuit_breaker import ErrorCircuitBreaker
 
-    circuit_breaker = TradingCircuitBreaker(
-        max_daily_drawdown_pct=5.0, max_consecutive_losses=5
-    )
-    error_circuit_breaker = ErrorCircuitBreaker(
+    circuit_breaker = ErrorCircuitBreaker(
         failure_threshold=5, recovery_timeout=120, time_window=60
     )
 
@@ -365,8 +361,6 @@ def run_orchestrated_mode(
             except Exception as e:
                 append_event({"event": "CheckpointLoadError", "error": str(e)})
 
-        circuit_breaker.set_starting_equity(starting_balance)
-
         for i, candle in enumerate(candles):
             # 0. Kill Switch Check
             if os.environ.get("LA_KILL_SWITCH", "FALSE").upper() == "TRUE":
@@ -376,21 +370,9 @@ def run_orchestrated_mode(
                     supervisor.broker.shutdown()
                 return False, "Run aborted by LA_KILL_SWITCH"
 
-            # 1. Trading Circuit Breaker (Financial)
-            if circuit_breaker.is_tripped():
-                append_event(
-                    {
-                        "event": "CircuitBreakerTripped",
-                        "status": circuit_breaker.get_status(),
-                    }
-                )
-                break
-
-            # 2. Error Circuit Breaker (Operational)
-            if not error_circuit_breaker.allow_request():
-                append_event(
-                    {"event": "ErrorCircuitBreakerOpen", "status": "skipping_step"}
-                )
+            # 1. Circuit Breaker Check
+            if not circuit_breaker.allow_request():
+                append_event({"event": "CircuitBreakerOpen", "status": "skipping_step"})
                 time.sleep(1)  # Prevent hot loop
                 continue
 
@@ -398,24 +380,20 @@ def run_orchestrated_mode(
 
             try:
                 state = supervisor.step(state, candle, skip_broker=skip_broker)
-                error_circuit_breaker.record_success()
+                circuit_breaker.record_success()
             except Exception as step_error:
                 logger.error(f"Supervisor Step Failed at index {i}: {step_error}")
-                error_circuit_breaker.record_failure()
+                circuit_breaker.record_failure()
                 # If critical failure, we might want to stop, but CB handles throttling
-                if error_circuit_breaker.state == "OPEN":
+                if circuit_breaker.state == "OPEN":
                     if hasattr(supervisor.broker, "shutdown"):
                         supervisor.broker.shutdown()  # Safety halt
                 continue  # Skip rest of loop for this candle
 
-            trade_pnl = None
             is_inverse = getattr(supervisor.broker, "is_inverse", False)
             for ex in state.broker_events.get("exits", []):
                 pnl = float(ex.get("pnl", 0.0))
                 current_equity += pnl
-                trade_pnl = pnl
-
-            circuit_breaker.update_equity(current_equity, trade_pnl)
 
             unrealized = supervisor.broker.get_unrealized_pnl(float(candle.close))
             if is_inverse:
@@ -435,8 +413,7 @@ def run_orchestrated_mode(
                             "candle_idx": i,
                             "equity": total_equity,
                             "symbol": symbol,
-                            "error_cb_state": error_circuit_breaker.state,
-                            "trading_cb_state": circuit_breaker.get_status(),
+                            "cb_state": circuit_breaker.state,
                         },
                         f,
                     )

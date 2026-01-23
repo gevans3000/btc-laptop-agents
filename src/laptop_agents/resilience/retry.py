@@ -35,3 +35,9 @@ def with_retry(policy: RetryPolicy, operation_name: str) -> Callable:
         return wrapper
 
     return decorator
+
+
+def retry_with_backoff(max_attempts: int = 3, base_delay: float = 0.1) -> Callable:
+    """Decorator for retrying with exponential backoff. Alias for with_retry with params."""
+    policy = RetryPolicy(max_attempts=max_attempts, base_delay=base_delay)
+    return with_retry(policy, "operation")
