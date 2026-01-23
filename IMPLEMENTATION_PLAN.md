@@ -113,8 +113,8 @@
 
 ---
 
-## Phase 13: HTTP Library Consolidation (Optional)
-**Status**: Pending
+## Phase 13: HTTP Library Consolidation (Optional) [DEFERRED]
+**Status**: Deferred (no `bitunix_ws.py` found; significant refactor required)
 - [ ] Replace `aiohttp` WebSocket with `httpx` in `bitunix_ws.py`
 - [ ] Remove `aiohttp` from dependencies
 - [ ] Run full test suite

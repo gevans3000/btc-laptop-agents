@@ -68,8 +68,8 @@
 - [ ] Run full tests
 - [ ] Run `/go` workflow
 
-## Phase 13: HTTP Library Consolidation (Optional) [LATER]
-- [ ] Replace `aiohttp` WebSocket with `httpx` in `bitunix_ws.py`
+## Phase 13: HTTP Library Consolidation (Optional) [DEFERRED]
+- [ ] Replace `aiohttp` WebSocket with `httpx` in `bitunix_ws.py` (file not present)
 - [ ] Remove `aiohttp` dependency
 - [ ] Run full tests
 - [ ] Run `/go` workflow
