@@ -85,7 +85,53 @@
 
 ---
 
+## Phase 10: Unified Resilience Module [FINISHED]
+**Status**: 100% Complete
+- [x] Create `core/resilience.py` re-exporting consolidated classes
+- [x] Update all imports throughout codebase
+- [x] Deprecate old `resilience/` imports
+- [ ] Run `/go` workflow
+
+---
+
+## Phase 11: God Module Refactor - Heartbeat
+**Status**: Pending (high risk)
+- [ ] Create `session/heartbeat.py` with extracted `heartbeat_task()`
+- [ ] Update `async_session.py` to import from new module
+- [ ] Run full test suite
+- [ ] Run `/go` workflow
+
+---
+
+## Phase 12: God Module Refactor - State
+**Status**: Pending (high risk)
+- [ ] Create `session/session_state.py` with state management logic
+- [ ] Update `async_session.py` to delegate to new module
+- [ ] Verify `async_session.py` line count reduced by 30%+
+- [ ] Run full test suite
+- [ ] Run `/go` workflow
+
+---
+
+## Phase 13: HTTP Library Consolidation (Optional)
+**Status**: Pending
+- [ ] Replace `aiohttp` WebSocket with `httpx` in `bitunix_ws.py`
+- [ ] Remove `aiohttp` from dependencies
+- [ ] Run full test suite
+- [ ] Run `/go` workflow
+
+---
+
+## Phase 14: Final Verification & Walkthrough
+**Status**: Pending
+- [ ] Run comprehensive verification suite
+- [ ] Generate `walkthrough.md` documenting all changes
+- [ ] Verify GitHub Actions CI green
+- [ ] Create PR summary
+
+---
+
 ## NEXT STEPS
-1.  Align documentation with actual system state (Phase 2).
-2.  Clean up remaining dependencies (Phase 3).
-3.  Proceed to Tooling Unification (Phase 4).
+1.  Extract heartbeat logic from `async_session.py` (Phase 11).
+2.  Extract session state management (Phase 12).
+3.  Decide on optional HTTP consolidation (Phase 13).

@@ -50,3 +50,32 @@
 - [x] Verify `core/rate_limiter.py` canonical status
 - [x] Delete `resilience/rate_limiter.py`
 - [x] Update imports to `core/rate_limiter.py`
+
+## Phase 10: Unified Resilience Module [FINISHED]
+- [x] Create `core/resilience.py` re-exporting consolidated classes
+- [x] Update imports to use `core/resilience.py`
+- [ ] Run `/go` workflow
+
+## Phase 11: God Module Refactor - Heartbeat [NEXT]
+- [ ] Extract `heartbeat_task()` into `session/heartbeat.py`
+- [ ] Update `async_session.py` to import the new module
+- [ ] Run full tests
+- [ ] Run `/go` workflow
+
+## Phase 12: God Module Refactor - State [AFTER PHASE 11]
+- [ ] Extract session state logic into `session/session_state.py`
+- [ ] Reduce `async_session.py` by 30%+
+- [ ] Run full tests
+- [ ] Run `/go` workflow
+
+## Phase 13: HTTP Library Consolidation (Optional) [LATER]
+- [ ] Replace `aiohttp` WebSocket with `httpx` in `bitunix_ws.py`
+- [ ] Remove `aiohttp` dependency
+- [ ] Run full tests
+- [ ] Run `/go` workflow
+
+## Phase 14: Final Verification & Walkthrough [FINAL]
+- [ ] Run full verification suite
+- [ ] Generate `walkthrough.md`
+- [ ] Confirm CI green
+- [ ] Create PR summary
