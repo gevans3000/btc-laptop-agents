@@ -33,11 +33,11 @@
 
 ---
 
-## Phase 4: Tooling Unification (Ruff)
-**Status**: Pending (independent)
-- [ ] Replace `.pre-commit-config.yaml` with ruff-only config
-- [ ] Add `ruff check` and `ruff format --check` to CI workflow before mypy
-- [ ] Remove black/flake8 references
+## Phase 4: Tooling Unification (Ruff) [FINISHED]
+**Status**: 100% Complete
+- [x] Replace `.pre-commit-config.yaml` with ruff-only config
+- [x] Add `ruff check` and `ruff format --check` to CI workflow before mypy
+- [x] Remove black/flake8 references
 - [ ] Run `/go` workflow
 
 ---

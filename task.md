@@ -19,10 +19,10 @@
 - [x] `pip install -e .` succeeds (warnings about packaging/streamlit noted)
 - [ ] Run `/go` workflow
 
-## Phase 4: Tooling Unification (Ruff) [READY]
-- [ ] Replace `.pre-commit-config.yaml` with ruff-only hooks
-- [ ] Add `ruff check` + `ruff format --check` to CI before mypy
-- [ ] Remove black/flake8 mentions
+## Phase 4: Tooling Unification (Ruff) [FINISHED]
+- [x] Replace `.pre-commit-config.yaml` with ruff-only hooks
+- [x] Add `ruff check` + `ruff format --check` to CI before mypy
+- [x] Remove black/flake8 mentions
 - [ ] Run `/go` workflow
 
 ## Phase 5: Scripts Cleanup [READY]
