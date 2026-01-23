@@ -1,0 +1,91 @@
+# Audit Remediation: Autonomous Implementation Plan (Updated)
+
+> **Source**: 4564af6f-2ccc-43ef-8f1f-5d6bf4c013ff/implementation_plan.md
+> **Execution Status**: In Progress
+
+---
+
+## Phase 1: Dead Code Purge [FINISHED]
+**Status**: 100% Complete
+- [x] Delete `src/laptop_agents/prompts/` directory
+- [x] Delete `src/laptop_agents/alerts/` directory  
+- [x] Verify no imports reference deleted modules
+- [x] Run `/go` workflow
+
+---
+
+## Phase 2: Documentation & Gitignore Fixes [FINISHED]
+**Status**: 100% Complete
+- [x] Update `README.md`: Python 3.12+ -> 3.11+
+- [x] Update `README.md`: YAML -> JSON for config references
+- [x] Add `*.db`, `testall-report.*` to `.gitignore`
+- [x] Remove tracked test artifacts from repo (`test_state_broker.db`, `testall-report.*`)
+- [ ] Run `/go` workflow
+
+---
+
+## Phase 3: Dependency Cleanup
+**Status**: Ready to run after Phase 2
+- [ ] Remove `websockets` from `pyproject.toml`
+- [ ] Generate `requirements.lock` via `uv pip compile`
+- [ ] Verify clean `pip install -e .`
+- [ ] Run `/go` workflow
+
+---
+
+## Phase 4: Tooling Unification (Ruff)
+**Status**: Pending (independent)
+- [ ] Replace `.pre-commit-config.yaml` with ruff-only config
+- [ ] Add `ruff check` and `ruff format --check` to CI workflow before mypy
+- [ ] Remove black/flake8 references
+- [ ] Run `/go` workflow
+
+---
+
+## Phase 5: Scripts Cleanup
+**Status**: Pending (independent)
+- [ ] Create `scripts/archive/` directory
+- [ ] Move `scripts/monte_carlo_v1.py` and `scripts/optimize_strategy.py` into archive
+- [ ] Delete `la.ps1`
+- [ ] Add `scripts/README.md` documenting canonical scripts table
+- [ ] Run `/go` workflow
+
+---
+
+## Phase 6: Config Mutable Default Fix
+**Status**: Pending (dependency for Phase 7)
+- [ ] In `core/config.py`, change `params: Dict[str, Any] = {}` to `params: Dict[str, Any] = Field(default_factory=dict)` and import `Field`
+- [ ] Verify no remaining mutable dict defaults
+- [ ] Run `/go` workflow
+
+---
+
+## Phase 7: CLI Argparse Removal
+**Status**: Blocked until Phase 6 complete
+- [ ] Remove argparse usage from `commands/session.py`; convert to Typer options
+- [ ] Ensure `la run --help` lists all options
+- [ ] Run `/go` workflow
+
+---
+
+## Phase 8: Circuit Breaker Consolidation [FINISHED]
+**Status**: 100% Complete
+- [x] Find all usages of `TradingCircuitBreaker`
+- [x] Replace with `ErrorCircuitBreaker`, update method calls
+- [x] Delete `resilience/circuit.py`
+- [x] Update `resilience/__init__.py` exports
+
+---
+
+## Phase 9: Rate Limiter Consolidation [FINISHED]
+**Status**: 100% Complete
+- [x] Verify `core/rate_limiter.py` is canonical
+- [x] Delete `resilience/rate_limiter.py`
+- [x] Update all imports to use `core/rate_limiter.py`
+
+---
+
+## NEXT STEPS
+1.  Align documentation with actual system state (Phase 2).
+2.  Clean up remaining dependencies (Phase 3).
+3.  Proceed to Tooling Unification (Phase 4).
