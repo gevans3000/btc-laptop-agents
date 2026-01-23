@@ -56,9 +56,9 @@
 - [x] Update imports to use `core/resilience.py`
 - [ ] Run `/go` workflow
 
-## Phase 11: God Module Refactor - Heartbeat [NEXT]
-- [ ] Extract `heartbeat_task()` into `session/heartbeat.py`
-- [ ] Update `async_session.py` to import the new module
+## Phase 11: God Module Refactor - Heartbeat [FINISHED]
+- [x] Extract `heartbeat_task()` into `session/heartbeat.py`
+- [x] Update `async_session.py` to import the new module
 - [ ] Run full tests
 - [ ] Run `/go` workflow
 
