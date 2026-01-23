@@ -22,6 +22,7 @@ from laptop_agents.core.orchestrator import (
     render_html,
     LATEST_DIR,
 )
+from laptop_agents.session.heartbeat import heartbeat_task
 from laptop_agents.trading.helpers import (
     Candle,
     Tick,
@@ -319,7 +320,7 @@ class AsyncRunner:
         tasks = [
             asyncio.create_task(self.market_data_task()),
             asyncio.create_task(self.watchdog_tick_task()),
-            asyncio.create_task(self.heartbeat_task()),
+            asyncio.create_task(heartbeat_task(self)),
             asyncio.create_task(self.timer_task(end_time)),
             asyncio.create_task(self.kill_switch_task()),
             asyncio.create_task(self.stale_data_task()),
@@ -1240,207 +1241,6 @@ Total Fees: ${total_fees:,.2f}
                     f"ERROR BUDGET EXHAUSTED: {self.errors} errors. Shutting down."
                 )
                 self._request_shutdown("error_budget")
-
-    async def heartbeat_task(self):
-        """Logs system status every second."""
-        import time as time_module
-
-        heartbeat_path = Path("logs/heartbeat.json")
-        heartbeat_path.parent.mkdir(exist_ok=True)
-
-        try:
-            while not self.shutdown_event.is_set():
-                try:
-                    elapsed = time.time() - self.start_time
-                    pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
-                    open_orders_count = len(getattr(self.broker, "working_orders", []))
-                    price = (
-                        self.latest_tick.last
-                        if self.latest_tick
-                        else (self.candles[-1].close if self.candles else 0.0)
-                    )
-
-                    unrealized = self.broker.get_unrealized_pnl(price)
-                    total_equity = self.broker.current_equity + unrealized
-
-                    # Update max drawdown tracking
-                    self.max_equity = max(self.max_equity, total_equity)
-                    dd = (
-                        (self.max_equity - total_equity) / self.max_equity
-                        if self.max_equity > 0
-                        else 0
-                    )
-                    self.max_drawdown = max(self.max_drawdown, dd)
-
-                    max_loss_usd = hard_limits.MAX_DAILY_LOSS_USD
-                    drawdown_usd = self.starting_equity - total_equity
-                    if (
-                        self.starting_equity > 0
-                        and drawdown_usd >= max_loss_usd
-                        and not self.kill_switch_triggered
-                    ):
-                        logger.critical(
-                            "RISK KILL SWITCH TRIPPED",
-                            {
-                                "event": "RiskKillSwitch",
-                                "symbol": self.symbol,
-                                "loop_id": self.loop_id,
-                                "position": pos_str,
-                                "open_orders_count": open_orders_count,
-                                "equity": total_equity,
-                                "drawdown_usd": drawdown_usd,
-                                "limit_usd": max_loss_usd,
-                            },
-                        )
-                        append_event(
-                            {
-                                "event": "RiskKillSwitch",
-                                "symbol": self.symbol,
-                                "loop_id": self.loop_id,
-                                "position": pos_str,
-                                "open_orders_count": open_orders_count,
-                                "equity": total_equity,
-                                "drawdown_usd": drawdown_usd,
-                                "limit_usd": max_loss_usd,
-                            },
-                            paper=True,
-                        )
-                        self.kill_switch_triggered = True
-                        self._request_shutdown("max_loss_usd")
-                        try:
-                            self.broker.cancel_all_open_orders()
-                            if price and price > 0:
-                                self.broker.close_all(price)
-                        except Exception as e:
-                            logger.exception(
-                                "Risk kill switch cleanup failed",
-                                {
-                                    "event": "RiskKillSwitchCleanupError",
-                                    "symbol": self.symbol,
-                                    "loop_id": self.loop_id,
-                                    "position": pos_str,
-                                    "open_orders_count": open_orders_count,
-                                    "interval": self.interval,
-                                    "error": str(e),
-                                },
-                            )
-
-                    process = psutil.Process()
-                    mem_mb = process.memory_info().rss / 1024 / 1024
-                    cpu_pct = process.cpu_percent()
-
-                    # Phase 4.1: Memory Tuning from Env
-                    max_mem_allowed = float(os.getenv("LA_MAX_MEMORY_MB", "1500"))
-
-                    if mem_mb > max_mem_allowed:
-                        logger.critical(
-                            f"CRITICAL: Memory Limit ({mem_mb:.1f}MB > {max_mem_allowed}MB). Shutting down."
-                        )
-                        self._request_shutdown("memory_limit")
-
-                    # Save last price cache
-                    if self.latest_tick:
-                        try:
-                            price_cache_path = Path("paper/last_price_cache.json")
-                            price_cache_path.parent.mkdir(exist_ok=True)
-                            with open(price_cache_path, "w") as f:
-                                json.dump(
-                                    {
-                                        "last": self.latest_tick.last,
-                                        "ts": self.latest_tick.ts,
-                                    },
-                                    f,
-                                )
-                        except Exception:
-                            pass
-
-                    # Write heartbeat file for watchdog
-                    with heartbeat_path.open("w") as f:
-                        json.dump(
-                            {
-                                "ts": datetime.now(timezone.utc).isoformat(),
-                                "unix_ts": time_module.time(),
-                                "last_updated_ts": time_module.time(),
-                                "elapsed": elapsed,
-                                "equity": total_equity,
-                                "symbol": self.symbol,
-                                "ram_mb": round(mem_mb, 2),
-                                "cpu_pct": cpu_pct,
-                            },
-                            f,
-                        )
-
-                    remaining = max(
-                        0, (self.start_time + (self.duration_min * 60)) - time.time()
-                    )
-                    remaining_str = f"{int(remaining // 60)}:{int(remaining % 60):02d}"
-
-                    logger.info(
-                        f"[ASYNC] {self.symbol} | Price: {price:,.2f} | Pos: {pos_str:5} | "
-                        f"Equity: ${total_equity:,.2f} | "
-                        f"Elapsed: {elapsed:.0f}s | Remaining: {remaining_str}",
-                        {
-                            "event": "Heartbeat",
-                            "symbol": self.symbol,
-                            "loop_id": self.loop_id,
-                            "position": pos_str,
-                            "open_orders_count": open_orders_count,
-                        },
-                    )
-
-                    append_event(
-                        {
-                            "event": "AsyncHeartbeat",
-                            "symbol": self.symbol,
-                            "loop_id": self.loop_id,
-                            "position": pos_str,
-                            "open_orders_count": open_orders_count,
-                            "price": price,
-                            "equity": total_equity,
-                            "unrealized": unrealized,
-                            "elapsed": elapsed,
-                        },
-                        paper=True,
-                    )
-
-                    # Collect metric data point
-                    self.metrics.append(
-                        {
-                            "ts": datetime.now(timezone.utc).isoformat(),
-                            "elapsed": elapsed,
-                            "equity": total_equity,
-                            "price": price,
-                            "unrealized": unrealized,
-                            "errors": self.errors,
-                        }
-                    )
-
-                    self.last_heartbeat_time = time.time()
-                except Exception as e:
-                    logger.exception(f"Heartbeat task error: {e}")
-                    self.errors += 1
-                    pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
-                    open_orders_count = len(getattr(self.broker, "working_orders", []))
-                    append_event(
-                        {
-                            "event": "HeartbeatTaskError",
-                            "error": str(e),
-                            "symbol": self.symbol,
-                            "loop_id": self.loop_id,
-                            "position": pos_str,
-                            "open_orders_count": open_orders_count,
-                            "interval": self.interval,
-                        },
-                        paper=True,
-                    )
-                    if (
-                        self.errors >= MAX_ERRORS_PER_SESSION
-                        and not self.shutdown_event.is_set()
-                    ):
-                        self._request_shutdown("error_budget")
-                await asyncio.sleep(10.0)
-        except asyncio.CancelledError:
-            pass
 
     async def timer_task(self, end_time: float):
         """Triggers shutdown after duration_limit."""
