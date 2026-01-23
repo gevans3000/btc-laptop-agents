@@ -1,7 +1,7 @@
 import os
 from typing import Any, Dict
 from laptop_agents.core.logger import logger
-from laptop_agents.core import hard_limits
+from laptop_agents import constants as hard_limits
 
 
 def validate_config(args: Any, strategy_config: Dict[str, Any]) -> None:

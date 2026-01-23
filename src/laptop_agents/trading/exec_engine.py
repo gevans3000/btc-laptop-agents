@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Callable
 
 from laptop_agents.core.logger import logger
-from laptop_agents.core import hard_limits
+from laptop_agents import constants as hard_limits
 from laptop_agents.trading.helpers import (
     Candle,
     utc_ts,

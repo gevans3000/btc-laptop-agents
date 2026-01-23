@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 
 from laptop_agents.core.logger import logger
 from laptop_agents.core.orchestrator import append_event, PAPER_DIR
-from laptop_agents.data.loader import load_bitunix_candles, load_mock_candles
+from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
 from laptop_agents.paper.broker import PaperBroker
 from laptop_agents.resilience.error_circuit_breaker import ErrorCircuitBreaker
 from laptop_agents.trading.signal import generate_signal
@@ -100,7 +100,6 @@ def run_timed_session(
     # Initialize components
     broker: Any = None
     if execution_mode == "live":
-        from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
         from laptop_agents.execution.bitunix_broker import BitunixBroker
         import os
 
@@ -203,9 +202,11 @@ def run_timed_session(
             try:
                 # Fetch fresh candles
                 if source == "bitunix":
-                    candles = load_bitunix_candles(symbol, interval, limit)
+                    candles = BitunixFuturesProvider.load_rest_candles(
+                        symbol, interval, limit
+                    )
                 else:
-                    candles = load_mock_candles(limit)
+                    candles = BitunixFuturesProvider.load_mock_candles(limit)
 
                 candles = normalize_candle_order(candles)
 

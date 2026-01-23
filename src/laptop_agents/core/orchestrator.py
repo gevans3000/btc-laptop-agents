@@ -12,12 +12,12 @@ from typing import Any, Dict, List, Optional
 
 # Core Logger
 from laptop_agents.core.logger import logger
-from laptop_agents.core import hard_limits
+from laptop_agents import constants as hard_limits
 from laptop_agents.trading.helpers import (
     Candle,
     normalize_candle_order,
 )
-from laptop_agents.data.loader import load_mock_candles, load_bitunix_candles
+from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
 from laptop_agents.agents.supervisor import Supervisor
 from laptop_agents.agents.state import State as AgentState
 from laptop_agents.core.validation import (
@@ -247,9 +247,9 @@ def run_orchestrated_mode(
 
     try:
         if source == "bitunix":
-            candles = load_bitunix_candles(symbol, interval, limit)
+            candles = BitunixFuturesProvider.load_rest_candles(symbol, interval, limit)
         else:
-            candles = load_mock_candles(max(int(limit), 200))
+            candles = BitunixFuturesProvider.load_mock_candles(max(int(limit), 200))
 
         candles = normalize_candle_order(candles)
 

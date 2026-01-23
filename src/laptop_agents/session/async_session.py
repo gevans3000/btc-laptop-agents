@@ -15,7 +15,7 @@ from pathlib import Path
 import math
 from typing import Any, Dict, List, Optional, Union
 
-from laptop_agents.data.providers.bitunix_ws import FatalError
+from laptop_agents.data.providers.bitunix_futures import FatalError
 from laptop_agents.core.logger import logger, write_alert
 from laptop_agents.core.orchestrator import (
     append_event,
@@ -28,9 +28,9 @@ from laptop_agents.trading.helpers import (
     DataEvent,
     normalize_candle_order,
 )
-from laptop_agents.data.loader import load_bitunix_candles
-from laptop_agents.core import hard_limits
-from laptop_agents.core.hard_limits import MAX_ERRORS_PER_SESSION
+from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
+from laptop_agents import constants as hard_limits
+from laptop_agents.constants import MAX_ERRORS_PER_SESSION
 from laptop_agents.constants import DEFAULT_SYMBOL
 
 
@@ -276,7 +276,7 @@ class AsyncRunner:
                         f"Seeding historical candles via REST (attempt {retry_count + 1}/5)..."
                     )
                     # Using max(100, min_history) logic from original
-                    self.candles = load_bitunix_candles(
+                    self.candles = BitunixFuturesProvider.load_rest_candles(
                         self.symbol, self.interval, limit=max(100, min_history)
                     )
                     self.candles = normalize_candle_order(self.candles)
@@ -674,7 +674,7 @@ Total Fees: ${total_fees:,.2f}
                                         )
                                         try:
                                             fetched = await asyncio.to_thread(
-                                                load_bitunix_candles,
+                                                BitunixFuturesProvider.load_rest_candles,
                                                 self.symbol,
                                                 self.interval,
                                                 min(missing_count + 5, 200),
@@ -837,7 +837,7 @@ Total Fees: ${total_fees:,.2f}
                     # Item 13: Offload checkpointing to threads
                     def do_checkpoint():
                         self.state_manager.set_circuit_breaker_state(
-                            self.circuit_breaker.get_status()
+                            {"state": self.circuit_breaker.state}
                         )
                         self.state_manager.set("starting_equity", self.starting_equity)
                         self.state_manager.save()
@@ -903,10 +903,9 @@ Total Fees: ${total_fees:,.2f}
                     now = time.time()
                     if now - self._last_rest_poll_time >= 15.0:
                         try:
-                            from laptop_agents.data.loader import load_bitunix_candles
-
+                            # Using the already imported BitunixFuturesProvider from top level
                             candles = await asyncio.to_thread(
-                                load_bitunix_candles,
+                                BitunixFuturesProvider.load_rest_candles,
                                 self.symbol,
                                 self.interval,
                                 2,
@@ -1229,9 +1228,6 @@ Total Fees: ${total_fees:,.2f}
                         f"CANDLE EXIT: {exit_event['reason']} @ {exit_event['price']}"
                     )
                     append_event({"event": "CandleExit", **exit_event}, paper=True)
-                    self.circuit_breaker.update_equity(
-                        self.broker.current_equity, exit_event.get("pnl", 0)
-                    )
 
         except Exception as e:
             logger.exception(f"Error in on_candle_closed: {e}")
@@ -1557,25 +1553,14 @@ Total Fees: ${total_fees:,.2f}
                             {"event": "ExecutionExit", **exit_event}, paper=True
                         )
 
-                    # Update circuit breaker
-                    trade_pnl = None
-                    for exit_event in events.get("exits", []):
-                        trade_pnl = exit_event.get("pnl", 0)
-
-                    self.circuit_breaker.update_equity(
-                        self.broker.current_equity, trade_pnl
-                    )
-
-                    if self.circuit_breaker.is_tripped():
-                        logger.warning(
-                            f"CIRCUIT BREAKER TRIPPED: {self.circuit_breaker.get_status()}"
-                        )
-                        self._request_shutdown("circuit_breaker_tripped")
+                    if not self.circuit_breaker.allow_request():
+                        logger.warning("CIRCUIT BREAKER OPEN")
+                        self._request_shutdown("circuit_breaker_open")
 
                     # Save state
                     if not self.dry_run:
                         self.state_manager.set_circuit_breaker_state(
-                            self.circuit_breaker.get_status()
+                            {"state": self.circuit_breaker.state}
                         )
                         self.state_manager.save()
                 except Exception as e:
@@ -1740,9 +1725,11 @@ async def run_async_session(
             logger.info("Using MOCK PROVIDER (simulated market data)")
 
         if runner.provider is None:
-            from laptop_agents.data.providers.bitunix_ws import BitunixWSProvider
+            from laptop_agents.data.providers.bitunix_futures import (
+                BitunixFuturesProvider,
+            )
 
-            runner.provider = BitunixWSProvider(symbol)
+            runner.provider = BitunixFuturesProvider(symbol=symbol)
             logger.info(f"Using default BITUNIX WEBSOCKET PROVIDER for {symbol}")
 
         # Handle OS signals

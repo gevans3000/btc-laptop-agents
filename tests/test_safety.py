@@ -2,7 +2,7 @@ from laptop_agents.resilience.error_circuit_breaker import (
     ErrorCircuitBreaker,
 )
 from unittest.mock import MagicMock
-from laptop_agents.core import hard_limits
+from laptop_agents import constants as hard_limits
 from laptop_agents.execution.bitunix_broker import BitunixBroker
 import time
 
