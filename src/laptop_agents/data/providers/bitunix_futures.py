@@ -27,10 +27,8 @@ from ...resilience import (
     log_event,
     log_provider_error,
 )
-from ...resilience.error_circuit_breaker import (
-    ErrorCircuitBreaker,
-    CircuitBreakerOpenError,
-)
+from ...core.resilience import ErrorCircuitBreaker
+from ...resilience.error_circuit_breaker import CircuitBreakerOpenError
 from ...core.rate_limiter import exchange_rate_limiter
 from ...core.logger import logger
 from ...trading.helpers import Tick, DataEvent, Candle

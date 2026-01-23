@@ -15,7 +15,7 @@ from laptop_agents.core.logger import logger
 from laptop_agents.core.orchestrator import append_event, PAPER_DIR
 from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
 from laptop_agents.paper.broker import PaperBroker
-from laptop_agents.resilience.error_circuit_breaker import ErrorCircuitBreaker
+from laptop_agents.core.resilience import ErrorCircuitBreaker
 from laptop_agents.trading.strategy import SMACrossoverStrategy
 from laptop_agents.trading.helpers import normalize_candle_order
 

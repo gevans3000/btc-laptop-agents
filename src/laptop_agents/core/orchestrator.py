@@ -239,7 +239,7 @@ def run_orchestrated_mode(
         }
     )
 
-    from laptop_agents.resilience.error_circuit_breaker import ErrorCircuitBreaker
+    from laptop_agents.core.resilience import ErrorCircuitBreaker
 
     circuit_breaker = ErrorCircuitBreaker(
         failure_threshold=5, recovery_timeout=120, time_window=60
