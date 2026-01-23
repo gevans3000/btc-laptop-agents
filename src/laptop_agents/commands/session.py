@@ -3,7 +3,7 @@ import os
 import time
 import signal
 import threading
-import argparse
+from types import SimpleNamespace
 from laptop_agents.core.logger import logger
 import typer
 from pathlib import Path
@@ -22,7 +22,88 @@ console = Console()
 LOCK_FILE = REPO_ROOT / ".agent" / "lockfile.pid"
 
 
-def run(ctx: typer.Context):
+def run(
+    source: str = typer.Option(
+        os.environ.get("LA_SOURCE", "mock"),
+        "--source",
+        help="Data source (mock or bitunix).",
+    ),
+    symbol: str = typer.Option(
+        os.environ.get("LA_SYMBOL", DEFAULT_SYMBOL),
+        "--symbol",
+        help="Trading symbol (default BTCUSDT).",
+    ),
+    interval: str = typer.Option(
+        os.environ.get("LA_INTERVAL", "1m"),
+        "--interval",
+        help="Candle interval.",
+    ),
+    limit: int = typer.Option(
+        int(os.environ.get("LA_LIMIT", "200")),
+        "--limit",
+        help="Candle fetch limit.",
+    ),
+    fees_bps: float = typer.Option(2.0, "--fees-bps", help="Fees in bps."),
+    slip_bps: float = typer.Option(0.5, "--slip-bps", help="Slippage in bps."),
+    backtest: int = typer.Option(0, "--backtest", help="Backtest length in days."),
+    backtest_mode: str = typer.Option(
+        "position",
+        "--backtest-mode",
+        help="Backtest mode (bar or position).",
+    ),
+    mode: str | None = typer.Option(
+        None,
+        "--mode",
+        help="Execution mode (single/backtest/live/validate/selftest/orchestrated/live-session).",
+    ),
+    duration: int = typer.Option(
+        int(os.environ.get("LA_DURATION", "10")),
+        "--duration",
+        help="Session duration in minutes.",
+    ),
+    once: bool = typer.Option(False, "--once", help="Run a single cycle and exit."),
+    execution_mode: str = typer.Option(
+        "paper", "--execution-mode", help="Execution mode (paper or live)."
+    ),
+    risk_pct: float = typer.Option(1.0, "--risk-pct", help="Risk percentage."),
+    stop_bps: float = typer.Option(30.0, "--stop-bps", help="Stop loss in bps."),
+    tp_r: float = typer.Option(1.5, "--tp-r", help="Take profit R multiple."),
+    max_leverage: float = typer.Option(1.0, "--max-leverage", help="Max leverage."),
+    intrabar_mode: str = typer.Option(
+        "conservative",
+        "--intrabar-mode",
+        help="Intrabar mode (conservative or optimistic).",
+    ),
+    validate_splits: int = typer.Option(5, "--validate-splits"),
+    validate_train: int = typer.Option(600, "--validate-train"),
+    validate_test: int = typer.Option(200, "--validate-test"),
+    grid: str = typer.Option(
+        "sma=10,30;stop=20,30,40;tp=1.0,1.5,2.0",
+        "--grid",
+        help="Validation grid definition.",
+    ),
+    validate_max_candidates: int = typer.Option(200, "--validate-max-candidates"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Dry run (no trades)."),
+    show: bool = typer.Option(False, "--show", help="Open summary after run."),
+    strategy: str = typer.Option(
+        os.environ.get("LA_STRATEGY", "default"),
+        "--strategy",
+        help="Strategy name.",
+    ),
+    async_mode: bool = typer.Option(
+        True,
+        "--async/--sync",
+        help="Use async session runner.",
+    ),
+    stale_timeout: int = typer.Option(120, "--stale-timeout"),
+    execution_latency_ms: int = typer.Option(200, "--execution-latency-ms"),
+    dashboard: bool = typer.Option(False, "--dashboard", help="Launch dashboard."),
+    preflight: bool = typer.Option(False, "--preflight", help="Run preflight checks."),
+    replay: str | None = typer.Option(None, "--replay", help="Replay path."),
+    config: str | None = typer.Option(None, "--config", help="Config file path."),
+    quiet: bool = typer.Option(False, "--quiet", help="Silence logs."),
+    verbose: bool = typer.Option(False, "--verbose", help="Verbose logs."),
+):
     """Wrapper for the main run logic."""
 
     lock = LockManager(LOCK_FILE)
@@ -34,70 +115,42 @@ def run(ctx: typer.Context):
 
     atexit.register(lock.release)
 
-    ap = argparse.ArgumentParser(description="Laptop Agents CLI")
-    ap.add_argument(
-        "--source",
-        choices=["mock", "bitunix"],
-        default=os.environ.get("LA_SOURCE", "mock"),
+    args = SimpleNamespace(
+        source=source,
+        symbol=symbol,
+        interval=interval,
+        limit=limit,
+        fees_bps=fees_bps,
+        slip_bps=slip_bps,
+        backtest=backtest,
+        backtest_mode=backtest_mode,
+        mode=mode,
+        duration=duration,
+        once=once,
+        execution_mode=execution_mode,
+        risk_pct=risk_pct,
+        stop_bps=stop_bps,
+        tp_r=tp_r,
+        max_leverage=max_leverage,
+        intrabar_mode=intrabar_mode,
+        validate_splits=validate_splits,
+        validate_train=validate_train,
+        validate_test=validate_test,
+        grid=grid,
+        validate_max_candidates=validate_max_candidates,
+        dry_run=dry_run,
+        show=show,
+        strategy=strategy,
+        async_mode=async_mode,
+        stale_timeout=stale_timeout,
+        execution_latency_ms=execution_latency_ms,
+        dashboard=dashboard,
+        preflight=preflight,
+        replay=replay,
+        config=config,
+        quiet=quiet,
+        verbose=verbose,
     )
-    ap.add_argument("--symbol", default=os.environ.get("LA_SYMBOL", DEFAULT_SYMBOL))
-    ap.add_argument("--interval", default=os.environ.get("LA_INTERVAL", "1m"))
-    ap.add_argument("--limit", type=int, default=int(os.environ.get("LA_LIMIT", "200")))
-    ap.add_argument("--fees-bps", type=float, default=2.0)
-    ap.add_argument("--slip-bps", type=float, default=0.5)
-    ap.add_argument("--backtest", type=int, default=0)
-    ap.add_argument("--backtest-mode", choices=["bar", "position"], default="position")
-    ap.add_argument(
-        "--mode",
-        choices=[
-            "single",
-            "backtest",
-            "live",
-            "validate",
-            "selftest",
-            "orchestrated",
-            "live-session",
-        ],
-        default=None,
-    )
-    ap.add_argument(
-        "--duration", type=int, default=int(os.environ.get("LA_DURATION", "10"))
-    )
-    ap.add_argument("--once", action="store_true", default=False)
-    ap.add_argument("--execution-mode", choices=["paper", "live"], default="paper")
-    ap.add_argument("--risk-pct", type=float, default=1.0)
-    ap.add_argument("--stop-bps", type=float, default=30.0)
-    ap.add_argument("--tp-r", type=float, default=1.5)
-    ap.add_argument("--max_leverage", type=float, default=1.0)
-    ap.add_argument(
-        "--intrabar-mode",
-        choices=["conservative", "optimistic"],
-        default="conservative",
-    )
-    ap.add_argument("--validate-splits", type=int, default=5)
-    ap.add_argument("--validate-train", type=int, default=600)
-    ap.add_argument("--validate-test", type=int, default=200)
-    ap.add_argument(
-        "--grid", type=str, default="sma=10,30;stop=20,30,40;tp=1.0,1.5,2.0"
-    )
-    ap.add_argument("--validate-max-candidates", type=int, default=200)
-    ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--show", action="store_true")
-    ap.add_argument(
-        "--strategy", type=str, default=os.environ.get("LA_STRATEGY", "default")
-    )
-    ap.add_argument("--async", dest="async_mode", action="store_true", default=True)
-    ap.add_argument("--sync", dest="async_mode", action="store_false")
-    ap.add_argument("--stale-timeout", type=int, default=120)
-    ap.add_argument("--execution-latency-ms", type=int, default=200)
-    ap.add_argument("--dashboard", action="store_true")
-    ap.add_argument("--preflight", action="store_true")
-    ap.add_argument("--replay", type=str, default=None)
-    ap.add_argument("--config", type=str, default=None)
-    ap.add_argument("--quiet", action="store_true")
-    ap.add_argument("--verbose", action="store_true")
-
-    args = ap.parse_args(ctx.args)
 
     def signal_handler(sig, frame):
         console.print("\n[bold red]!!! SHUTTING DOWN !!![/bold red]")
