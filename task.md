@@ -31,9 +31,9 @@
 - [x] Add `scripts/README.md` with canonical tools table
 - [ ] Run `/go` workflow
 
-## Phase 6: Config Mutable Default Fix [READY]
-- [ ] In `core/config.py`, change `params: Dict[str, Any] = {}` -> `Field(default_factory=dict)` and import `Field`
-- [ ] Verify no mutable dict defaults remain
+## Phase 6: Config Mutable Default Fix [FINISHED]
+- [x] In `core/config.py`, change `params: Dict[str, Any] = {}` -> `Field(default_factory=dict)` and import `Field`
+- [x] Verify no mutable dict defaults remain
 - [ ] Run `/go` workflow
 
 ## Phase 7: CLI Argparse Removal [BLOCKED on Phase 6]
