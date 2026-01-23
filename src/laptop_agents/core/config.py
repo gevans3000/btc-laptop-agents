@@ -15,7 +15,7 @@ class RiskConfig(BaseModel):
 
 class StrategyConfig(BaseModel):
     name: str = "default"
-    params: Dict[str, Any] = {}
+    params: Dict[str, Any] = Field(default_factory=dict)
     risk: RiskConfig = Field(default_factory=RiskConfig)
 
 
@@ -104,6 +104,6 @@ def load_session_config(
 class RunResult(BaseModel):
     success: bool
     exit_code: int = 0
-    errors: List[str] = []
-    artifacts: Dict[str, str] = {}
-    summary: Dict[str, Any] = {}
+    errors: List[str] = Field(default_factory=list)
+    artifacts: Dict[str, str] = Field(default_factory=dict)
+    summary: Dict[str, Any] = Field(default_factory=dict)
