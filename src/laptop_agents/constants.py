@@ -3,6 +3,12 @@ from pathlib import Path
 # Repository paths
 HERE = Path(__file__).parent.resolve()
 REPO_ROOT = HERE.parent.parent
+WORKSPACE_DIR = REPO_ROOT / ".workspace"
+WORKSPACE_RUNS_DIR = WORKSPACE_DIR / "runs"
+WORKSPACE_PAPER_DIR = WORKSPACE_DIR / "paper"
+WORKSPACE_LOGS_DIR = WORKSPACE_DIR / "logs"
+WORKSPACE_LOCKS_DIR = WORKSPACE_DIR / "locks"
+AGENT_PID_FILE = WORKSPACE_DIR / "agent.pid"
 
 # Default settings
 DEFAULT_SYMBOL = "BTCUSDT"

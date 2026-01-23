@@ -5,13 +5,12 @@ import time
 import typer
 from rich.console import Console
 from rich.table import Table
-from laptop_agents.constants import REPO_ROOT
+from laptop_agents.constants import AGENT_PID_FILE, REPO_ROOT
 from laptop_agents.core.lock_manager import LockManager
 from laptop_agents.core.events import RUNS_DIR
 
 console = Console()
-AGENT_PID_FILE = REPO_ROOT / ".workspace" / "agent.pid"
-LOCK_FILE = REPO_ROOT / ".agent" / "lockfile.pid"
+LOCK_FILE = AGENT_PID_FILE
 
 
 def status():
@@ -83,7 +82,7 @@ def doctor(
 
     if fix:
         workspace_dir = REPO_ROOT / ".workspace"
-        for sub in ["runs", "logs", "paper"]:
+        for sub in ["runs", "logs", "paper", "locks"]:
             (workspace_dir / sub).mkdir(parents=True, exist_ok=True)
         console.print("[green]Verified .workspace/ structure.[/green]")
 

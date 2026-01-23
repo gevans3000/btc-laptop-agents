@@ -21,7 +21,13 @@ from laptop_agents.trading.helpers import (
     Tick,
 )
 from laptop_agents import constants as hard_limits
-from laptop_agents.constants import DEFAULT_SYMBOL, REPO_ROOT
+from laptop_agents.constants import (
+    DEFAULT_SYMBOL,
+    REPO_ROOT,
+    WORKSPACE_DIR,
+    WORKSPACE_LOCKS_DIR,
+    WORKSPACE_PAPER_DIR,
+)
 from laptop_agents.session.session_state import (
     AsyncSessionResult,
     build_session_result,
@@ -43,6 +49,7 @@ from laptop_agents.session.reporting import (
 )
 from laptop_agents.core.state_manager import StateManager
 from laptop_agents.core.resilience import ErrorCircuitBreaker
+from laptop_agents.core.lock_manager import LockManager
 from laptop_agents.paper.broker import PaperBroker
 from laptop_agents.execution.bitunix_broker import BitunixBroker
 from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
@@ -99,7 +106,7 @@ class AsyncRunner:
         self.consecutive_ws_errors = 0
         self.stale_restart_attempts = 0
         self.max_stale_restarts = 3
-        self.kill_file = REPO_ROOT / "kill.txt"
+        self.kill_file = WORKSPACE_DIR / "kill.txt"
         self.kill_switch_triggered = False
         self.execution_latency_ms = execution_latency_ms
         self.status = "initializing"
@@ -115,8 +122,8 @@ class AsyncRunner:
         self.last_candle_ts: Optional[str] = None
 
         # Create session-specific workspace
-        self.state_dir = state_dir or Path("paper")
-        self.state_dir.mkdir(exist_ok=True)
+        self.state_dir = Path(state_dir) if state_dir else WORKSPACE_PAPER_DIR
+        self.state_dir.mkdir(parents=True, exist_ok=True)
 
         self.state_manager = StateManager(self.state_dir)
 
@@ -126,7 +133,7 @@ class AsyncRunner:
         )
 
         self.provider: Any = provider
-        state_path = str(self.state_dir / "async_broker_state.json")
+        state_path = str(self.state_dir / "broker_state.db")
 
         self.broker: Union[PaperBroker, BitunixBroker]
 
@@ -413,41 +420,23 @@ async def run_async_session(
     dry_run: bool = False,
     replay_path: Optional[str] = None,
     execution_mode: str = "paper",
+    state_dir: Optional[Path] = None,
 ) -> AsyncSessionResult:
     """Entry point for the async session."""
 
-    # Startup Safety - PID Locking
-    lock_path = Path("paper/async_session.lock")
-    lock_path.parent.mkdir(exist_ok=True)
-    try:
-        # atomic 'x' mode (fails if file exists)
-        with open(lock_path, "x") as f:
-            f.write(str(os.getpid()))
-    except FileExistsError:
-        try:
-            existing_pid = None
-            with open(lock_path, "r") as f:
-                pid_str = f.read().strip()
-                if pid_str.isdigit():
-                    existing_pid = int(pid_str)
-            if existing_pid and not psutil.pid_exists(existing_pid):
-                lock_path.unlink(missing_ok=True)
-                with open(lock_path, "x") as f:
-                    f.write(str(os.getpid()))
-            else:
-                logger.error(
-                    "Session already running (lock file exists: paper/async_session.lock)"
-                )
-                # Return a result indicating it didn't run
-                return AsyncSessionResult(stopped_reason="already_running")
-        except Exception as e:
-            logger.error(f"Failed to validate existing lock file: {e}")
-            return AsyncSessionResult(stopped_reason="already_running")
-    except Exception as e:
-        logger.warning(f"Could not create PID lock file: {e}")
+    effective_state_dir = Path(state_dir) if state_dir else WORKSPACE_PAPER_DIR
+
+    # Startup Safety - PID Locking (single source of truth under .workspace/)
+    WORKSPACE_LOCKS_DIR.mkdir(parents=True, exist_ok=True)
+    lock = LockManager(WORKSPACE_LOCKS_DIR / "async_session.pid")
+    if not lock.acquire():
+        logger.error(
+            "Session already running (lock file exists: .workspace/locks/async_session.pid)"
+        )
+        return AsyncSessionResult(stopped_reason="already_running")
 
     # Reference Persistence: Restore starting_equity from local state if available
-    unified_state_path = Path("paper/unified_state.json")
+    unified_state_path = effective_state_dir / "unified_state.json"
     original_starting_balance = starting_balance
     starting_balance = restore_starting_balance(unified_state_path, starting_balance)
 
@@ -468,6 +457,7 @@ async def run_async_session(
             dry_run=dry_run,
             provider=None,
             execution_mode=execution_mode,
+            state_dir=effective_state_dir,
         )
 
         # Determine Provider based on config/path
@@ -525,17 +515,10 @@ async def run_async_session(
     except Exception as top_e:
         logger.error(f"Fatal error in async session setup: {top_e}")
     finally:
-        # Cleanup PID lock
-        if lock_path.exists():
-            try:
-                lock_path.unlink()
-            except Exception:
-                pass
-
-    if runner:
-        return build_session_result(runner)
-    else:
-        return AsyncSessionResult(stopped_reason="init_failed")
+        try:
+            lock.release()
+        except Exception:
+            pass
 
     if runner:
         return build_session_result(runner)

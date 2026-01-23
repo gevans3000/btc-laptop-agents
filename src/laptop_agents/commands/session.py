@@ -8,7 +8,7 @@ from laptop_agents.core.logger import logger
 import typer
 from pathlib import Path
 from rich.console import Console
-from laptop_agents.constants import REPO_ROOT, DEFAULT_SYMBOL
+from laptop_agents.constants import AGENT_PID_FILE, DEFAULT_SYMBOL
 from laptop_agents.core.lock_manager import LockManager
 from laptop_agents.core.orchestrator import LATEST_DIR
 from laptop_agents.core.config import load_session_config
@@ -19,7 +19,7 @@ from laptop_agents.core.orchestrator import (
 )
 
 console = Console()
-LOCK_FILE = REPO_ROOT / ".agent" / "lockfile.pid"
+LOCK_FILE = AGENT_PID_FILE
 
 
 def run(

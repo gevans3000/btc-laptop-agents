@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 
 from laptop_agents.core.logger import logger
 from laptop_agents.core.orchestrator import append_event, PAPER_DIR
+from laptop_agents.constants import WORKSPACE_DIR
 from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
 from laptop_agents.paper.broker import PaperBroker
 from laptop_agents.core.resilience import ErrorCircuitBreaker
@@ -119,7 +120,7 @@ def run_timed_session(
         broker = BitunixBroker(provider)
         logger.info(f"Live session initialized with BitunixBroker for {symbol}")
     else:
-        state_path = str(PAPER_DIR / "broker_state.json")
+        state_path = str(PAPER_DIR / "broker_state.db")
         broker = PaperBroker(
             symbol=symbol,
             fees_bps=fees_bps,
@@ -164,7 +165,7 @@ def run_timed_session(
 
         while time.time() < end_time:
             # Check for kill switch
-            kill_file = Path("kill.txt")
+            kill_file = WORKSPACE_DIR / "kill.txt"
             if kill_file.exists():
                 logger.warning("KILL SWITCH ACTIVATED: kill.txt detected")
                 try:

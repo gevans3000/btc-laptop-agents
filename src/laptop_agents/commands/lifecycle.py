@@ -4,10 +4,9 @@ import subprocess
 import psutil
 import typer
 from rich.console import Console
-from laptop_agents.constants import REPO_ROOT, DEFAULT_SYMBOL
+from laptop_agents.constants import AGENT_PID_FILE, REPO_ROOT, DEFAULT_SYMBOL
 
 console = Console()
-AGENT_PID_FILE = REPO_ROOT / ".workspace" / "agent.pid"
 
 
 def start(
@@ -85,7 +84,7 @@ def start(
 
 
 def stop():
-    """Kill running session using PID file or process search."""
+    """Stop a running session using the PID file (single source of truth)."""
     pid = None
     if AGENT_PID_FILE.exists():
         try:
@@ -110,28 +109,14 @@ def stop():
         except psutil.NoSuchProcess:
             pass
 
-    console.print(
-        "[yellow]PID file missing or invalid. Searching for run.py processes...[/yellow]"
-    )
-    found = False
-    for p in psutil.process_iter(["pid", "cmdline"]):
+    if AGENT_PID_FILE.exists():
+        # Stale PID file (process not found). Clean it up to unblock subsequent runs.
         try:
-            cmdline = p.info.get("cmdline")
-            if (
-                cmdline
-                and any("run.py" in arg for arg in cmdline)
-                and any("python" in arg.lower() for arg in cmdline)
-            ):
-                console.print(f"Killing process {p.info['pid']}...")
-                p.terminate()
-                found = True
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
+            AGENT_PID_FILE.unlink()
+        except Exception:
+            pass
 
-    if found:
-        console.print("[green]Processes stopped.[/green]")
-    else:
-        console.print("[red]No running agent found.[/red]")
+    console.print("[red]No running agent found (missing/stale PID file).[/red]")
 
 
 def watch(

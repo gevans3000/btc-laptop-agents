@@ -12,7 +12,7 @@ app = Flask(__name__)
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 WORKSPACE_DIR = REPO_ROOT / ".workspace"
 HEARTBEAT_PATH = WORKSPACE_DIR / "logs" / "heartbeat.json"
-BROKER_STATE_PATH = WORKSPACE_DIR / "paper" / "async_broker_state.json"
+BROKER_STATE_PATH = WORKSPACE_DIR / "paper" / "broker_state.json"
 EVENTS_PATH = WORKSPACE_DIR / "paper" / "events.jsonl"
 LOG_PATH = WORKSPACE_DIR / "logs" / "system.jsonl"
 

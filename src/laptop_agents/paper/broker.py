@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import math
 from typing import Any, Dict, List, Optional
 from laptop_agents import constants as hard_limits
@@ -819,6 +820,22 @@ class PaperBroker:
             }
 
         self.store.save_state(self.symbol, state)
+
+        # Lightweight JSON snapshot for dashboards/debugging (SQLite remains source of truth).
+        try:
+            if self.state_path:
+                snapshot_path = Path(self.state_path).with_suffix(".json")
+                tmp = snapshot_path.with_suffix(".tmp")
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(state, f, indent=2)
+                    f.flush()
+                    import os
+
+                    os.fsync(f.fileno())
+                os.replace(tmp, snapshot_path)
+        except Exception as e:
+            # Do not mask SQLite persistence errors; this snapshot is best-effort.
+            logger.warning(f"Failed to write broker_state.json snapshot: {e}")
 
     def _load_state(self) -> None:
         if not self.store:
