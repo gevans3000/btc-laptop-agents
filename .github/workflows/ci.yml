@@ -5,7 +5,10 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -18,12 +21,12 @@ jobs:
       - run: pip install -r requirements.lock
       - run: pip install -e .[test]
       - run: python -c "import laptop_agents; print('ok')"
-      - run: pip install build mypy pip-audit
+      - run: pip install build mypy pip-audit pytest-cov
       - run: python -m build
       - run: python -m compileall src
       - run: ruff check src tests
       - run: ruff format --check src tests
-      - run: pytest -q --tb=short
+      - run: pytest -q --tb=short --cov=laptop_agents --cov-report=xml --cov-fail-under=50
       - run: mypy src/laptop_agents --ignore-missing-imports --no-error-summary
       - run: pip-audit
       - run: la --help

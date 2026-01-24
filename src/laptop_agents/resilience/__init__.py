@@ -7,6 +7,13 @@ from .errors import (
     AuthProviderError,
     UnknownProviderError,
 )
+from .exceptions import (
+    TradingException,
+    PositionError,
+    PersistenceError,
+    OrderRejectedError,
+    BrokerConnectionError,
+)
 from .retry import with_retry, retry_with_backoff, RetryPolicy
 from .error_circuit_breaker import ErrorCircuitBreaker, CircuitBreakerOpenError
 from .log import log_event, log_provider_error
@@ -22,6 +29,11 @@ __all__ = [
     "RateLimitProviderError",
     "AuthProviderError",
     "UnknownProviderError",
+    "TradingException",
+    "PositionError",
+    "PersistenceError",
+    "OrderRejectedError",
+    "BrokerConnectionError",
     "with_retry",
     "retry_with_backoff",
     "RetryPolicy",

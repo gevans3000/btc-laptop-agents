@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 import json
 
 
@@ -37,8 +37,8 @@ class SessionConfig(BaseModel):
 
         return REPO_ROOT / ".workspace"
 
-    @validator("symbol")
-    def normalize_symbol(cls, v):
+    @field_validator("symbol", mode="before")
+    def normalize_symbol(cls, v: str) -> str:
         """
         Normalize trading symbol (e.g. BTC/USDT -> BTCUSDT).
         Default is BTCUSDT if not specified via Env (LA_SYMBOL) or Args.
