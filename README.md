@@ -49,5 +49,14 @@ See **[ENGINEER.md](docs/ENGINEER.md#3-configuration-formats--precedence)** for 
 - **Hermetic Workspace**: All logs, state, and artifacts live in `.workspace/`.
 - **Resilience**: Integrated "Circuit Breakers" and "Zombie Connection" detection.
 
+## ⚙️ Reproducibility (CI)
+This repository uses a `requirements.lock` file to ensure strictly reproducible builds in CI and production.
+- To update dependencies: Modify `pyproject.toml` and run `pip-compile`.
+- To install exactly as CI: `pip install -r requirements.lock`.
+
+## 🛡️ Architecture
+- **Async Outer Shell**: The `AsyncRunner` handles high-concurrency tasks like WebSocket ingestion, heartbeats, and watchdog monitoring.
+- **Sync Domain Logic**: Agent decision-making (Supervisor) is strictly synchronous. This guarantees deterministic behavior and prevents race conditions within the trading strategy, making it optimized for "laptop-scale" performance.
+
 ## 🤝 Contributing
 See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for workflows.
