@@ -1,4 +1,5 @@
 """Risk validation logic for PaperBroker."""
+
 from __future__ import annotations
 import math
 import time
@@ -8,6 +9,7 @@ from laptop_agents import constants as hard_limits
 from laptop_agents.core.events import append_event
 from laptop_agents.core.logger import logger
 
+
 class BrokerRiskInterface(Protocol):
     symbol: str
     order_timestamps: List[float]
@@ -15,6 +17,7 @@ class BrokerRiskInterface(Protocol):
     min_trade_interval_sec: float
     starting_equity: float
     max_position_per_symbol: Dict[str, float]
+
 
 def validate_risk_limits(
     broker: BrokerRiskInterface,

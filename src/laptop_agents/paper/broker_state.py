@@ -1,4 +1,5 @@
 """State persistence mixin for PaperBroker."""
+
 from __future__ import annotations
 import time
 import yaml
@@ -11,6 +12,7 @@ from laptop_agents.resilience.exceptions import PersistenceError
 
 if TYPE_CHECKING:
     from ..storage.position_store import PositionStore
+
 
 class BrokerStateInterface(Protocol):
     symbol: str
@@ -25,11 +27,12 @@ class BrokerStateInterface(Protocol):
     exchange_fees: Dict[str, float]
     max_position_per_symbol: Dict[str, float]
 
+
 class BrokerStateMixin:
     """Mixin for PaperBroker to handle saving/loading state and config."""
-    
+
     def _save_state(self: Any) -> None:
-        if not hasattr(self, 'store') or not self.store:
+        if not hasattr(self, "store") or not self.store:
             return
 
         state = {
@@ -59,7 +62,7 @@ class BrokerStateMixin:
         self.store.save_state(self.symbol, state)
 
     def _load_state(self: Any) -> None:
-        if not hasattr(self, 'store') or not self.store:
+        if not hasattr(self, "store") or not self.store:
             return
 
         state = self.store.load_state(self.symbol)

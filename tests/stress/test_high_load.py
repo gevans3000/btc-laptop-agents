@@ -82,6 +82,7 @@ async def test_high_load_stress():
 
     # Use temp directory to avoid WinError 32
     import tempfile
+
     with tempfile.TemporaryDirectory(prefix="stress_test_") as tmp_dir:
         state_dir = Path(tmp_dir)
 
@@ -96,7 +97,7 @@ async def test_high_load_stress():
             state_dir=state_dir,
             dry_run=True,
         )
-        
+
         # Disable circuit breaker for stress testing throughput
         runner.circuit_breaker.max_daily_drawdown_pct = 100.0
         runner.circuit_breaker.max_consecutive_losses = 999

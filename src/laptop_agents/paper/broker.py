@@ -39,7 +39,7 @@ class PaperBroker(BrokerStateMixin):
         self.rng = random.Random(random_seed)
         self.last_trade_time: float = 0.0
         self.min_trade_interval_sec: float = 60.0  # 1 minute minimum between trades
-        self.pos = None # type: ignore  # type: ignore
+        self.pos = None  # type: ignore  # type: ignore
         self.is_inverse = self.symbol.endswith("USD") and not self.symbol.endswith(
             "USDT"
         )
@@ -103,7 +103,7 @@ class PaperBroker(BrokerStateMixin):
 
             if exit_event:
                 events["exits"].append(exit_event)
-                self.pos = None # type: ignore
+                self.pos = None  # type: ignore
 
         # 2) open new position if none
         if self.pos is None and order and order.get("go"):
@@ -122,7 +122,7 @@ class PaperBroker(BrokerStateMixin):
             exit_event = self._check_tick_exit(tick)
             if exit_event:
                 events["exits"].append(exit_event)
-                self.pos = None # type: ignore
+                self.pos = None  # type: ignore
                 if self.state_path:
                     self._save_state()
         return events
@@ -211,7 +211,7 @@ class PaperBroker(BrokerStateMixin):
         }
         self.order_history.append(close_event)
         if self.pos.qty <= 0.00000001:
-            self.pos = None # type: ignore
+            self.pos = None  # type: ignore
 
         if self.state_path:
             self._save_state()
@@ -662,7 +662,7 @@ class PaperBroker(BrokerStateMixin):
         exit_event = self._exit(
             datetime.now(timezone.utc).isoformat(), current_price, "FORCE_CLOSE"
         )
-        self.pos = None # type: ignore
+        self.pos = None  # type: ignore
         return [exit_event]
 
     def apply_funding(self, rate: float, ts: str) -> None:

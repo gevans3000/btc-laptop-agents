@@ -300,9 +300,7 @@ def _run_orchestration_loop(
 ) -> tuple[float, List[Dict[str, Any]]]:
     broker: BrokerProtocol = supervisor.broker
     current_equity = (
-        broker.current_equity
-        if hasattr(broker, "current_equity")
-        else 10000.0
+        broker.current_equity if hasattr(broker, "current_equity") else 10000.0
     )
     equity_history = []
 
@@ -339,9 +337,7 @@ def _run_orchestration_loop(
         except Exception as step_error:
             logger.error(f"Step Failed at {i}: {step_error}")
             circuit_breaker.record_failure()
-            if circuit_breaker.state == "OPEN" and hasattr(
-                broker, "shutdown"
-            ):
+            if circuit_breaker.state == "OPEN" and hasattr(broker, "shutdown"):
                 broker.shutdown()
     return current_equity, equity_history
 
