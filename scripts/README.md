@@ -33,13 +33,8 @@ This directory contains utility scripts for development, testing, and operations
 ### Special Files & Archive
 - **`sitecustomize.py`**: Python startup customization for local dev
 
-### 📦 Archived (In `scripts/archive/`)
-- **`check_live_ready.py`**: Replaced by `la doctor`
-- **`check_version.py`**: Legacy version checker
-- **`check_bitunix_info.py`**: Legacy Bitunix info script
-- **`lenovo_local_check.ps1`**: Hardware-specific checks
-- **`test_everything.py`**: Legacy test runner
-- **`audit_plan.py`**: Legacy audit tool
+### Archived
+Archived scripts have been removed from this directory. Use `la doctor` for readiness checks.
 
 ## Usage Patterns
 
@@ -55,7 +50,7 @@ This directory contains utility scripts for development, testing, and operations
 
 ### Verify Live Trading Readiness
 ```bash
-python scripts/check_live_ready.py
+la doctor
 ```
 
 ### Monitor Active Session
@@ -65,6 +60,6 @@ python scripts/monitor_heartbeat.py
 
 ## Maintenance Notes
 
-- Scripts in `archive/` are deprecated and kept for reference only
+- Deprecated scripts are removed from this directory to avoid drift
 - PowerShell scripts are Windows-specific; Python scripts are cross-platform
 - All diagnostic scripts should be safe to run in read-only mode
