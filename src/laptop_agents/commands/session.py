@@ -14,9 +14,9 @@ from laptop_agents.core.orchestrator import LATEST_DIR
 from laptop_agents.core.config import load_session_config, load_strategy_config
 from laptop_agents.core.orchestrator import (
     run_orchestrated_mode,
-    run_legacy_orchestration,
     append_event,
 )
+from laptop_agents.core.legacy import run_legacy_orchestration
 
 console = Console()
 LOCK_FILE = AGENT_PID_FILE
