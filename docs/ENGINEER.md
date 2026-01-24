@@ -137,3 +137,22 @@ For historical issues and automated fixes, see the [Known Issues Database](troub
 - **Unified session state**: `.workspace/paper/unified_state.json` (circuit breaker state, starting equity, supervisor state).
 - **Paper broker state (source of truth)**: `.workspace/paper/broker_state.db` (SQLite WAL). A best-effort JSON snapshot is written alongside as `broker_state.json`.
 - **Logs/artifacts**: `.workspace/` (see runs, logs, and reports).
+---
+
+## 8. Session Lifecycle (AsyncRunner State Machine)
+
+The `AsyncRunner` manages the autonomous session lifecycle through deterministic state transitions.
+
+### Lifecycle States
+1.  **INITIALIZING**: Validates config, seeds historical candles via REST, and creates the backup thread (watchdog).
+2.  **RUNNING**: Consumes `Provider.listen()` (WebSocket or Replay).
+    - **Step Execution**: `Supervisor.step()` -> `Broker.on_candle()` -> `Watchdog.on_tick()`.
+    - **Heartbeat**: Every 10 iterations, a heartbeat file is written to `.workspace/logs/heartbeat.json`.
+3.  **STOPPING**: Triggered by duration limit, signal (Ctrl+C), or fatal error (kill switch, memory limit).
+    - **Graceful Termination**: Broker cancels working orders; state is flushed to SQLite and JSON.
+4.  **TERMINATED**: PID file removed, metrics exported to `latest/metrics.json`, and HTML report generated.
+
+### Safety Guards
+- **Hardware Watchdog**: Independent thread kills the process if the main loop freezes for >60s.
+- **Memory Sentinel**: Process kills itself if RSS exceeds `LA_MAX_MEMORY_MB` (default 1500MB).
+- **Kill Switch**: Environment variable `LA_KILL_SWITCH=TRUE` causes immediate exit on the next loop iteration.

@@ -8,9 +8,10 @@ import aiohttp
 import math
 import random
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, AsyncGenerator, Union
 import tenacity
+from .mock import MockProvider
 
 import httpx
 
@@ -537,33 +538,27 @@ class BitunixFuturesProvider:
         )
         return payload.get("data") or []
 
-    @staticmethod
-    def load_mock_candles(n: int = 200) -> List[Candle]:
-        """Generate fake market data for testing."""
-        candles: List[Candle] = []
-        price = 100_000.0
-        random.seed(42)
-
-        for i in range(n):
-            price += 10.0 + (random.random() - 0.5) * 400.0
-            range_size = 300.0 + random.random() * 200.0
-            o = price - (random.random() - 0.5) * range_size * 0.5
-            c = price + (random.random() - 0.5) * range_size * 0.5
-            h = max(o, c) + random.random() * range_size * 0.4
-            low_val = min(o, c) - random.random() * range_size * 0.4
-
-            ts_obj = datetime.now(timezone.utc) - timedelta(minutes=(n - i))
-            candles.append(
-                Candle(
-                    ts=ts_obj.isoformat(),
-                    open=o,
-                    high=h,
-                    low=low_val,
-                    close=c,
-                    volume=1.0,
-                )
-            )
-        return candles
+    def get_instrument_info(self, symbol: Optional[str] = None) -> Dict[str, Any]:
+        """Fetch precision and size limits for the symbol."""
+        pairs = self.trading_pairs()
+        sym = symbol or self.symbol
+        for p in pairs:
+            if p.get("symbol") == sym or p.get("symbolName") == sym:
+                return {
+                    "tickSize": float(p.get("tickSize", 0.01)),
+                    "lotSize": float(p.get("lotSize", 0.001)),
+                    "minQty": float(p.get("minQty", 0.001)),
+                    "maxQty": float(p.get("maxQty", 100.0)),
+                    "minNotional": 5.0,  # Default as Bitunix doesn't always return this explicitly in same field
+                }
+        # Fallback defaults
+        return {
+            "tickSize": 0.01,
+            "lotSize": 0.001,
+            "minQty": 0.001,
+            "maxQty": 1000.0,
+            "minNotional": 5.0,
+        }
 
     @staticmethod
     def wait_rate_limit(retry_state: tenacity.RetryCallState) -> float:
@@ -622,8 +617,8 @@ class BitunixFuturesProvider:
         """Entry point for many orchestration flows to get candle history."""
         if source == "mock":
             if mode == "validate":
-                return cls.load_mock_candles(validate_train + validate_test)
-            return cls.load_mock_candles(limit)
+                return MockProvider.load_mock_candles(validate_train + validate_test)
+            return MockProvider.load_mock_candles(limit)
 
         # For Bitunix live/rest
         provider = cls(symbol=symbol)

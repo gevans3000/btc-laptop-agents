@@ -12,4 +12,5 @@ class AgentResult:
 class Agent(Protocol):
     name: str
 
-    def run(self, task: str) -> AgentResult: ...
+    def run(self, task: str) -> AgentResult:
+        ...

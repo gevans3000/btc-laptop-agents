@@ -33,6 +33,7 @@ class Supervisor:
         cfg: Dict[str, Any],
         journal_path: str = "data/paper_journal.jsonl",
         broker: Optional[Any] = None,
+        instrument_info: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.provider = provider
         self.cfg = cfg
@@ -49,7 +50,9 @@ class Supervisor:
         )
         self.a3 = SetupSignalAgent(cfg["setups"])
         self.cvd_agent = CvdDivergenceAgent(cfg.get("cvd", {}))
-        self.a4 = ExecutionRiskSentinelAgent(cfg["risk"])
+        self.a4 = ExecutionRiskSentinelAgent(
+            cfg["risk"], instrument_info=instrument_info
+        )
         self.risk_gate = RiskGateAgent(
             cfg.get("risk", {})
         )  # Use risk cfg for max_risk checks

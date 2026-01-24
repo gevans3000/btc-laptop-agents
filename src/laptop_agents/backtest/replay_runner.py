@@ -105,3 +105,13 @@ class ReplayProvider:
 
     def stop(self):
         self._running = False
+
+    def get_instrument_info(self, symbol: str) -> dict:
+        """Fallback instrument info for replay mode."""
+        return {
+            "tickSize": 0.01,
+            "lotSize": 0.001,
+            "minQty": 0.001,
+            "maxQty": 1000.0,
+            "minNotional": 5.0,
+        }

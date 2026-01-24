@@ -224,7 +224,9 @@ def _load_market_data(
     if source == "bitunix":
         candles = BitunixFuturesProvider.load_rest_candles(symbol, interval, limit)
     else:
-        candles = BitunixFuturesProvider.load_mock_candles(max(int(limit), 200))
+        from laptop_agents.data.providers.mock import MockProvider
+
+        candles = MockProvider.load_mock_candles(max(int(limit), 200))
 
     candles = normalize_candle_order(candles)
     if len(candles) < 51:

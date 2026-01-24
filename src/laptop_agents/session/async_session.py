@@ -153,8 +153,23 @@ class AsyncRunner:
                 logger.info("Strategy configuration validated successfully.")
 
                 # Pre-initialize supervisor and state for performance
+                instrument_info = None
+                if self.provider:
+                    try:
+                        instrument_info = self.provider.get_instrument_info(self.symbol)
+                        logger.info(
+                            f"Instrument info fetched for {self.symbol}: {instrument_info}"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to fetch instrument info for {self.symbol}, using defaults: {e}"
+                        )
+
                 self.supervisor = Supervisor(
-                    provider=None, cfg=self.strategy_config, broker=self.broker
+                    provider=self.provider,
+                    cfg=self.strategy_config,
+                    broker=self.broker,
+                    instrument_info=instrument_info,
                 )
                 self.agent_state = AgentState(
                     instrument=self.symbol, timeframe=self.interval

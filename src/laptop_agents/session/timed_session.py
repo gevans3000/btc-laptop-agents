@@ -206,7 +206,9 @@ def run_timed_session(
                         symbol, interval, limit
                     )
                 else:
-                    candles = BitunixFuturesProvider.load_mock_candles(limit)
+                    from laptop_agents.data.providers.mock import MockProvider
+
+                    candles = MockProvider.load_mock_candles(limit)
 
                 candles = normalize_candle_order(candles)
 

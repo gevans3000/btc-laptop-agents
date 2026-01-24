@@ -10,8 +10,11 @@ class ExecutionRiskSentinelAgent:
 
     name = "execution_risk_sentinel"
 
-    def __init__(self, risk_cfg: Dict[str, Any]) -> None:
+    def __init__(
+        self, risk_cfg: Dict[str, Any], instrument_info: Optional[Dict[str, Any]] = None
+    ) -> None:
         self.risk_cfg = risk_cfg
+        self.instrument_info = instrument_info or {}
 
     def run(self, state: State) -> State:
         setup = state.setup or {"name": "NONE"}
@@ -81,8 +84,8 @@ class ExecutionRiskSentinelAgent:
             "size_mult": size_mult,
             "risk_pct": risk_pct,
             "equity": equity,
-            "lot_step": 0.001,  # Enforce lot step
-            "min_notional": 5.0,  # Enforce min notional ($)
+            "lot_step": float(self.instrument_info.get("lotSize", 0.001)),
+            "min_notional": float(self.instrument_info.get("minNotional", 5.0)),
             "setup": setup,
         }
         return state

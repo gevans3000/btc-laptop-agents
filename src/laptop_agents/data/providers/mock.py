@@ -50,6 +50,43 @@ class MockProvider:
     def history(self, n: int = 200) -> List[Candle]:
         return [self.next_candle() for _ in range(n)]
 
+    @staticmethod
+    def load_mock_candles(n: int = 200) -> List[Candle]:
+        """Generate fake market data for testing."""
+        candles: List[Candle] = []
+        price = 100_000.0
+        random.seed(42)
+
+        for i in range(n):
+            price += 10.0 + (random.random() - 0.5) * 400.0
+            range_size = 300.0 + random.random() * 200.0
+            o = price - (random.random() - 0.5) * range_size * 0.5
+            c = price + (random.random() - 0.5) * range_size * 0.5
+            h = max(o, c) + random.random() * range_size * 0.4
+            low_val = min(o, c) - random.random() * range_size * 0.4
+
+            ts_obj = datetime.now(timezone.utc) - timedelta(minutes=(n - i))
+            candles.append(
+                Candle(
+                    ts=ts_obj.isoformat(),
+                    open=o,
+                    high=h,
+                    low=low_val,
+                    close=c,
+                    volume=1.0,
+                )
+            )
+        return candles
+
+    def get_instrument_info(self, symbol: str) -> dict:
+        return {
+            "tickSize": 0.01,
+            "lotSize": 0.001,
+            "minQty": 0.001,
+            "maxQty": 1000.0,
+            "minNotional": 5.0,
+        }
+
     async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
         """Async generator that produces ticks and candles for demo/test."""
 

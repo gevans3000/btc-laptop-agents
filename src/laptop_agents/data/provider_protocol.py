@@ -14,3 +14,7 @@ class Provider(Protocol):
     def history(self, n: int = 200) -> List[Candle]:
         """Returns n historical candles."""
         ...
+
+    def get_instrument_info(self, symbol: str) -> dict:
+        """Returns instrument info (lot size, tick size, etc)."""
+        ...

@@ -51,7 +51,8 @@ def run(
         "--backtest-mode",
         help="Backtest mode (bar or position).",
     ),
-    mode: str | None = typer.Option(
+    mode: str
+    | None = typer.Option(
         None,
         "--mode",
         help="Execution mode (single/backtest/live/validate/selftest/orchestrated/live-session).",
