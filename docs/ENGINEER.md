@@ -1,4 +1,4 @@
-# ENGINEER.md — The Integrated Operations & Specification Manual
+# ENGINEER.md - The Integrated Operations & Specification Manual
 
 > **Status**: ACTIVE & AUTHORITATIVE
 > **Version**: 1.1.0 (Cleaned & Consolidated)
@@ -17,6 +17,7 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
 5. [Resilience & Safety](#5-resilience--safety)
 6. [Troubleshooting](#6-troubleshooting)
 7. [State Persistence](#7-state-persistence)
+8. [Session Lifecycle](#8-session-lifecycle-asyncrunner-state-machine)
 
 ---
 
@@ -74,7 +75,7 @@ For the full run-time flag list, use `la run --help`.
 - **Risk/exchange config**: YAML in `config/risk.yaml` and `config/exchanges/bitunix.yaml`.
 
 ### B. Precedence (Session Config)
-Environment variables (`LA_*`) > session config JSON (`--config`) > strategy defaults (`config/strategies/*.json`) > built-in defaults.
+CLI overrides (`--set` / inline flags) > environment variables (`LA_*`) > session config JSON (`--config`) > strategy defaults (`config/strategies/*.json`) > built-in defaults.
 
 ---
 
@@ -85,12 +86,11 @@ The system uses a **MODULAR PIPELINE** managed by `src/laptop_agents/agents/supe
 ### Active Agent Pipeline (Order of Execution)
 1.  **MarketIntakeAgent**: Normalizes candles and computes volatility (ATR).
 2.  **DerivativesFlowsAgent**: Checks Funding Rates & Open Interest.
-3.  **TrendFilterAgent**: Determines market regime (Trending vs Ranging).
-4.  **CvdDivergenceAgent**: Detects Order Flow divergences.
-5.  **SetupSignalAgent**: Generates trade setups (Pullback, Sweep).
-6.  **ExecutionRiskSentinelAgent**: Sizes positions based on risk % and Stop Loss.
-7.  **RiskGateAgent**: Final hard-limit check before execution.
-8.  **JournalCoachAgent**: Logs trade lifecycle and manages state interaction.
+3.  **CvdDivergenceAgent**: Detects Order Flow divergences.
+4.  **SetupSignalAgent**: Generates trade setups (Pullback, Sweep).
+5.  **ExecutionRiskSentinelAgent**: Sizes positions based on risk % and Stop Loss.
+6.  **RiskGateAgent**: Final hard-limit check before execution.
+7.  **JournalCoachAgent**: Logs trade lifecycle and manages state interaction.
 
 ### Data Flow
 - **Consolidated Provider**: `BitunixFuturesProvider` handles **BOTH** REST (History) and WebSocket (Real-time) data.
@@ -111,7 +111,7 @@ These are immutable laws. They can only be changed by editing the source code.
 
 ### B. Failure Modes
 - **Zombie Connection**: WebSocket checks for "Pong" every 60s. If failed, it reconnects.
-- **Circuit Breaker**: 5 consecutive losses trip the `ErrorCircuitBreaker`, halting new entries.
+- **Circuit Breaker**: Trips after N failures within the configured time window, halting new entries.
 
 ---
 
@@ -123,7 +123,7 @@ Run `la doctor --fix` to auto-detect and fix Python version, `.env` issues, and 
 ### Common Issues
 | Symptom | Cause | Fix |
 | :--- | :--- | :--- |
-| **Circuit Breaker Open** | Max consecutive losses (5) or daily drawdown hit. | Review `.workspace/logs/`. Restarting session resets memory, but daily limits persist. |
+| **Circuit Breaker Open** | Failure threshold reached within the configured time window, or daily drawdown hit. | Review `.workspace/logs/`. Restarting session resets memory, but daily limits persist. |
 | **LowCandleCountWarning** | Cold start; not enough history for indicators. | Ensure stable internet for initial history fetch. |
 | **Zombie Connection** | WebSocket stopped receiving data. | System auto-reconnects after 60s. No action needed. |
 | **Config Validation Error** | Strategy config exceeds hard limits. | Adjust config to be stricter than `constants.py`. |
@@ -147,7 +147,7 @@ The `AsyncRunner` manages the autonomous session lifecycle through deterministic
 1.  **INITIALIZING**: Validates config, seeds historical candles via REST, and creates the backup thread (watchdog).
 2.  **RUNNING**: Consumes `Provider.listen()` (WebSocket or Replay).
     - **Step Execution**: `Supervisor.step()` -> `Broker.on_candle()` -> `Watchdog.on_tick()`.
-    - **Heartbeat**: Every 10 iterations, a heartbeat file is written to `.workspace/logs/heartbeat.json`.
+    - **Heartbeat**: Every 10 seconds, a heartbeat file is written to `logs/heartbeat.json` (relative to the CWD).
 3.  **STOPPING**: Triggered by duration limit, signal (Ctrl+C), or fatal error (kill switch, memory limit).
     - **Graceful Termination**: Broker cancels working orders; state is flushed to SQLite and JSON.
 4.  **TERMINATED**: PID file removed, metrics exported to `latest/metrics.json`, and HTML report generated.

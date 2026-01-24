@@ -58,6 +58,7 @@ Keep code formatted to avoid CI failures.
 ```powershell
 python -m ruff format src tests
 python -m ruff check src tests --fix
+```
 ### E. Agent "Go" Workflow (Recommended)
 The fastest way to verify, commit, and ship changes autonomously.
 ```powershell
@@ -116,7 +117,7 @@ To prevent drift, we follow these rules:
     -   `CONTRIBUTING.md`: Dev Process (this file).
 
 2.  **Maintenance**:
-    -   Do not create loose `.md` files in the root.
+    -   Do not create loose `.md` files in the root (audit artifacts are the only exception).
     -   One workflow = One authoritative document.
     -   Delete documentation aggressively when its purpose is served (e.g., implementation plans).
 
