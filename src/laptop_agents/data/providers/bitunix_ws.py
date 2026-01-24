@@ -47,7 +47,6 @@ class BitunixWebsocketClient:
         if not self._running:
             return
         self._running = False
-        self._running = False
         if self._loop and self._loop.is_running():
             self._loop.call_soon_threadsafe(self._cancel_main_task)
 
