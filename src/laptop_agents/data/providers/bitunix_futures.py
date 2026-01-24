@@ -1,41 +1,19 @@
 from __future__ import annotations
 
-import time
-import asyncio
 import os
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Iterable, List, Optional, AsyncGenerator, Union
+from typing import Any, Dict, Iterable, List, Optional
 import tenacity
-from .mock import MockProvider
-
-import httpx
 
 # Resilience imports
 from ...resilience import (
-    ProviderError,
-    TransientProviderError,
-    RateLimitProviderError,
-    AuthProviderError,
-    UnknownProviderError,
     RetryPolicy,
-    with_retry,
-    log_event,
-    log_provider_error,
+    RateLimitProviderError,
 )
 from ...core.resilience import ErrorCircuitBreaker
-from ...resilience.error_circuit_breaker import CircuitBreakerOpenError
-from ...core.rate_limiter import exchange_rate_limiter
-from ...core.logger import logger
-from ...trading.helpers import Tick, DataEvent, Candle
-from .bitunix_signing import _now_ms, _minified_json, build_query_string, sign_rest
+from ...trading.helpers import Candle
 from .bitunix_websocket import get_ws_client
-
-# Bitunix Futures REST primary domain is documented as https://fapi.bitunix.com
-# Market endpoints used:
-# - GET /api/v1/futures/market/kline
-# - GET /api/v1/futures/market/funding_rate
-# - GET /api/v1/futures/market/tickers
-# - GET /api/v1/futures/market/trading_pairs
+from .bitunix_client import BitunixClient
 
 
 class FatalError(Exception):
@@ -50,8 +28,6 @@ class BitunixFuturesProvider:
     - We include signing helpers here so adding live trading later is trivial.
     """
 
-    BASE_URL = "https://fapi.bitunix.com"
-
     def __init__(
         self,
         *,
@@ -60,20 +36,22 @@ class BitunixFuturesProvider:
         timeout_s: float = 20.0,
         api_key: Optional[str] = None,
         secret_key: Optional[str] = None,
+        retry_policy: Optional[RetryPolicy] = None,
+        circuit_breaker: Optional[ErrorCircuitBreaker] = None,
+        rate_limiter: Optional[Any] = None,
     ):
         self.symbol = symbol
         self.allowed_symbols = set(allowed_symbols) if allowed_symbols else {symbol}
-        self.timeout_s = timeout_s
-        self.api_key = api_key
-        self.secret_key = secret_key
         self._assert_allowed()
 
-        # Resilience components
-        self.retry_policy = RetryPolicy(max_attempts=3, base_delay=0.1)
-        self.circuit_breaker = ErrorCircuitBreaker(
-            failure_threshold=3, recovery_timeout=60, time_window=60
+        self.client = BitunixClient(
+            api_key=api_key,
+            secret_key=secret_key,
+            timeout_s=timeout_s,
+            retry_policy=retry_policy,
+            circuit_breaker=circuit_breaker,
+            rate_limiter=rate_limiter,
         )
-        self.rate_limiter = exchange_rate_limiter
 
     def _assert_allowed(self) -> None:
         if self.symbol not in self.allowed_symbols:
@@ -81,199 +59,8 @@ class BitunixFuturesProvider:
                 f"Symbol '{self.symbol}' not allowed. Allowed: {sorted(self.allowed_symbols)}"
             )
 
-    def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
-        """Make HTTP GET request with resilience patterns. Switches to signed if keys exist."""
-        if self.api_key and self.secret_key:
-            return self._get_signed(path, params)
-        return self._call_exchange(
-            "bitunix", "GET", lambda: self._raw_get(path, params)
-        )
-
-    def _raw_get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
-        """Raw HTTP GET request without resilience."""
-        url = self.BASE_URL + path
-        headers = {"User-Agent": "btc-laptop-agents/0.1"}
-        with httpx.Client(timeout=self.timeout_s, headers=headers) as c:
-            r = c.get(url, params=params)
-            r.raise_for_status()
-            payload = r.json()
-        if isinstance(payload, dict) and payload.get("code") != 0:
-            raise RuntimeError(f"Bitunix API error: {payload}")
-        return payload
-
-    def _get_signed(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
-        """Make authenticated HTTP GET request with resilience patterns."""
-        return self._call_exchange(
-            "bitunix", "GET_SIGNED", lambda: self._raw_get_signed(path, params)
-        )
-
-    def _raw_get_signed(
-        self, path: str, params: Optional[Dict[str, Any]] = None
-    ) -> Any:
-        """Raw authenticated HTTP GET request."""
-        if not self.api_key or not self.secret_key:
-            raise RuntimeError("API key and secret key required for signed requests")
-
-        uri = self.BASE_URL + path
-        ts = _now_ms()
-        nonce = str(int(time.time() * 1000000))  # Simple microsecond nonce
-
-        # Prepare params for signature
-        final_params = params.copy() if params else {}
-
-        # Bitunix signature requirement:
-        # digest = sha256(nonce + timestamp + apiKey + sorted_params_string + body)
-        # sign = sha256(digest + secretKey)
-        # NOTE: For GET requests, body is empty string
-
-        qs = build_query_string(final_params)
-
-        # Manually compute signature
-        # digest = _sha256_hex(nonce + str(ts) + self.api_key + qs + "")
-        # signature = _sha256_hex(digest + self.secret_key)
-
-        # Use helper
-        signature = sign_rest(
-            nonce=nonce,
-            timestamp_ms=ts,
-            api_key=self.api_key,
-            secret_key=self.secret_key,
-            query_params=qs,
-            body="",
-        )
-
-        headers = {
-            "User-Agent": "btc-laptop-agents/0.1",
-            "api-key": self.api_key,
-            "timestamp": str(ts),
-            "nonce": nonce,
-            "sign": signature,
-            # Content-Type optional for GET but good practice
-            "Content-Type": "application/json",
-        }
-
-        with httpx.Client(timeout=self.timeout_s, headers=headers) as c:
-            r = c.get(uri, params=final_params)
-            r.raise_for_status()
-            payload = r.json()
-
-        if isinstance(payload, dict) and payload.get("code") != 0:
-            raise RuntimeError(f"Bitunix Signed API error: {payload}")
-        return payload
-
-    def _post_signed(self, path: str, body: Dict[str, Any]) -> Any:
-        """Make authenticated HTTP POST request with resilience patterns."""
-        return self._call_exchange(
-            "bitunix", "POST_SIGNED", lambda: self._raw_post_signed(path, body)
-        )
-
-    def _raw_post_signed(self, path: str, body: Dict[str, Any]) -> Any:
-        """Raw authenticated HTTP POST request."""
-        if not self.api_key or not self.secret_key:
-            raise RuntimeError("API key and secret key required for signed requests")
-
-        uri = self.BASE_URL + path
-        ts = _now_ms()
-        nonce = str(int(time.time() * 1000000))
-
-        # Minify body for signature
-        body_str = _minified_json(body)
-
-        # Use helper (queryParams is empty for POST normally in Bitunix docs)
-        signature = sign_rest(
-            nonce=nonce,
-            timestamp_ms=ts,
-            api_key=self.api_key,
-            secret_key=self.secret_key,
-            query_params="",
-            body=body_str,
-        )
-
-        headers = {
-            "User-Agent": "btc-laptop-agents/0.1",
-            "api-key": self.api_key,
-            "timestamp": str(ts),
-            "nonce": nonce,
-            "sign": signature,
-            "Content-Type": "application/json",
-        }
-
-        with httpx.Client(timeout=self.timeout_s, headers=headers) as c:
-            r = c.post(uri, content=body_str)
-            r.raise_for_status()
-            payload = r.json()
-
-        if isinstance(payload, dict) and payload.get("code") != 0:
-            raise RuntimeError(f"Bitunix Signed POST error: {payload}")
-        return payload
-
-    def _call_exchange(self, exchange_name: str, operation: str, fn: Callable) -> Any:
-        """Wrapper function for exchange calls with resilience patterns."""
-
-        def execute_with_resilience():
-            try:
-                # Apply rate limit using shared limiter
-                self.rate_limiter.wait_sync()
-
-                # Apply retry policy
-                @with_retry(self.retry_policy, operation)
-                def wrapped_fn():
-                    return fn()
-
-                result = wrapped_fn()
-                log_event(
-                    "exchange_success",
-                    {
-                        "exchange": exchange_name,
-                        "operation": operation,
-                        "status": "success",
-                    },
-                )
-                return result
-
-            except httpx.TimeoutException as e:
-                error: ProviderError = TransientProviderError(f"Timeout error: {e}")
-                log_provider_error(exchange_name, operation, "TRANSIENT", str(e))
-                raise error
-
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 429:
-                    error = RateLimitProviderError(f"Rate limit exceeded: {e}")
-                    log_provider_error(exchange_name, operation, "RATE_LIMIT", str(e))
-                elif e.response.status_code in [401, 403]:
-                    error = AuthProviderError(f"Authentication error: {e}")
-                    log_provider_error(exchange_name, operation, "AUTH", str(e))
-                else:
-                    error = UnknownProviderError(
-                        f"HTTP error {e.response.status_code}: {e}"
-                    )
-                    log_provider_error(exchange_name, operation, "UNKNOWN", str(e))
-                raise error
-
-            except RuntimeError as e:
-                error = UnknownProviderError(f"Runtime error: {e}")
-                log_provider_error(exchange_name, operation, "UNKNOWN", str(e))
-                raise error
-
-            except Exception as e:
-                error = UnknownProviderError(f"Unexpected error: {e}")
-                log_provider_error(exchange_name, operation, "UNKNOWN", str(e))
-                raise error
-
-        # Apply circuit breaker
-        if not self.circuit_breaker.allow_request():
-            raise CircuitBreakerOpenError("Circuit breaker is open")
-
-        try:
-            result = execute_with_resilience()
-            self.circuit_breaker.record_success()
-            return result
-        except Exception:
-            self.circuit_breaker.record_failure()
-            raise
-
     def trading_pairs(self) -> List[Dict[str, Any]]:
-        payload = self._get(
+        payload = self.client.get(
             "/api/v1/futures/market/trading_pairs", params={"symbols": self.symbol}
         )
         return payload.get("data") or []
@@ -291,14 +78,12 @@ class BitunixFuturesProvider:
                     "maxQty": float(p.get("maxQty", 100.0)),
                     "minNotional": 5.0,  # Default as Bitunix doesn't always return this explicitly in same field
                 }
-        # Fallback defaults
-        return {
-            "tickSize": 0.01,
-            "lotSize": 0.001,
-            "minQty": 0.001,
-            "maxQty": 1000.0,
-            "minNotional": 5.0,
-        }
+
+        raise RuntimeError(f"Instrument info not found for symbol: {sym}")
+
+    def fetch_instrument_info(self, symbol: Optional[str] = None) -> Dict[str, Any]:
+        """Alias for get_instrument_info."""
+        return self.get_instrument_info(symbol)
 
     @staticmethod
     def wait_rate_limit(retry_state: tenacity.RetryCallState) -> float:
@@ -356,6 +141,8 @@ class BitunixFuturesProvider:
     ) -> List[Candle]:
         """Entry point for many orchestration flows to get candle history."""
         if source == "mock":
+            from .mock import MockProvider
+
             if mode == "validate":
                 return MockProvider.load_mock_candles(validate_train + validate_test)
             return MockProvider.load_mock_candles(limit)
@@ -368,29 +155,14 @@ class BitunixFuturesProvider:
             return provider.klines_paged(interval=interval, total=total)
         return provider.klines(interval=interval, limit=limit)
 
-    def fetch_instrument_info(self, symbol: Optional[str] = None) -> Dict[str, Any]:
-        """Fetch precision and size limits for the symbol."""
-        pairs = self.trading_pairs()
-        sym = symbol or self.symbol
-        for p in pairs:
-            if p.get("symbol") == sym or p.get("symbolName") == sym:
-                return {
-                    "tickSize": float(p.get("tickSize", 0.01)),
-                    "lotSize": float(p.get("lotSize", 0.001)),
-                    "minQty": float(p.get("minQty", 0.001)),
-                    "maxQty": float(p.get("maxQty", 100.0)),
-                }
-        # Fallback defaults
-        return {"tickSize": 0.01, "lotSize": 0.001, "minQty": 0.001, "maxQty": 1000.0}
-
     def tickers(self) -> List[Dict[str, Any]]:
-        payload = self._get(
+        payload = self.client.get(
             "/api/v1/futures/market/tickers", params={"symbols": self.symbol}
         )
         return payload.get("data") or []
 
     def funding_rate(self) -> Optional[float]:
-        payload = self._get(
+        payload = self.client.get(
             "/api/v1/futures/market/funding_rate", params={"symbol": self.symbol}
         )
         data = payload.get("data")
@@ -431,7 +203,7 @@ class BitunixFuturesProvider:
         if end_ms is not None:
             params["endTime"] = int(end_ms)
 
-        payload = self._get("/api/v1/futures/market/kline", params=params)
+        payload = self.client.get("/api/v1/futures/market/kline", params=params)
         out: List[Candle] = []
         for row in payload.get("data") or []:
             # docs response: open/high/low/close/time
@@ -494,158 +266,4 @@ class BitunixFuturesProvider:
         return {
             "funding_8h": self.funding_rate(),
             "open_interest": None,
-            "basis": None,
-            "liq_map": None,
-            "errors": [],
         }
-
-    def get_pending_positions(
-        self, symbol: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """Fetch current open positions."""
-        params = {}
-        if symbol:
-            params["symbol"] = symbol
-
-        payload = self._get_signed(
-            "/api/v1/futures/position/get_pending_positions", params=params
-        )
-        return payload.get("data") or []
-
-    def place_order(
-        self,
-        *,
-        side: str,
-        qty: float,
-        order_type: str = "MARKET",
-        price: Optional[float] = None,
-        trade_side: str = "OPEN",
-        symbol: Optional[str] = None,
-        tp_price: Optional[float] = None,
-        sl_price: Optional[float] = None,
-    ) -> Dict[str, Any]:
-        """Place a futures order."""
-        sym = symbol or self.symbol
-        body = {
-            "symbol": sym,
-            "qty": str(qty),
-            "side": side.upper(),
-            "tradeSide": trade_side.upper(),
-            "orderType": order_type.upper(),
-        }
-        if order_type.upper() == "LIMIT":
-            if price is None:
-                raise ValueError("Price is required for LIMIT orders")
-            body["price"] = str(price)
-            body["effect"] = "GTC"
-
-        if tp_price is not None:
-            body["tpPrice"] = str(tp_price)
-            body["tpStopType"] = "MARK_PRICE"
-            body["tpOrderType"] = "MARKET"
-
-        if sl_price is not None:
-            body["slPrice"] = str(sl_price)
-            body["slStopType"] = "MARK_PRICE"
-            body["slOrderType"] = "MARKET"
-
-        return self._post_signed("/api/v1/futures/trade/place_order", body=body)
-
-    def get_order_status(self, order_id: str) -> Dict[str, Any]:
-        """Check status of an order."""
-        payload = self._get_signed(
-            "/api/v1/futures/trade/get_order", params={"orderId": order_id}
-        )
-        return payload.get("data") or {}
-
-    def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Fetch current open orders (unfilled)."""
-        params = {}
-        if symbol:
-            params["symbol"] = symbol
-        payload = self._get_signed(
-            "/api/v1/futures/trade/get_pending_orders", params=params
-        )
-        return payload.get("data", {}).get("orderList") or []
-
-    def cancel_order(
-        self, order_id: str, symbol: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Cancel an open order."""
-        sym = symbol or self.symbol
-        body = {"symbol": sym, "orderId": order_id}
-        return self._post_signed("/api/v1/futures/trade/cancel_order", body=body)
-
-    def cancel_all_orders(self, symbol: Optional[str] = None) -> Dict[str, Any]:
-        """Cancel all open orders for a symbol."""
-        sym = symbol or self.symbol
-        body = {"symbol": sym}
-        return self._post_signed("/api/v1/futures/trade/cancel_all_orders", body=body)
-
-    def history(self, n: int = 200) -> List[Candle]:
-        """Provides historical candles."""
-        return self.klines(interval="1m", limit=n)
-
-    async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
-        """WebSocket adapter for the provider."""
-        client = get_ws_client(self.symbol)
-        client.start()
-        last_yield_time = time.time()
-        last_tick_ts: Optional[str] = None
-        last_candle_ts: Optional[str] = None
-
-        try:
-            while True:
-                # Check liveness (Zombie Detection)
-                if not client.is_healthy():
-                    self.circuit_breaker.record_failure()
-                    if not self.circuit_breaker.allow_request():
-                        logger.critical(
-                            f"WS circuit breaker TRIPPED for {self.symbol}. Shutting down provider."
-                        )
-                        yield DataEvent(
-                            event="CIRCUIT_TRIPPED",
-                            ts=datetime.now(timezone.utc).isoformat(),
-                            details={"reason": "Liveness check failed 3 times"},
-                        )
-                        break
-                    else:
-                        logger.warning(
-                            f"WS unhealthy (zombie). Restarting client for {self.symbol}..."
-                        )
-                        client.stop()
-                        await asyncio.sleep(1.0)
-                        client.start()
-                        client._last_pong = time.time()
-
-                # Check Silence (Data stream stall)
-                if (time.time() - last_yield_time) > 60.0:
-                    logger.warning(
-                        f"WS Silence detected (>60s). Restarting client for {self.symbol}..."
-                    )
-                    client.stop()
-                    await asyncio.sleep(2.0)
-                    client.start()
-                    last_yield_time = time.time()
-
-                # Check for ticks first
-                t = client.get_latest_tick()
-                if t:
-                    if t.ts != last_tick_ts:
-                        yield t
-                        last_tick_ts = t.ts
-                        last_yield_time = time.time()
-
-                c = client.get_latest_candle()
-                if c:
-                    if c.ts != last_candle_ts:
-                        yield c
-                        last_candle_ts = c.ts
-                        last_yield_time = time.time()
-
-                await asyncio.sleep(0.05)
-        finally:
-            logger.info(
-                f"WS: Provider listener for {self.symbol} stopped. Stopping client."
-            )
-            client.stop()
