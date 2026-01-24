@@ -45,7 +45,7 @@ See **[ENGINEER.md](docs/ENGINEER.md#3-configuration-formats--precedence)** for 
 - **Risk/Exchange**: YAML files in `config/`.
 
 ## 🛡️ Safety & Architecture
-- **Hard Limits**: `constants.py` defines immutable risk ceilings (e.g., Max $50 loss/day).
+- **Hard Limits**: `constants.py` loads risk ceilings from `config/defaults.yaml` (with code fallbacks), so changes require a repo/config update (e.g., Max $50 loss/day).
 - **Hermetic Workspace**: All logs, state, and artifacts live in `.workspace/`.
 - **Resilience**: Integrated "Circuit Breakers" and "Zombie Connection" detection.
 

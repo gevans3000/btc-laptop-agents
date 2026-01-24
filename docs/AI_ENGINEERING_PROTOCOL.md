@@ -26,14 +26,14 @@ Implement features and fixes that are local-first, deterministic, and artifact-d
 - **Execution**: Prefer structured events for safety decisions over raw log parsing.
 
 ### Hard-Coded Safety Ceilings
-All changes must respect the "hardware ceilings" defined in `src/laptop_agents/constants.py`. These limits are non-negotiable and **cannot be bypassed** by user configuration files or environment variables.
+All changes must respect the "hardware ceilings" defined in `src/laptop_agents/constants.py`. These limits are sourced from `config/defaults.yaml` (with code fallbacks) and require a repo/config change to adjust.
 - `MAX_POSITION_SIZE_USD`: Absolute cap on trade size.
 - `MAX_DAILY_LOSS_USD`: Maximum loss before emergency shutdown.
 - `MAX_ERRORS_PER_SESSION`: Maximum tolerated exceptions before halting.
 
 ### Tech Stack Constraints
 - **CLI**: Typer
-- **HTTP/WS**: httpx / websockets
+- **HTTP/WS**: httpx / aiohttp
 - **Validation**: Pydantic v2
 - **Retries**: tenacity
 - **UI/Logging**: Rich
