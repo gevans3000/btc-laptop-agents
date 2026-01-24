@@ -5,14 +5,12 @@ This directory contains utility scripts for development, testing, and operations
 ## Active Scripts
 
 ### Development & Testing
-- **`testall.ps1`**: Comprehensive test suite runner with stability checks
+- **`harness.py`**: Test harness for strategy validation
 - **`codex_review.ps1`**: Automated code review using Codex
 - **`codex_fix_loop.ps1`**: Automated fix-and-retry loop for test failures
-- **`harness.py`**: Test harness for strategy validation
+- Note: `testall.ps1` is located at the repository root.
 
 ### Diagnostics & Monitoring
-- **`check_live_ready.py`**: Verify system readiness for live trading
-- **`check_version.py`**: Version consistency checker across project files
 - **`check_docs_links.py`**: Validate documentation internal links
 - **`check_lint_rules.py`**: Lint rule validation
 - **`monitor_heartbeat.py`**: Real-time session heartbeat monitor
@@ -20,10 +18,8 @@ This directory contains utility scripts for development, testing, and operations
 - **`error_fingerprinter.py`**: Error classification and fingerprinting
 
 ### Configuration & Setup
-- **`check_bitunix_info.py`**: Fetch and verify Bitunix exchange info
 - **`check_symbols.py`**: Symbol validation against exchange
 - **`set_safe_temp.ps1`**: Configure safe temp directory for tests
-- **`lenovo_local_check.ps1`**: Hardware-specific local environment checks
 
 ### Utilities
 - **`generate_report.py`**: Session report generator
@@ -33,10 +29,17 @@ This directory contains utility scripts for development, testing, and operations
 - **`verify_safety.py`**: Safety constraint verification
 - **`add_regression_test.py`**: Regression test generator
 - **`audit_plan.py`**: Audit plan generator
-- **`test_everything.py`**: Full system test suite
 
-### Special Files
+### Special Files & Archive
 - **`sitecustomize.py`**: Python startup customization for local dev
+
+### 📦 Archived (In `scripts/archive/`)
+- **`check_live_ready.py`**: Replaced by `la doctor`
+- **`check_version.py`**: Legacy version checker
+- **`check_bitunix_info.py`**: Legacy Bitunix info script
+- **`lenovo_local_check.ps1`**: Hardware-specific checks
+- **`test_everything.py`**: Legacy test runner
+- **`audit_plan.py`**: Legacy audit tool
 
 ## Usage Patterns
 

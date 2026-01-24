@@ -1,9 +1,22 @@
 # ENGINEER.md — The Integrated Operations & Specification Manual
 
 > **Status**: ACTIVE & AUTHORITATIVE
-> **Version**: 1.3.0 (Cleaned & Consolidated)
+> **Version**: 1.1.0 (Cleaned & Consolidated)
 
 This document is the **Single Source of Truth** for the BTC Laptop Agents system. It integrates the operational runbook, technical specifications, agent architecture, and API reference.
+
+---
+
+## Table of Contents
+1. [System Overview & Invariants](#1-system-overview--invariants)
+2. [Quick Start](#2-quick-start)
+   - [A. Environment Setup & Prerequisites](#a-environment-setup--prerequisites)
+   - [B. Standard Commands](#b-standard-commands)
+3. [Configuration Formats & Precedence](#3-configuration-formats--precedence)
+4. [Architecture & Agents](#4-architecture--agents)
+5. [Resilience & Safety](#5-resilience--safety)
+6. [Troubleshooting](#6-troubleshooting)
+7. [State Persistence](#7-state-persistence)
 
 ---
 
@@ -16,16 +29,25 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
 - **Deterministic**: Replaying specific input data must yield identical state transitions.
 - **Single Symbol**: Designed to focus on one pair (default `BTCUSDT`) per session.
 - **Linear Execution**: Agents run sequentially within the `Supervisor.step()` loop.
-- **Configuration Precedence**: Environment Variables (`LA_*`) > Session Config > Defaults.
 
 ---
 
 ## 2. Quick Start
 
-### A. Environment Setup
+### A. Environment Setup & Prerequisites
+
+#### Prerequisites
+- **OS**: Windows (tested on Lenovo/Surface hardware).
 - **Python**: 3.11 or higher.
-- **Installation**: `pip install -e .`
-- **Configuration**: Create a `.env` file at the root:
+- **Git**: For version control.
+- **PowerShell**: For running automated scripts (`.ps1`).
+
+#### Installation
+1.  **Clone & Install**:
+    ```powershell
+    pip install -e .
+    ```
+2.  **Configuration**: Create a `.env` file at the root:
   ```env
   BITUNIX_API_KEY=your_key
   BITUNIX_API_SECRET=your_secret
@@ -44,7 +66,7 @@ For the full run-time flag list, use `la run --help`.
 
 ---
 
-## 2.1 Configuration Formats & Precedence
+## 3. Configuration Formats & Precedence
 
 ### A. Config Files
 - **Session config**: JSON file passed via `--config` (see `SessionConfig` in `src/laptop_agents/core/config.py`).
@@ -56,7 +78,7 @@ Environment variables (`LA_*`) > session config JSON (`--config`) > strategy def
 
 ---
 
-## 3. Architecture & Agents
+## 4. Architecture & Agents
 
 The system uses a **MODULAR PIPELINE** managed by `src/laptop_agents/agents/supervisor.py`.
 
@@ -76,14 +98,14 @@ The system uses a **MODULAR PIPELINE** managed by `src/laptop_agents/agents/supe
 
 ---
 
-## 4. Resilience & Safety
+## 5. Resilience & Safety
 
 ### A. Hard Limits (`constants.py`)
 These are immutable laws. They can only be changed by editing the source code.
 
 | Limit | Value | Enforcement |
 | :--- | :--- | :--- |
-| `MAX_POSITION_SIZE_USD` | $500.00 | Rejected at `RiskGateAgent` |
+| `MAX_POSITION_SIZE_USD` | $200,000.00 | Rejected at `RiskGateAgent` |
 | `MAX_DAILY_LOSS_USD` | $50.00 | Session Kill Switch |
 | `MAX_ERRORS_PER_SESSION` | 20 | Process Exit |
 
@@ -93,7 +115,7 @@ These are immutable laws. They can only be changed by editing the source code.
 
 ---
 
-## 5. Troubleshooting
+## 6. Troubleshooting
 
 ### Automated Diagnostics
 Run `la doctor --fix` to auto-detect and fix Python version, `.env` issues, and permissions.
@@ -106,9 +128,11 @@ Run `la doctor --fix` to auto-detect and fix Python version, `.env` issues, and 
 | **Zombie Connection** | WebSocket stopped receiving data. | System auto-reconnects after 60s. No action needed. |
 | **Config Validation Error** | Strategy config exceeds hard limits. | Adjust config to be stricter than `constants.py`. |
 
+For historical issues and automated fixes, see the [Known Issues Database](troubleshooting/known_issues.md).
+
 ---
 
-## 6. State Persistence (Source of Truth)
+## 7. State Persistence (Source of Truth)
 
 - **Unified session state**: `.workspace/paper/unified_state.json` (circuit breaker state, starting equity, supervisor state).
 - **Paper broker state (source of truth)**: `.workspace/paper/broker_state.db` (SQLite WAL). A best-effort JSON snapshot is written alongside as `broker_state.json`.

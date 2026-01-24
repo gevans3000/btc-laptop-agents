@@ -15,8 +15,8 @@ Key rules:
 ## 2. Development Setup
 
 ### Install
-```bash
-# Install valid environment
+```powershell
+# Install development environment (including test dependencies)
 pip install -e .[test]
 # Verify
 la doctor
@@ -58,9 +58,13 @@ Keep code formatted to avoid CI failures.
 ```powershell
 python -m ruff format src tests
 python -m ruff check src tests --fix
-# OR
-make format
+### E. Agent "Go" Workflow (Recommended)
+The fastest way to verify, commit, and ship changes autonomously.
+```powershell
+# In the Agent Chat
+/go
 ```
+This runs `testall.ps1`, formats code, and commits with a semantic message.
 
 ---
 
@@ -75,17 +79,16 @@ la doctor --fix
 la run --mode live-session --duration 1 --source mock --dry-run
 ```
 
-### Tier 2: Unit & Integration
-```bash
-pytest tests/unit
-pytest tests/integration
+### Tier 2: Core Tests
+```powershell
+pytest tests/
 ```
 
 ### Tier 3: Full System Matrix (`testall`)
 Runs stability loops and environment checks.
 ```powershell
-.\scripts\testall.ps1 -Fast       # 1-minute stability check
-.\scripts\testall.ps1             # 5-minute stability check
+.\testall.ps1 -Fast       # 1-minute stability check
+.\testall.ps1             # 5-minute stability check
 ```
 *Note: `testall.ps1` generates AI-friendly JSON reports in `._testall_artifacts/`.*
 

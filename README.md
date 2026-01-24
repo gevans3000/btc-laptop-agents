@@ -10,6 +10,7 @@
 
 ### 1. Install & Verify
 ```powershell
+# Standard install (use .[test] for dev-dependencies)
 pip install -e .
 la doctor --fix
 ```
@@ -37,10 +38,11 @@ la status
 - **[CONTRIBUTING.md](docs/CONTRIBUTING.md)**: Development guide, testing strategies, and review protocols.
 - **[PROTOCOL](docs/AI_ENGINEERING_PROTOCOL.md)**: Rules for AI agents modification of this codebase.
 
-## ⚙️ Configuration Formats
-- **Session config**: JSON file passed via `--config` (see `SessionConfig` in `src/laptop_agents/core/config.py`).
-- **Strategy config**: JSON files in `config/strategies/<name>.json` loaded via `--strategy`.
-- **Risk/exchange config**: YAML files in `config/risk.yaml` and `config/exchanges/bitunix.yaml`.
+## ⚙️ Configuration
+See **[ENGINEER.md](docs/ENGINEER.md#3-configuration-formats--precedence)** for full configuration precedence and formats.
+- **Session config**: JSON files via `--config`.
+- **Strategy config**: JSON files in `config/strategies/`.
+- **Risk/Exchange**: YAML files in `config/`.
 
 ## 🛡️ Safety & Architecture
 - **Hard Limits**: `constants.py` defines immutable risk ceilings (e.g., Max $50 loss/day).
