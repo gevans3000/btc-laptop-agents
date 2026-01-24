@@ -146,6 +146,62 @@ def doctor(
 
     console.print(table)
 
+    # 1. Version Consistency Check
+    console.print("\n[bold]Checking Version Consistency...[/bold]")
+    pyproject_ver = "Unknown"
+    init_ver = "Unknown"
+
+    # Parse pyproject.toml
+    pyproject_path = REPO_ROOT / "pyproject.toml"
+    if pyproject_path.exists():
+        with open(pyproject_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip().startswith("version ="):
+                    pyproject_ver = line.split("=")[1].strip().strip('"').strip("'")
+                    break
+
+    # Parse __init__.py
+    init_path = REPO_ROOT / "src/laptop_agents/__init__.py"
+    if init_path.exists():
+        with open(init_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip().startswith("__version__ ="):
+                    init_ver = line.split("=")[1].strip().strip('"').strip("'")
+                    break
+
+    if pyproject_ver == init_ver and pyproject_ver != "Unknown":
+        console.print(f"[green]PASS[/green] Versions match: {pyproject_ver}")
+    else:
+        console.print(
+            f"[red]FAIL[/red] Version mismatch! pyproject.toml: {pyproject_ver}, __init__.py: {init_ver}"
+        )
+
+    # 2. Live Connectivity Check (if keys present)
+    if bitunix_status != "MISSING":
+        console.print("\n[bold]Checking Bitunix Connectivity...[/bold]")
+        try:
+            # Lazy import to avoid hard dependency at module level
+            from laptop_agents.data.providers.bitunix_futures import (
+                BitunixFuturesProvider,
+            )
+
+            api_key = os.environ.get("BITUNIX_API_KEY")
+            api_secret = os.environ.get("BITUNIX_API_SECRET")
+
+            provider = BitunixFuturesProvider(
+                symbol="BTCUSDT", api_key=api_key, secret_key=api_secret
+            )
+
+            # Authenticated check (positions)
+            with console.status("[bold green]Testing authenticated API..."):
+                positions = provider.get_pending_positions()
+                console.print(
+                    f"[green]PASS[/green] Authenticated API (Found {len(positions)} positions)"
+                )
+
+        except Exception as e:
+            console.print(f"[red]FAIL[/red] Connectivity check failed: {e}")
+
     if not fix and any(c[1] == "MISSING" for c in checks):
         console.print(
             "\n[yellow]Hint: Run 'la doctor --fix' to automate setup.[/yellow]"

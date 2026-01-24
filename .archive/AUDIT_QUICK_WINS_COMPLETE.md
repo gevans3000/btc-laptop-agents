@@ -3,7 +3,7 @@
 ## Completed (2026-01-24)
 
 ### 1. ✅ CI Lockfile Integration
-**Status**: Deployed  
+**Status**: Deployed
 **Commit**: `f6511b6`
 
 - Updated `.github/workflows/ci.yml` to install from `requirements.lock` before editable install
@@ -16,7 +16,7 @@ grep "requirements.lock" .github/workflows/ci.yml
 ```
 
 ### 2. ✅ WebSocket Client Extraction
-**Status**: Deployed  
+**Status**: Deployed
 **Commit**: `040664a`, `e2e58c8`
 
 - Extracted `BitunixWebsocketClient` from `bitunix_futures.py` (953 lines) to `bitunix_ws.py` (270 lines)
@@ -31,7 +31,7 @@ python -c "from laptop_agents.data.providers.bitunix_futures import BitunixFutur
 ```
 
 ### 3. ✅ Session Config Extraction (Bonus)
-**Status**: Deployed  
+**Status**: Deployed
 **Commit**: `e2e58c8`
 
 - Created `session_config.py` with `SessionConfig` dataclass

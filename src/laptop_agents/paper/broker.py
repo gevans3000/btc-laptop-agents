@@ -159,6 +159,253 @@ class PaperBroker:
                     self._save_state()
         return events
 
+    def _validate_risk_limits(
+        self,
+        order: Dict[str, Any],
+        candle: Any,
+        equity: float,
+        is_working: bool,
+    ) -> bool:
+        """Validate all risk limits, throttling, and hard constraints."""
+        # Trade frequency throttle
+        now = time.time()
+
+        # Rate limiting (orders per minute)
+        self.order_timestamps = [t for t in self.order_timestamps if now - t < 60]
+        if len(self.order_timestamps) >= hard_limits.MAX_ORDERS_PER_MINUTE:
+            logger.warning(
+                f"REJECTED: Rate limit {hard_limits.MAX_ORDERS_PER_MINUTE} orders/min exceeded"
+            )
+            append_event(
+                {"event": "OrderRejected", "reason": "rate_limit_exceeded"}, paper=True
+            )
+            return False
+        self.order_timestamps.append(now)
+
+        # Trade frequency throttle (min_trade_interval_sec)
+        time_since_last = now - self.last_trade_time
+        if not is_working and time_since_last < self.min_trade_interval_sec:
+            logger.warning(
+                f"REJECTED: Trade throttling. {time_since_last:.1f}s < {self.min_trade_interval_sec}s"
+            )
+            append_event(
+                {
+                    "event": "OrderThrottled",
+                    "interval_sec": self.min_trade_interval_sec,
+                },
+                paper=True,
+            )
+            return False
+
+        # Daily loss check
+        max_daily_loss_usd = getattr(hard_limits, "MAX_DAILY_LOSS_USD", 50.0)
+        drawdown_usd = self.starting_equity - equity
+        if self.starting_equity and drawdown_usd >= max_daily_loss_usd:
+            logger.warning(
+                f"REJECTED: Daily loss ${drawdown_usd:.2f} >= ${max_daily_loss_usd}"
+            )
+            append_event(
+                {
+                    "event": "OrderRejected",
+                    "reason": "daily_loss_usd_exceeded",
+                    "drawdown_usd": drawdown_usd,
+                    "limit_usd": max_daily_loss_usd,
+                },
+                paper=True,
+            )
+            return False
+        drawdown_pct = (self.starting_equity - equity) / self.starting_equity * 100.0
+        if drawdown_pct > hard_limits.MAX_DAILY_LOSS_PCT:
+            logger.warning(
+                f"REJECTED: Daily loss {drawdown_pct:.2f}% > {hard_limits.MAX_DAILY_LOSS_PCT}%"
+            )
+            append_event(
+                {
+                    "event": "OrderRejected",
+                    "reason": "daily_loss_exceeded",
+                    "drawdown_pct": drawdown_pct,
+                },
+                paper=True,
+            )
+            return False
+
+        # Position Cap Check
+        qty_requested = float(order.get("qty", 0))
+        symbol_cap = self.max_position_per_symbol.get(
+            self.symbol, hard_limits.MAX_POSITION_ABS
+        )
+        if qty_requested > symbol_cap:
+            logger.warning(
+                f"REJECTED: Position limit exceeded for {self.symbol}. Requested {qty_requested} > Cap {symbol_cap}"
+            )
+            append_event(
+                {
+                    "event": "OrderRejected",
+                    "reason": "position_limit_exceeded",
+                    "symbol": self.symbol,
+                    "requested": qty_requested,
+                    "cap": symbol_cap,
+                },
+                paper=True,
+            )
+            return False
+
+        # HARD LIMIT ENFORCEMENT
+        entry_px_est = float(candle.close)
+        if entry_px_est <= 0:
+            logger.error("REJECTED: Entry price estimate is zero or negative")
+            return False
+        qty_est = float(order["qty"])
+        notional_est = qty_est * entry_px_est
+
+        if notional_est > hard_limits.MAX_POSITION_SIZE_USD:
+            logger.warning(
+                f"PAPER REJECTED: Notional ${notional_est:.2f} > hard limit ${hard_limits.MAX_POSITION_SIZE_USD}"
+            )
+            append_event(
+                {
+                    "event": "OrderRejected",
+                    "reason": "notional_exceeded",
+                    "notional": notional_est,
+                },
+                paper=True,
+            )
+            return False
+
+        leverage_est = notional_est / equity
+        if leverage_est > hard_limits.MAX_LEVERAGE:
+            logger.warning(
+                f"PAPER REJECTED: Leverage {leverage_est:.1f}x > hard limit {hard_limits.MAX_LEVERAGE}x"
+            )
+            append_event(
+                {
+                    "event": "OrderRejected",
+                    "reason": "leverage_exceeded",
+                    "leverage": leverage_est,
+                },
+                paper=True,
+            )
+            return False
+
+        entry = float(order["entry"])
+        side = order["side"]
+        qty = float(order["qty"])
+        sl = float(order["sl"])
+        tp = float(order["tp"])
+
+        if side not in {"LONG", "SHORT"}:
+            logger.warning("REJECTED: Invalid side")
+            return False
+        if sl <= 0 or tp <= 0:
+            logger.warning("REJECTED: Non-positive SL/TP")
+            return False
+        if not all(math.isfinite(x) for x in [entry, qty, sl, tp]):
+            logger.warning("REJECTED: Non-finite order fields")
+            return False
+        if qty <= 0 or entry <= 0:
+            logger.warning("REJECTED: Non-positive entry/qty")
+            return False
+
+        # Single Trade Loss Cap
+        risk_dollars = abs(entry - sl) * qty
+        if risk_dollars > hard_limits.MAX_SINGLE_TRADE_LOSS_USD:
+            logger.warning(
+                f"REJECTED: Risk ${risk_dollars:.2f} > Max ${hard_limits.MAX_SINGLE_TRADE_LOSS_USD}"
+            )
+            append_event(
+                {
+                    "event": "OrderRejected",
+                    "reason": "risk_cap_exceeded",
+                    "risk": risk_dollars,
+                },
+                paper=True,
+            )
+            return False
+
+        return True
+
+    def _close_position_fifo(
+        self,
+        side: str,
+        actual_qty: float,
+        fill_px_slipped: float,
+        entry_fees: float,
+        candle: Any,
+    ) -> Dict[str, Any]:
+        """Execute FIFO closing logic for position reduction/exit."""
+        assert self.pos is not None
+        # Plan 4.1: FIFO Closing Logic
+        remaining_qty = actual_qty
+        total_realized_pnl = 0.0
+        total_exit_fees = 0.0
+        total_reduction = 0.0
+
+        exit_fee_rate = self.exchange_fees["taker"]
+
+        while remaining_qty > 0 and self.pos and self.pos.lots:
+            lot = self.pos.lots[0]
+            signed_lot_qty = lot["qty"]
+
+            # How much of this lot can we close?
+            close_qty = min(remaining_qty, signed_lot_qty)
+
+            # Settle this portion
+            avg_entry = lot["price"]
+            # Pro-rate entry fees for this lot portion
+            entry_fees_portion = lot["fees"] * (close_qty / signed_lot_qty)
+
+            if self.is_inverse:
+                pnl_coins = (1.0 / avg_entry - 1.0 / fill_px_slipped) * close_qty
+                if side == "LONG":
+                    pnl_coins = -pnl_coins  # closing short
+                pnl = pnl_coins * fill_px_slipped
+            else:
+                pnl = (
+                    (fill_px_slipped - avg_entry) * close_qty
+                    if self.pos.side == "LONG"
+                    else (avg_entry - fill_px_slipped) * close_qty
+                )
+
+            # Exit fees
+            exit_fees = (
+                abs(close_qty * fill_px_slipped if not self.is_inverse else close_qty)
+                * exit_fee_rate
+            )
+
+            total_realized_pnl += pnl - exit_fees - entry_fees_portion
+            total_exit_fees += exit_fees + entry_fees_portion
+            total_reduction += close_qty
+
+            if close_qty < lot["qty"]:
+                lot["qty"] -= close_qty
+                lot["fees"] -= entry_fees_portion
+                remaining_qty = 0
+            else:
+                self.pos.lots.popleft()
+                remaining_qty -= close_qty
+
+        self.pos.qty -= total_reduction
+        self.current_equity += total_realized_pnl
+
+        close_event = {
+            "type": "exit" if self.pos.qty <= 0.00000001 else "partial_exit",
+            "trade_id": self.pos.trade_id,
+            "side": side,
+            "price": float(fill_px_slipped),
+            "qty": float(total_reduction),
+            "pnl": float(total_realized_pnl),
+            "fees": float(total_exit_fees),
+            "at": candle.ts,
+        }
+        self.order_history.append(close_event)
+        if self.pos.qty <= 0.00000001:
+            self.pos = None
+
+        if self.state_path:
+            self._save_state()
+        self.last_trade_time = time.time()
+        return close_event
+
     def place_order(
         self,
         *,
@@ -212,164 +459,17 @@ class PaperBroker:
 
             self.processed_order_ids.add(client_order_id)
 
-        # Trade frequency throttle
-        now = time.time()
-
-        # Rate limiting (orders per minute)
-        now = time.time()
-        self.order_timestamps = [t for t in self.order_timestamps if now - t < 60]
-        if len(self.order_timestamps) >= hard_limits.MAX_ORDERS_PER_MINUTE:
-            logger.warning(
-                f"REJECTED: Rate limit {hard_limits.MAX_ORDERS_PER_MINUTE} orders/min exceeded"
-            )
-            append_event(
-                {"event": "OrderRejected", "reason": "rate_limit_exceeded"}, paper=True
-            )
-            return None
-        self.order_timestamps.append(now)
-
-        # Trade frequency throttle (min_trade_interval_sec)
-        time_since_last = now - self.last_trade_time
-        if not is_working and time_since_last < self.min_trade_interval_sec:
-            logger.warning(
-                f"REJECTED: Trade throttling. {time_since_last:.1f}s < {self.min_trade_interval_sec}s"
-            )
-            append_event(
-                {
-                    "event": "OrderThrottled",
-                    "interval_sec": self.min_trade_interval_sec,
-                },
-                paper=True,
-            )
-            return None
-
-        # Daily loss check
         equity = float(order.get("equity") or self.current_equity)
-        max_daily_loss_usd = getattr(hard_limits, "MAX_DAILY_LOSS_USD", 50.0)
-        drawdown_usd = self.starting_equity - equity
-        if self.starting_equity and drawdown_usd >= max_daily_loss_usd:
-            logger.warning(
-                f"REJECTED: Daily loss ${drawdown_usd:.2f} >= ${max_daily_loss_usd}"
-            )
-            append_event(
-                {
-                    "event": "OrderRejected",
-                    "reason": "daily_loss_usd_exceeded",
-                    "drawdown_usd": drawdown_usd,
-                    "limit_usd": max_daily_loss_usd,
-                },
-                paper=True,
-            )
-            return None
-        drawdown_pct = (self.starting_equity - equity) / self.starting_equity * 100.0
-        if drawdown_pct > hard_limits.MAX_DAILY_LOSS_PCT:
-            logger.warning(
-                f"REJECTED: Daily loss {drawdown_pct:.2f}% > {hard_limits.MAX_DAILY_LOSS_PCT}%"
-            )
-            append_event(
-                {
-                    "event": "OrderRejected",
-                    "reason": "daily_loss_exceeded",
-                    "drawdown_pct": drawdown_pct,
-                },
-                paper=True,
-            )
+
+        if not self._validate_risk_limits(order, candle, equity, is_working):
             return None
 
-        # Position Cap Check
-        qty_requested = float(order.get("qty", 0))
-        symbol_cap = self.max_position_per_symbol.get(
-            self.symbol, hard_limits.MAX_POSITION_ABS
-        )
-        if qty_requested > symbol_cap:
-            logger.warning(
-                f"REJECTED: Position limit exceeded for {self.symbol}. Requested {qty_requested} > Cap {symbol_cap}"
-            )
-            append_event(
-                {
-                    "event": "OrderRejected",
-                    "reason": "position_limit_exceeded",
-                    "symbol": self.symbol,
-                    "requested": qty_requested,
-                    "cap": symbol_cap,
-                },
-                paper=True,
-            )
-            return None
-
-        # HARD LIMIT ENFORCEMENT
-        # Move these checks earlier to log rejection
-        entry_px_est = float(candle.close)
-        if entry_px_est <= 0:
-            logger.error("REJECTED: Entry price estimate is zero or negative")
-            return None
-        qty_est = float(order["qty"])
-        notional_est = qty_est * entry_px_est
-
-        if notional_est > hard_limits.MAX_POSITION_SIZE_USD:
-            logger.warning(
-                f"PAPER REJECTED: Notional ${notional_est:.2f} > hard limit ${hard_limits.MAX_POSITION_SIZE_USD}"
-            )
-            append_event(
-                {
-                    "event": "OrderRejected",
-                    "reason": "notional_exceeded",
-                    "notional": notional_est,
-                },
-                paper=True,
-            )
-            return None
-
-        leverage_est = notional_est / equity
-        if leverage_est > hard_limits.MAX_LEVERAGE:
-            logger.warning(
-                f"PAPER REJECTED: Leverage {leverage_est:.1f}x > hard limit {hard_limits.MAX_LEVERAGE}x"
-            )
-            append_event(
-                {
-                    "event": "OrderRejected",
-                    "reason": "leverage_exceeded",
-                    "leverage": leverage_est,
-                },
-                paper=True,
-            )
-            return None
-
-        entry_type = order["entry_type"]  # "limit" or "market"
+        entry_type = order["entry_type"]
         entry = float(order["entry"])
         side = order["side"]
         qty = float(order["qty"])
         sl = float(order["sl"])
         tp = float(order["tp"])
-
-        if side not in {"LONG", "SHORT"}:
-            logger.warning("REJECTED: Invalid side")
-            return None
-        if sl <= 0 or tp <= 0:
-            logger.warning("REJECTED: Non-positive SL/TP")
-            return None
-        if not all(math.isfinite(x) for x in [entry, qty, sl, tp]):
-            logger.warning("REJECTED: Non-finite order fields")
-            return None
-        if qty <= 0 or entry <= 0:
-            logger.warning("REJECTED: Non-positive entry/qty")
-            return None
-
-        # Single Trade Loss Cap
-        risk_dollars = abs(entry - sl) * qty
-        if risk_dollars > hard_limits.MAX_SINGLE_TRADE_LOSS_USD:
-            logger.warning(
-                f"REJECTED: Risk ${risk_dollars:.2f} > Max ${hard_limits.MAX_SINGLE_TRADE_LOSS_USD}"
-            )
-            append_event(
-                {
-                    "event": "OrderRejected",
-                    "reason": "risk_cap_exceeded",
-                    "risk": risk_dollars,
-                },
-                paper=True,
-            )
-            return None
 
         if entry_type == "market":
             if tick and tick.bid and tick.ask:
@@ -459,78 +559,9 @@ class PaperBroker:
         trade_id = client_order_id if not is_working else uuid.uuid4().hex[:12]
 
         if self.pos and side != self.pos.side:
-            # Plan 4.1: FIFO Closing Logic
-            remaining_qty = actual_qty
-            total_realized_pnl = 0.0
-            total_exit_fees = 0.0
-            total_reduction = 0.0
-
-            exit_fee_rate = self.exchange_fees["taker"]
-
-            while remaining_qty > 0 and self.pos and self.pos.lots:
-                lot = self.pos.lots[0]
-                signed_lot_qty = lot["qty"]
-
-                # How much of this lot can we close?
-                close_qty = min(remaining_qty, signed_lot_qty)
-
-                # Settle this portion
-                avg_entry = lot["price"]
-                entry_fees_portion = lot["fees"] * (close_qty / signed_lot_qty)
-
-                if self.is_inverse:
-                    pnl_coins = (1.0 / avg_entry - 1.0 / fill_px_slipped) * close_qty
-                    if side == "LONG":
-                        pnl_coins = -pnl_coins  # closing short
-                    pnl = pnl_coins * fill_px_slipped
-                else:
-                    pnl = (
-                        (fill_px_slipped - avg_entry) * close_qty
-                        if self.pos.side == "LONG"
-                        else (avg_entry - fill_px_slipped) * close_qty
-                    )
-
-                exit_fees = (
-                    abs(
-                        close_qty * fill_px_slipped
-                        if not self.is_inverse
-                        else close_qty
-                    )
-                    * exit_fee_rate
-                )
-
-                total_realized_pnl += pnl - exit_fees - entry_fees_portion
-                total_exit_fees += exit_fees + entry_fees_portion
-                total_reduction += close_qty
-
-                if close_qty < lot["qty"]:
-                    lot["qty"] -= close_qty
-                    lot["fees"] -= entry_fees_portion
-                    remaining_qty = 0
-                else:
-                    self.pos.lots.popleft()
-                    remaining_qty -= close_qty
-
-            self.pos.qty -= total_reduction
-            self.current_equity += total_realized_pnl
-
-            close_event = {
-                "type": "exit" if self.pos.qty <= 0.00000001 else "partial_exit",
-                "trade_id": self.pos.trade_id,
-                "side": side,
-                "price": float(fill_px_slipped),
-                "qty": float(total_reduction),
-                "pnl": float(total_realized_pnl),
-                "fees": float(total_exit_fees),
-                "at": candle.ts,
-            }
-            self.order_history.append(close_event)
-            if self.pos.qty <= 0.00000001:
-                self.pos = None
-
-            if self.state_path:
-                self._save_state()
-            self.last_trade_time = time.time()
+            close_event = self._close_position_fifo(
+                side, actual_qty, fill_px_slipped, entry_fees, candle
+            )
             return close_event
 
         if self.pos:
