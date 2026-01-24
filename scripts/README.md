@@ -1,43 +1,67 @@
 # Scripts Directory
 
-This directory contains utility scripts for system maintenance, validation, and optimization.
+This directory contains utility scripts for development, testing, and operations.
 
-## Core Operational Scripts
+## Active Scripts
 
-| Script | Purpose |
-|--------|---------|
-| `audit_plan.py` | Verify implementation plans against codebase |
-| `diagnose_pending_errors.py` | Analyze and suggest fixes for recent errors |
-| `monitor_heartbeat.py` | Watchdog for system health and session status |
-| `generate_report.py` | Post-run report generation |
-| `generate_troubleshooting_docs.py` | Synchronize error knowledge with documentation |
+### Development & Testing
+- **`testall.ps1`**: Comprehensive test suite runner with stability checks
+- **`codex_review.ps1`**: Automated code review using Codex
+- **`codex_fix_loop.ps1`**: Automated fix-and-retry loop for test failures
+- **`harness.py`**: Test harness for strategy validation
 
-## Validation & Safety Scripts
+### Diagnostics & Monitoring
+- **`check_live_ready.py`**: Verify system readiness for live trading
+- **`check_version.py`**: Version consistency checker across project files
+- **`check_docs_links.py`**: Validate documentation internal links
+- **`check_lint_rules.py`**: Lint rule validation
+- **`monitor_heartbeat.py`**: Real-time session heartbeat monitor
+- **`diagnose_pending_errors.py`**: Error pattern diagnostics
+- **`error_fingerprinter.py`**: Error classification and fingerprinting
 
-| Script | Purpose |
-|--------|---------|
-| `check_live_ready.py` | Final safety check before live trading |
-| `verify_safety.py` | Comprehensive system safety validation |
-| `check_bitunix_info.py` | Verify API connectivity and symbol info |
-| `verify_autonomy_upgrade.py` | Verify resilience and state recovery logic |
-| `check_docs_links.py` | Ensure all documentation links are valid |
-| `check_lint_rules.py` | Verify custom linting rules |
-| `check_version.py` | Ensure version consistency across the project |
-| `check_symbols.py` | Validate trading symbol configuration |
+### Configuration & Setup
+- **`check_bitunix_info.py`**: Fetch and verify Bitunix exchange info
+- **`check_symbols.py`**: Symbol validation against exchange
+- **`set_safe_temp.ps1`**: Configure safe temp directory for tests
+- **`lenovo_local_check.ps1`**: Hardware-specific local environment checks
 
-## Optimization & Research
+### Utilities
+- **`generate_report.py`**: Session report generator
+- **`generate_troubleshooting_docs.py`**: Auto-generate troubleshooting guides
+- **`optimize_strategy_v2.py`**: Strategy parameter optimization
+- **`verify_autonomy_upgrade.py`**: Autonomy feature verification
+- **`verify_safety.py`**: Safety constraint verification
+- **`add_regression_test.py`**: Regression test generator
+- **`audit_plan.py`**: Audit plan generator
+- **`test_everything.py`**: Full system test suite
 
-| Script | Purpose |
-|--------|---------|
-| `optimize_strategy_v2.py` | Hyperparameter optimization for trading strategies |
-| `add_regression_test.py` | Helper to create new regression tests from failures |
+### Special Files
+- **`sitecustomize.py`**: Python startup customization for local dev
 
-Deprecated scripts are in `scripts/archive/`.
+## Usage Patterns
 
-## Usage
-
-Most scripts require the `src` directory to be in your `PYTHONPATH`:
-
+### Run Full Test Suite
 ```powershell
-$env:PYTHONPATH = "src"; python scripts/script_name.py
+.\testall.ps1
 ```
+
+### Quick Lint + Review
+```powershell
+.\scripts\codex_review.ps1
+```
+
+### Verify Live Trading Readiness
+```bash
+python scripts/check_live_ready.py
+```
+
+### Monitor Active Session
+```bash
+python scripts/monitor_heartbeat.py
+```
+
+## Maintenance Notes
+
+- Scripts in `archive/` are deprecated and kept for reference only
+- PowerShell scripts are Windows-specific; Python scripts are cross-platform
+- All diagnostic scripts should be safe to run in read-only mode

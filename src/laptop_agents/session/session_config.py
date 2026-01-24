@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import os
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 from laptop_agents.constants import DEFAULT_SYMBOL, WORKSPACE_PAPER_DIR
 from laptop_agents.core.config_models import StrategyConfig

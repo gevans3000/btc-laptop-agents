@@ -26,7 +26,7 @@ Implement features and fixes that are local-first, deterministic, and artifact-d
 - **Execution**: Prefer structured events for safety decisions over raw log parsing.
 
 ### Hard-Coded Safety Ceilings
-All changes must respect the "hardware ceilings" defined in `src/laptop_agents/core/hard_limits.py`. These limits are non-negotiable and **cannot be bypassed** by user configuration files or environment variables.
+All changes must respect the "hardware ceilings" defined in `src/laptop_agents/constants.py`. These limits are non-negotiable and **cannot be bypassed** by user configuration files or environment variables.
 - `MAX_POSITION_SIZE_USD`: Absolute cap on trade size.
 - `MAX_DAILY_LOSS_USD`: Maximum loss before emergency shutdown.
 - `MAX_ERRORS_PER_SESSION`: Maximum tolerated exceptions before halting.
@@ -57,7 +57,7 @@ All changes must respect the "hardware ceilings" defined in `src/laptop_agents/c
 | **Error Handling** | `except Exception: pass` (Swallowing) | `logger.exception("...")` + emit diagnostic event. |
 | **Async Logic** | `time.sleep(5)` (Blocks event loop) | `await asyncio.sleep(5)` (Non-blocking). |
 | **State Updates** | `f.write(json.dumps(state))` (Risk of corruption) | Write to `.tmp`, flush to disk, then `os.replace`. |
-| **Safety** | Checking limits in `config.json` only. | Checking against `hard_limits.py` before API calls. |
+| **Safety** | Checking limits in `config.json` only. | Checking against `constants.py` before API calls. |
 | **Market Data** | Assuming socket is always alive. | Using `tenacity` retries and heartbeat watchdogs. |
 
 ---
@@ -76,7 +76,7 @@ Before writing any code, identify at least three failure modes and their mitigat
 - [ ] Code follows Typer/Pydantic/Rich patterns.
 - [ ] No blocking calls in `async` functions.
 - [ ] Tests cover happy path and at least one failure mode.
-- [ ] Hard limits in `hard_limits.py` are respected.
+- [ ] Hard limits in `constants.py` are respected.
 
 ---
 

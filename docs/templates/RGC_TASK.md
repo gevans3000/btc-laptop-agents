@@ -5,7 +5,7 @@
 - **Goal**: (Describe the specific objective here).
 - **Constraints**:
   - Follow `docs/AI_ENGINEERING_PROTOCOL.md`.
-  - Must not bypass hard ceilings in `src/laptop_agents/core/hard_limits.py`.
+  - Must not bypass hard ceilings in `src/laptop_agents/constants.py`.
   - (Add any task-specific constraints here).
 
 ## Failure Modes + Mitigations

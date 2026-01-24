@@ -12,5 +12,4 @@ class AgentResult:
 class Agent(Protocol):
     name: str
 
-    def run(self, task: str) -> AgentResult:
-        ...  # noqa: E704
+    def run(self, task: str) -> AgentResult: ...  # noqa: E704

@@ -75,4 +75,4 @@ class ErrorCircuitBreaker:
     def _reset(self) -> None:
         self.state = "CLOSED"
         self.failures = []
-        logger.info("CircuitBreaker corectly recovered. Reset to CLOSED.")
+        logger.info("CircuitBreaker correctly recovered. Reset to CLOSED.")
