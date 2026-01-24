@@ -49,6 +49,7 @@ from laptop_agents.agents.supervisor import Supervisor
 from laptop_agents.agents.state import State as AgentState
 from laptop_agents.backtest.replay_runner import ReplayProvider
 from laptop_agents.data.providers.mock import MockProvider
+from laptop_agents.data.provider_protocol import Provider
 
 
 class AsyncRunner:
@@ -68,7 +69,7 @@ class AsyncRunner:
         stale_timeout: int = 120,
         execution_latency_ms: int = 200,
         dry_run: bool = False,
-        provider: Any = None,
+        provider: Optional[Provider] = None,
         execution_mode: str = "paper",
         state_dir: Optional[Path] = None,
     ):
@@ -123,79 +124,7 @@ class AsyncRunner:
             failure_threshold=5, recovery_timeout=120, time_window=60
         )
 
-        self.provider: Any = provider
-        state_path = str(self.state_dir / "broker_state.db")
-
-    def __init__(
-        self,
-        symbol: str,
-        interval: str,
-        strategy_config: Optional[Dict[str, Any]] = None,
-        starting_balance: float = 10000.0,
-        risk_pct: float = 1.0,
-        stop_bps: float = 30.0,
-        tp_r: float = 1.5,
-        fees_bps: float = 2.0,
-        slip_bps: float = 0.5,
-        stale_timeout: int = 120,
-        execution_latency_ms: int = 200,
-        dry_run: bool = False,
-        provider: Any = None,
-        execution_mode: str = "paper",
-        state_dir: Optional[Path] = None,
-    ):
-        self.symbol = symbol
-        self.interval = interval
-        self.strategy_config = strategy_config
-        self.starting_equity = starting_balance
-        self.risk_pct = risk_pct
-        self.stop_bps = stop_bps
-        self.tp_r = tp_r
-        self.dry_run = dry_run
-        self.duration_min = 0  # set in run()
-        self.start_time = time.time()
-        self.loop_id = uuid.uuid4().hex
-        self.last_data_time = self.start_time
-        self.last_heartbeat_time = self.start_time
-        self.errors = 0
-        self.iterations = 0
-        self.trades = 0
-        self.latest_tick: Optional[Tick] = None
-        self.candles: List[Candle] = []
-        self.metrics: List[Dict[str, Any]] = []
-        self.shutdown_event = asyncio.Event()
-        self.execution_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
-        self.stale_data_timeout_sec = float(stale_timeout)
-        self.consecutive_ws_errors = 0
-        self.stale_restart_attempts = 0
-        self.max_stale_restarts = 3
-        self.kill_file = WORKSPACE_DIR / "kill.txt"
-        self.kill_switch_triggered = False
-        self.execution_latency_ms = execution_latency_ms
-        self.status = "initializing"
-        self._shutting_down = False
-        self._last_backfill_time = 0.0
-        self._last_rest_poll_time = 0.0
-        self.max_equity = starting_balance
-        self.max_drawdown = 0.0
-        self.stopped_reason = "completed"
-        self._stop_event_emitted = False
-        self._inflight_order_ids: set[str] = set()
-        self.last_tick_ts: Optional[str] = None
-        self.last_candle_ts: Optional[str] = None
-
-        # Create session-specific workspace
-        self.state_dir = Path(state_dir) if state_dir else WORKSPACE_PAPER_DIR
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-
-        self.state_manager = StateManager(self.state_dir)
-
-        # Components
-        self.circuit_breaker = ErrorCircuitBreaker(
-            failure_threshold=5, recovery_timeout=120, time_window=60
-        )
-
-        self.provider: Any = provider
+        self.provider: Optional[Provider] = provider
         state_path = str(self.state_dir / "broker_state.db")
 
         # 1. Broker Initialization via Factory

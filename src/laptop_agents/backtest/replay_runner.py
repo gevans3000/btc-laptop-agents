@@ -9,7 +9,7 @@ import json
 import asyncio
 from pathlib import Path
 from typing import AsyncGenerator, List, Union
-from laptop_agents.trading.helpers import Candle, Tick
+from laptop_agents.trading.helpers import Candle, Tick, DataEvent
 from laptop_agents.core.logger import logger
 
 
@@ -37,7 +37,27 @@ class ReplayProvider:
                         continue
         logger.info(f"Loaded {len(self._events)} events for replay")
 
-    async def listen(self) -> AsyncGenerator[Union[Candle, Tick], None]:
+    def history(self, n: int = 200) -> List[Candle]:
+        """Extract first n candles from events."""
+        candles = []
+        for event in self._events:
+            event_type = event.get("event", "")
+            if "candle" in event_type.lower() or "kline" in event_type.lower():
+                candles.append(
+                    Candle(
+                        ts=event.get("ts", "") or event.get("time", ""),
+                        open=float(event.get("open", 0)),
+                        high=float(event.get("high", 0)),
+                        low=float(event.get("low", 0)),
+                        close=float(event.get("close", 0)),
+                        volume=float(event.get("volume", 0) or event.get("baseVol", 0)),
+                    )
+                )
+            if len(candles) >= n:
+                break
+        return candles
+
+    async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
         """Yield events at recorded timestamps."""
         self._running = True
         last_ts = None

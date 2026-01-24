@@ -19,7 +19,7 @@ async def seed_historical_candles(runner: "AsyncRunner") -> None:
             "min_history_bars", 100
         )
 
-    if hasattr(runner.provider, "history"):
+    if runner.provider is not None and hasattr(runner.provider, "history"):
         logger.info(
             f"Seeding historical candles from provider (count={min_history})..."
         )

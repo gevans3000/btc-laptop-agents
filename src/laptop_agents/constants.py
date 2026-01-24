@@ -1,6 +1,7 @@
 import os
 import yaml
 from pathlib import Path
+from typing import Any
 
 # Repository paths
 HERE = Path(__file__).parent.resolve()
@@ -27,7 +28,7 @@ CONFIG_DEFAULTS_PATH = REPO_ROOT / "config" / "defaults.yaml"
 
 
 def _load_defaults():
-    defaults = {}
+    defaults: dict[str, Any] = {}
     if CONFIG_DEFAULTS_PATH.exists():
         try:
             with open(CONFIG_DEFAULTS_PATH, "r") as f:

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from typing import List
+from typing import List, AsyncGenerator, Union
 import random
 
 
-from laptop_agents.trading.helpers import Tick, Candle
+from laptop_agents.trading.helpers import Tick, Candle, DataEvent
 import asyncio
 
 from laptop_agents.constants import DEFAULT_SYMBOL
@@ -50,7 +50,7 @@ class MockProvider:
     def history(self, n: int = 200) -> List[Candle]:
         return [self.next_candle() for _ in range(n)]
 
-    async def listen(self):
+    async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
         """Async generator that produces ticks and candles for demo/test."""
 
         while True:

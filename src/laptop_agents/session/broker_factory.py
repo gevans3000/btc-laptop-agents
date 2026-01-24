@@ -31,12 +31,12 @@ def create_broker(
         live_provider = BitunixFuturesProvider(
             symbol=symbol, api_key=api_key, secret_key=secret_key
         )
-        broker = BitunixBroker(live_provider, starting_equity=starting_balance)
+        live_broker = BitunixBroker(live_provider, starting_equity=starting_balance)
         logger.info(f"Initialized BitunixBroker for live trading on {symbol}")
-        return broker
+        return live_broker
     else:
         # Paper mode
-        broker = PaperBroker(
+        paper_broker = PaperBroker(
             symbol=symbol,
             fees_bps=fees_bps,
             slip_bps=slip_bps,
@@ -45,4 +45,4 @@ def create_broker(
             strategy_config=strategy_config,
         )
         logger.info(f"Initialized PaperBroker for {symbol}")
-        return broker
+        return paper_broker

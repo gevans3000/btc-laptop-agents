@@ -28,6 +28,10 @@ if TYPE_CHECKING:
 async def market_data_task(runner: "AsyncRunner") -> None:
     """Consumes WebSocket data and triggers strategy on candle closure."""
     while not runner.shutdown_event.is_set():
+        if runner.provider is None:
+            await asyncio.sleep(1.0)
+            continue
+
         listener = None
         try:
             listener = runner.provider.listen()
