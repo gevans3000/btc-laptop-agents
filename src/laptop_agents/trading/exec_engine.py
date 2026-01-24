@@ -616,14 +616,11 @@ def run_live_paper_trading(
     state["net_pnl"] = state.get("realized_pnl", 0.0) + state.get("unrealized_pnl", 0.0)
 
     # Save state
-    temp_state = state_path.with_suffix(".tmp")
+    from laptop_agents.core.state_manager import StateManager
+
     try:
-        with temp_state.open("w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2)
-        temp_state.replace(state_path)
+        StateManager.atomic_save_json(state_path, state)
     except Exception as e:
-        if temp_state.exists():
-            temp_state.unlink()
         raise RuntimeError(f"Failed to write state.json: {e}")
 
     # Append trades to paper/trades.csv
@@ -646,20 +643,18 @@ def run_live_paper_trading(
             "stop_price",
             "tp_price",
         ]
-        temp_trades = trades_csv_path.with_suffix(".tmp")
         try:
-            with temp_trades.open(
-                "a" if trades_csv_path.exists() else "w", newline="", encoding="utf-8"
-            ) as f:
+            with trades_csv_path.open("a", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
-                if not trades_csv_path.exists():
+                if trades_csv_path.stat().st_size == 0:
                     writer.writeheader()
                 for trade in trades:
                     writer.writerow({k: v for k, v in trade.items() if k in fieldnames})
-            temp_trades.replace(trades_csv_path)
+                f.flush()
+                import os
+
+                os.fsync(f.fileno())
         except Exception as e:
-            if temp_trades.exists():
-                temp_trades.unlink()
             raise RuntimeError(f"Failed to append to trades.csv: {e}")
 
     return trades, state["equity"], state

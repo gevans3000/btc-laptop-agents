@@ -106,6 +106,37 @@ class StateManager:
     def set_supervisor_state(self, state: Dict[str, Any]) -> None:
         self.set("supervisor", state)
 
+    @staticmethod
+    def atomic_save_json(path: Path, data: Dict[str, Any]) -> None:
+        """Helper for atomic write of any JSON file."""
+        temp = path.with_suffix(".tmp")
+        try:
+            import os
+
+            with open(temp, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+
+            # Atomic rename with retries
+            max_retries = 3
+            for i in range(max_retries):
+                try:
+                    os.replace(temp, path)
+                    break
+                except PermissionError:
+                    if i == max_retries - 1:
+                        raise
+                    time.sleep(0.1)
+        except Exception as e:
+            if temp.exists():
+                try:
+                    temp.unlink()
+                except Exception:
+                    pass
+            logger.error(f"Atomic save failed for {path}: {e}")
+            raise
+
     def clear(self) -> None:
         self._state = {}
         if self.state_file.exists():

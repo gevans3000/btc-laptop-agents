@@ -8,18 +8,14 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from laptop_agents.core.logger import logger
-from laptop_agents.core.orchestrator import (
-    append_event,
-)
 from laptop_agents.session.heartbeat import heartbeat_task
 from laptop_agents.trading.helpers import (
     Candle,
     Tick,
 )
-from laptop_agents import constants as hard_limits
 from laptop_agents.constants import (
     DEFAULT_SYMBOL,
     REPO_ROOT,
@@ -42,15 +38,11 @@ from laptop_agents.session.checkpoint import checkpoint_task
 from laptop_agents.session.market_data import market_data_task
 from laptop_agents.session.seeding import seed_historical_candles
 from laptop_agents.session.reporting import (
-    export_metrics,
-    generate_final_reports,
     generate_html_report,
 )
 from laptop_agents.core.state_manager import StateManager
 from laptop_agents.core.resilience import ErrorCircuitBreaker
 from laptop_agents.core.lock_manager import LockManager
-from laptop_agents.paper.broker import PaperBroker
-from laptop_agents.execution.bitunix_broker import BitunixBroker
 from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
 from laptop_agents.core.config_models import StrategyConfig
 from laptop_agents.agents.supervisor import Supervisor
@@ -134,78 +126,95 @@ class AsyncRunner:
         self.provider: Any = provider
         state_path = str(self.state_dir / "broker_state.db")
 
-        self.broker: Union[PaperBroker, BitunixBroker]
+    def __init__(
+        self,
+        symbol: str,
+        interval: str,
+        strategy_config: Optional[Dict[str, Any]] = None,
+        starting_balance: float = 10000.0,
+        risk_pct: float = 1.0,
+        stop_bps: float = 30.0,
+        tp_r: float = 1.5,
+        fees_bps: float = 2.0,
+        slip_bps: float = 0.5,
+        stale_timeout: int = 120,
+        execution_latency_ms: int = 200,
+        dry_run: bool = False,
+        provider: Any = None,
+        execution_mode: str = "paper",
+        state_dir: Optional[Path] = None,
+    ):
+        self.symbol = symbol
+        self.interval = interval
+        self.strategy_config = strategy_config
+        self.starting_equity = starting_balance
+        self.risk_pct = risk_pct
+        self.stop_bps = stop_bps
+        self.tp_r = tp_r
+        self.dry_run = dry_run
+        self.duration_min = 0  # set in run()
+        self.start_time = time.time()
+        self.loop_id = uuid.uuid4().hex
+        self.last_data_time = self.start_time
+        self.last_heartbeat_time = self.start_time
+        self.errors = 0
+        self.iterations = 0
+        self.trades = 0
+        self.latest_tick: Optional[Tick] = None
+        self.candles: List[Candle] = []
+        self.metrics: List[Dict[str, Any]] = []
+        self.shutdown_event = asyncio.Event()
+        self.execution_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
+        self.stale_data_timeout_sec = float(stale_timeout)
+        self.consecutive_ws_errors = 0
+        self.stale_restart_attempts = 0
+        self.max_stale_restarts = 3
+        self.kill_file = WORKSPACE_DIR / "kill.txt"
+        self.kill_switch_triggered = False
+        self.execution_latency_ms = execution_latency_ms
+        self.status = "initializing"
+        self._shutting_down = False
+        self._last_backfill_time = 0.0
+        self._last_rest_poll_time = 0.0
+        self.max_equity = starting_balance
+        self.max_drawdown = 0.0
+        self.stopped_reason = "completed"
+        self._stop_event_emitted = False
+        self._inflight_order_ids: set[str] = set()
+        self.last_tick_ts: Optional[str] = None
+        self.last_candle_ts: Optional[str] = None
 
-        if execution_mode == "live":
-            api_key = os.environ.get("BITUNIX_API_KEY")
-            secret_key = os.environ.get("BITUNIX_API_SECRET") or os.environ.get(
-                "BITUNIX_SECRET_KEY"
-            )
-            if not api_key or not secret_key:
-                raise ValueError(
-                    "Live execution requires BITUNIX_API_KEY and BITUNIX_API_SECRET environment variables"
-                )
-            live_provider = BitunixFuturesProvider(
-                symbol=symbol, api_key=api_key, secret_key=secret_key
-            )
-            self.broker = BitunixBroker(live_provider, starting_equity=starting_balance)
-            logger.info(f"Initialized BitunixBroker for live trading on {symbol}")
-        else:
-            self.broker = PaperBroker(
-                symbol=symbol,
-                fees_bps=fees_bps,
-                slip_bps=slip_bps,
-                starting_equity=starting_balance,
-                state_path=state_path,
-                strategy_config=self.strategy_config,
-            )
+        # Create session-specific workspace
+        self.state_dir = Path(state_dir) if state_dir else WORKSPACE_PAPER_DIR
+        self.state_dir.mkdir(parents=True, exist_ok=True)
 
-        # Restore starting equity from broker (if it was NOT restored from unified state already)
-        # If starting_balance is NOT the default, it means it was likely restored from unified state
-        is_restored = starting_balance != 10000.0
+        self.state_manager = StateManager(self.state_dir)
 
-        if not is_restored and self.broker.starting_equity is not None:
-            logger.info(
-                f"Restoring starting equity from broker state: ${self.broker.starting_equity:,.2f}"
-            )
-            self.starting_equity = self.broker.starting_equity
-        else:
-            # Sync broker to our master starting_equity
-            self.broker.starting_equity = self.starting_equity
+        # Components
+        self.circuit_breaker = ErrorCircuitBreaker(
+            failure_threshold=5, recovery_timeout=120, time_window=60
+        )
 
-        # Ensure starting_equity is in state_manager for unified restoration
-        self.state_manager.set("starting_equity", self.starting_equity)
-        self.state_manager.save()
+        self.provider: Any = provider
+        state_path = str(self.state_dir / "broker_state.db")
 
-        # Reset stale drawdown state if no open exposure (avoid immediate kill switch)
-        try:
-            has_open_orders = bool(getattr(self.broker, "working_orders", []))
-            if (
-                self.broker.pos is None
-                and not has_open_orders
-                and self.starting_equity > 0
-            ):
-                drawdown_usd = self.starting_equity - float(self.broker.current_equity)
-                if drawdown_usd >= hard_limits.MAX_DAILY_LOSS_USD:
-                    logger.warning(
-                        "STARTUP_DRAWDOWN_RESET: resetting starting equity after stale drawdown",
-                        {
-                            "event": "StartupDrawdownReset",
-                            "symbol": self.symbol,
-                            "loop_id": self.loop_id,
-                            "position": "FLAT",
-                            "open_orders_count": 0,
-                            "starting_equity": self.starting_equity,
-                            "current_equity": self.broker.current_equity,
-                            "drawdown_usd": drawdown_usd,
-                        },
-                    )
-                    self.starting_equity = float(self.broker.current_equity)
-                    self.broker.starting_equity = self.starting_equity
-                    self.state_manager.set("starting_equity", self.starting_equity)
-                    self.state_manager.save()
-        except Exception as e:
-            logger.error(f"Failed to normalize startup equity: {e}")
+        # 1. Broker Initialization via Factory
+        from laptop_agents.session.broker_factory import create_broker
+
+        self.broker = create_broker(
+            execution_mode=execution_mode,
+            symbol=symbol,
+            starting_balance=starting_balance,
+            fees_bps=fees_bps,
+            slip_bps=slip_bps,
+            state_path=state_path,
+            strategy_config=self.strategy_config,
+        )
+
+        # 2. State Synchronization via Module
+        from laptop_agents.session.state_sync import sync_initial_state
+
+        self.starting_equity = sync_initial_state(self, starting_balance)
 
         # 2.3 Config Validation on Startup
         if self.strategy_config:
@@ -282,94 +291,10 @@ class AsyncRunner:
             await self._perform_shutdown(tasks)
 
     async def _perform_shutdown(self, tasks: List[asyncio.Task]) -> None:
-        """Handles the graceful shutdown sequence."""
-        if self._shutting_down:
-            return
-        self._shutting_down = True
-        self.status = "shutting_down"
-        logger.info("GRACEFUL SHUTDOWN INITIATED")
+        """Delegates shutdown to the external handler."""
+        from laptop_agents.session.shutdown_handler import perform_shutdown
 
-        if not self._stop_event_emitted:
-            try:
-                append_event(
-                    {
-                        "event": "SessionStopped",
-                        "reason": self.stopped_reason,
-                        "errors": self.errors,
-                        "symbol": self.symbol,
-                        "interval": self.interval,
-                    },
-                    paper=True,
-                )
-                self._stop_event_emitted = True
-            except Exception as e:
-                logger.error(f"Failed to append SessionStopped event: {e}")
-
-        # 2. Cancel all open orders (alias in PaperBroker)
-        try:
-            self.broker.cancel_all_open_orders()
-        except Exception as e:
-            logger.error(f"Failed to cancel orders: {e}")
-
-        # 3. Wait up to 2s for pending fills
-        try:
-            await asyncio.sleep(2.0)
-        except Exception:
-            pass
-
-        # 4. Queue Draining: Persist pending orders to broker state
-        while not self.execution_queue.empty():
-            try:
-                item = self.execution_queue.get_nowait()
-                order = item.get("order")
-                if order:
-                    working_orders = getattr(self.broker, "working_orders", None)
-                    if isinstance(working_orders, list):
-                        working_orders.append(order)
-                    logger.info(
-                        f"Drained pending order {order.get('client_order_id')} to broker state"
-                    )
-            except asyncio.QueueEmpty:
-                break
-
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Final cleanup
-        if self.broker.pos:
-            price = None
-            if self.latest_tick:
-                price = self.latest_tick.last
-            elif self.candles:
-                price = self.candles[-1].close
-            if price and price > 0:
-                self.broker.close_all(price)
-
-        try:
-            # Use task wrapper for shutdown to ensure it completes
-            shutdown_task = asyncio.create_task(asyncio.to_thread(self.broker.shutdown))
-            await asyncio.wait_for(asyncio.shield(shutdown_task), timeout=5.0)
-        except asyncio.TimeoutError:
-            logger.warning("Broker shutdown timed out after 5s")
-        except Exception as e:
-            logger.exception(f"Broker shutdown failed: {e}")
-
-        try:
-            self.state_manager.set_circuit_breaker_state(
-                {"state": self.circuit_breaker.state}
-            )
-            self.state_manager.set("starting_equity", self.starting_equity)
-            self.state_manager.save()
-            logger.info("Final unified state saved.")
-        except Exception as e:
-            logger.error(f"Failed to save unified state on shutdown: {e}")
-
-        # Reporting & Metrics
-        export_metrics(self)
-        generate_final_reports(self)
-
-        logger.info("AsyncRunner shutdown complete.")
+        await perform_shutdown(self, tasks)
 
     def _parse_ts_to_int(self, ts: Any) -> int:
         """Robustly parse timestamp (int, float, or ISO string) to unix seconds."""

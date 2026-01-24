@@ -5,7 +5,6 @@ import aiohttp
 import json
 import math
 import random
-import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -18,105 +17,66 @@ class BitunixWebsocketClient:
     """
     Background WebSocket client for specific symbol.
     Maintains latest candle state via wss://stream.bitunix.com
+    Runs strictly as an asyncio.Task in the provided loop (no threads).
     """
 
     def __init__(self, symbol: str):
         self.symbol = symbol
         self.ws_url = "wss://stream.bitunix.com/contract/ws/v1"
         self._running = False
-        self._thread: Optional[threading.Thread] = None
         self._latest_candle: Optional[Candle] = None
         self._latest_tick: Optional[Tick] = None
         self._history: List[Candle] = []
-        self._lock = threading.Lock()
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._main_task: Optional[asyncio.Task] = None
         self._last_pong = time.time()
         self.reconnect_delay = 1.0
 
     def start(self):
+        """Start the WebSocket connection task on the current running loop."""
         if self._running:
             return
         self._running = True
-        self._thread = threading.Thread(target=self._run_thread, daemon=True)
-        self._thread.start()
-        logger.info(f"WS: Started background thread for {self.symbol}")
+        # We assume there is a running loop since this is called from async context
+        try:
+            loop = asyncio.get_running_loop()
+            self._main_task = loop.create_task(self._connect_and_stream())
+            logger.info(f"WS: Started async task for {self.symbol}")
+        except RuntimeError:
+            logger.error("WS: Requires a running asyncio loop to start.")
 
     def stop(self):
-        """Cleanly shutdown the background thread and event loop."""
+        """Cleanly shutdown the background task."""
         if not self._running:
             return
         self._running = False
-        if self._loop and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._cancel_main_task)
-
-        if self._thread:
-            self._thread.join(timeout=5.0)
-            if self._thread.is_alive():
-                logger.warning(
-                    f"WS: Background thread did not stop in time for {self.symbol}"
-                )
-            self._thread = None
-        logger.info(f"WS: Stopped background thread for {self.symbol}")
-
-    def _cancel_main_task(self) -> None:
-        if self._main_task and not self._main_task.done():
+        if self._main_task:
             self._main_task.cancel()
-        for task in asyncio.all_tasks(self._loop):
-            task.cancel()
+            self._main_task = None
+        logger.info(f"WS: Stopped task for {self.symbol}")
 
     def get_latest_candle(self) -> Optional[Candle]:
-        with self._lock:
-            return self._latest_candle
+        return self._latest_candle
 
     def get_latest_tick(self) -> Optional[Tick]:
-        with self._lock:
-            val = self._latest_tick
-            self._latest_tick = None  # Consume to avoid double-yielding
-            return val
+        val = self._latest_tick
+        self._latest_tick = None  # Consume to avoid double-yielding
+        return val
 
     def get_candles(self) -> List[Candle]:
         """Return history + latest (merged)"""
-        with self._lock:
-            if not self._latest_candle:
-                return list(self._history)
+        if not self._latest_candle:
+            return list(self._history)
 
-            if not self._history:
-                return [self._latest_candle]
+        if not self._history:
+            return [self._latest_candle]
 
-            last_hist = self._history[-1]
-            if self._latest_candle.ts > last_hist.ts:
-                return self._history + [self._latest_candle]
-            elif self._latest_candle.ts == last_hist.ts:
-                return self._history[:-1] + [self._latest_candle]
-            else:
-                return list(self._history)
-
-    def _run_thread(self):
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        try:
-            self._main_task = self._loop.create_task(self._connect_and_stream())
-            self._loop.run_until_complete(self._main_task)
-        except asyncio.CancelledError:
-            logger.info(f"WS: Stream cancelled for {self.symbol}")
-        except BaseException as e:
-            logger.critical(
-                f"WS: Background thread crashed for {self.symbol}: {e}", exc_info=True
-            )
-        finally:
-            try:
-                if self._loop and not self._loop.is_closed():
-                    pending = asyncio.all_tasks(self._loop)
-                    for task in pending:
-                        task.cancel()
-                    if pending:
-                        self._loop.run_until_complete(
-                            asyncio.gather(*pending, return_exceptions=True)
-                        )
-                    self._loop.close()
-            except Exception:
-                pass
+        last_hist = self._history[-1]
+        if self._latest_candle.ts > last_hist.ts:
+            return self._history + [self._latest_candle]
+        elif self._latest_candle.ts == last_hist.ts:
+            return self._history[:-1] + [self._latest_candle]
+        else:
+            return list(self._history)
 
     async def _connect_and_stream(self):
         while self._running:
@@ -167,6 +127,9 @@ class BitunixWebsocketClient:
                                     "WS: Connection became zombie (no data >60s). Reconnecting."
                                 )
                                 break
+            except asyncio.CancelledError:
+                logger.info(f"WS: Task cancelled for {self.symbol}")
+                break
             except asyncio.TimeoutError as e:
                 logger.warning(f"WS: Connection timeout: {e}")
             except Exception as e:
@@ -222,8 +185,8 @@ class BitunixWebsocketClient:
                         close=c,
                         volume=v,
                     )
-                    with self._lock:
-                        self._latest_candle = candle
+                    # No lock needed in single-threaded async
+                    self._latest_candle = candle
                 except (ValueError, TypeError):
                     pass
 
@@ -249,8 +212,8 @@ class BitunixWebsocketClient:
                             ts_val / 1000.0, tz=timezone.utc
                         ).isoformat(),
                     )
-                    with self._lock:
-                        self._latest_tick = t
+                    # No lock needed
+                    self._latest_tick = t
                 except (ValueError, TypeError):
                     pass
 

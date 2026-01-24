@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import time
 from datetime import datetime, timezone
@@ -119,34 +118,36 @@ async def heartbeat_task(runner: "AsyncRunner") -> None:
                 # Save last price cache
                 if runner.latest_tick:
                     try:
+                        from laptop_agents.core.state_manager import StateManager
+
                         price_cache_path = Path("paper/last_price_cache.json")
                         price_cache_path.parent.mkdir(exist_ok=True)
-                        with open(price_cache_path, "w") as f:
-                            json.dump(
-                                {
-                                    "last": runner.latest_tick.last,
-                                    "ts": runner.latest_tick.ts,
-                                },
-                                f,
-                            )
+                        StateManager.atomic_save_json(
+                            price_cache_path,
+                            {
+                                "last": runner.latest_tick.last,
+                                "ts": runner.latest_tick.ts,
+                            },
+                        )
                     except Exception:
                         pass
 
                 # Write heartbeat file for watchdog
-                with heartbeat_path.open("w") as f:
-                    json.dump(
-                        {
-                            "ts": datetime.now(timezone.utc).isoformat(),
-                            "unix_ts": time_module.time(),
-                            "last_updated_ts": time_module.time(),
-                            "elapsed": elapsed,
-                            "equity": total_equity,
-                            "symbol": runner.symbol,
-                            "ram_mb": round(mem_mb, 2),
-                            "cpu_pct": cpu_pct,
-                        },
-                        f,
-                    )
+                from laptop_agents.core.state_manager import StateManager
+
+                StateManager.atomic_save_json(
+                    heartbeat_path,
+                    {
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "unix_ts": time_module.time(),
+                        "last_updated_ts": time_module.time(),
+                        "elapsed": elapsed,
+                        "equity": total_equity,
+                        "symbol": runner.symbol,
+                        "ram_mb": round(mem_mb, 2),
+                        "cpu_pct": cpu_pct,
+                    },
+                )
 
                 remaining = max(
                     0, (runner.start_time + (runner.duration_min * 60)) - time.time()
