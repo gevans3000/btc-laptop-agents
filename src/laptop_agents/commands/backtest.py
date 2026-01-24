@@ -3,7 +3,7 @@ import os
 from rich.console import Console
 from laptop_agents.constants import DEFAULT_SYMBOL
 from laptop_agents.core.config import load_session_config
-from laptop_agents.core.orchestrator import run_legacy_orchestration
+from laptop_agents.core.legacy import run_legacy_orchestration
 
 console = Console()
 

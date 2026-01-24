@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from laptop_agents.core.logger import logger, write_alert
-from laptop_agents.core.orchestrator import LATEST_DIR, render_html
+from laptop_agents.core.events import LATEST_DIR
+from laptop_agents.reporting.service import render_html
 
 if TYPE_CHECKING:
     from laptop_agents.session.async_session import AsyncRunner

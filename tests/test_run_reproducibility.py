@@ -28,12 +28,12 @@ def test_selftest():
     if result.returncode != 0:
         print("[FAIL] Selftest returned non-zero exit code.")
         print("STDERR:", result.stderr)
-        sys.exit(1)
+        assert result.returncode == 0, f"Selftest failed with stderr: {result.stderr}"
 
     full_output = result.stdout + result.stderr
     if "SELFTEST PASS" not in full_output:
         print("[FAIL] 'SELFTEST PASS' not found in output.")
-        sys.exit(1)
+        assert False, "'SELFTEST PASS' not found in output."
 
     print("[PASS] Selftest successful.")
 
@@ -59,7 +59,7 @@ def test_backtest_reproducibility():
     if result.returncode != 0:
         print("[FAIL] Backtest returned non-zero exit code.")
         print("STDERR:", result.stderr)
-        sys.exit(1)
+        assert result.returncode == 0, f"Backtest failed with stderr: {result.stderr}"
 
     runs_dir = REPO_ROOT / ".workspace" / "runs" / "latest"
     required = ["summary.html", "trades.csv", "events.jsonl"]
@@ -68,10 +68,10 @@ def test_backtest_reproducibility():
         file_path = runs_dir / filename
         if not file_path.exists():
             print(f"[FAIL] Missing artifact: {filename}")
-            sys.exit(1)
+            assert False, f"Missing artifact: {filename}"
         if file_path.stat().st_size == 0:
             print(f"[FAIL] Empty artifact: {filename}")
-            sys.exit(1)
+            assert False, f"Empty artifact: {filename}"
 
     print(f"[PASS] Artifacts generated in {runs_dir}")
 

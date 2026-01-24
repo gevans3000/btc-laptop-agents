@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import shutil
 import time
@@ -33,9 +32,9 @@ from laptop_agents.core.events import (
     append_event,
     RUNS_DIR,
     LATEST_DIR,
-    PAPER_DIR,
     LOGS_DIR,
 )
+from laptop_agents.reporting.service import finalize_run_reporting
 
 
 def prune_workspace(keep: int = 10) -> None:
@@ -138,62 +137,6 @@ def get_agent_config(
             "rr_min": 1.2,
         },
     }
-
-
-def write_trades_csv(trades: List[Dict[str, Any]]) -> None:
-    p = LATEST_DIR / "trades.csv"
-    fieldnames = [
-        "trade_id",
-        "side",
-        "signal",
-        "entry",
-        "exit",
-        "price",
-        "quantity",
-        "pnl",
-        "fees",
-        "entry_ts",
-        "exit_ts",
-        "timestamp",
-        "setup",
-    ]
-
-    temp_p = p.with_suffix(".tmp")
-    try:
-        with temp_p.open("w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-            w.writeheader()
-            for t in trades:
-                filtered_trade = {k: v for k, v in t.items() if k in fieldnames}
-                w.writerow(filtered_trade)
-        temp_p.replace(p)
-    except Exception as e:
-        if temp_p.exists():
-            temp_p.unlink()
-        raise RuntimeError(f"Failed to write trades.csv: {e}")
-
-
-def write_state(state: Dict[str, Any]) -> None:
-    with (LATEST_DIR / "state.json").open("w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
-
-
-def render_html(
-    summary: Dict[str, Any],
-    trades: List[Dict[str, Any]],
-    error_message: str = "",
-    candles: List[Candle] | None = None,
-) -> None:
-    from laptop_agents.reporting.html_renderer import render_html as _render_html
-
-    _render_html(
-        summary=summary,
-        trades=trades,
-        error_message=error_message,
-        candles=candles,
-        latest_dir=LATEST_DIR,
-        append_event_fn=append_event,
-    )
 
 
 class DryRunBroker(PaperBroker):
@@ -388,7 +331,8 @@ def run_orchestrated_mode(
         )
 
         # Post-run reporting
-        _finalize_run_reporting(
+        # Post-run reporting
+        finalize_run_reporting(
             run_id,
             run_dir,
             candles,
@@ -421,103 +365,6 @@ def run_orchestrated_mode(
         return False, str(e)
 
 
-def _finalize_run_reporting(
-    run_id,
-    run_dir,
-    candles,
-    starting_balance,
-    ending_balance,
-    equity_history,
-    fees_bps,
-    slip_bps,
-    symbol,
-    interval,
-    source,
-    risk_pct,
-    stop_bps,
-    tp_r,
-):
-    # Save equity history
-    equity_csv = LATEST_DIR / "equity.csv"
-    with equity_csv.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["ts", "equity"])
-        writer.writeheader()
-        writer.writerows(equity_history)
-
-    # Process journal for trades
-    trades = _parse_journal_for_trades(run_dir / "journal.jsonl")
-    write_trades_csv(trades)
-
-    summary = {
-        "run_id": run_id,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "source": source,
-        "symbol": symbol,
-        "interval": interval,
-        "candle_count": len(candles),
-        "last_ts": str(candles[-1].ts),
-        "starting_balance": starting_balance,
-        "ending_balance": float(ending_balance),
-        "net_pnl": float(ending_balance - starting_balance),
-        "trades": len(trades),
-        "risk_pct": risk_pct,
-        "stop_bps": stop_bps,
-        "tp_r": tp_r,
-    }
-    write_state({"summary": summary})
-    render_html(summary, trades, "", candles=candles)
-
-    # Copy artifacts
-    for fname in ["trades.csv", "events.jsonl", "summary.html"]:
-        if (LATEST_DIR / fname).exists():
-            shutil.copy2(LATEST_DIR / fname, run_dir / fname)
-
-    _print_session_summary(run_id, symbol, starting_balance, ending_balance, trades)
-
-
-def _parse_journal_for_trades(journal_path: Path) -> List[Dict[str, Any]]:
-    trades = []
-    if journal_path.exists():
-        from laptop_agents.trading.paper_journal import PaperJournal
-
-        journal = PaperJournal(journal_path)
-        open_trades = {}
-        for event in journal.iter_events():
-            if event.get("type") == "update":
-                tid = event.get("trade_id")
-                if "fill" in event:
-                    open_trades[tid] = event["fill"]
-                elif "exit" in event and tid in open_trades:
-                    f, x = open_trades.pop(tid), event["exit"]
-                    trades.append(
-                        {
-                            "trade_id": tid,
-                            "side": f.get("side", "???"),
-                            "signal": "MODULAR",
-                            "entry": float(f.get("price", 0)),
-                            "exit": float(x.get("price", 0)),
-                            "quantity": float(f.get("qty", 0)),
-                            "pnl": float(x.get("pnl", 0)),
-                            "fees": float(f.get("fees", 0)) + float(x.get("fees", 0)),
-                            "entry_ts": str(f.get("at", "")),
-                            "exit_ts": str(x.get("at", "")),
-                            "timestamp": str(x.get("at", event.get("at", ""))),
-                            "setup": f.get("setup", "unknown"),
-                        }
-                    )
-    return trades
-
-
-def _print_session_summary(run_id, symbol, start, end, trades):
-    wins = [t for t in trades if t.get("pnl", 0) > 0]
-    wr = (len(wins) / len(trades) * 100) if trades else 0.0
-    net = float(end - start)
-    pct = (net / start * 100) if start > 0 else 0.0
-    logger.info(
-        f"\nSESS: {run_id} | {symbol} | Net: ${net:,.2f} ({pct:+.2f}%) | WR: {wr:.1f}%"
-    )
-
-
 def check_bitunix_config() -> tuple[bool, str]:
     import os
 
@@ -532,171 +379,3 @@ def check_bitunix_config() -> tuple[bool, str]:
             "Bitunix API credentials not configured. Set BITUNIX_API_KEY and BITUNIX_API_SECRET in .env",
         )
     return True, "Bitunix configured"
-
-
-def run_legacy_orchestration(
-    mode: str,
-    symbol: str,
-    interval: str,
-    source: str,
-    limit: int,
-    fees_bps: float,
-    slip_bps: float,
-    risk_pct: float = 1.0,
-    stop_bps: float = 30.0,
-    tp_r: float = 1.5,
-    max_leverage: float = 1.0,
-    intrabar_mode: str = "conservative",
-    backtest_mode: str = "position",
-    validate_splits: int = 5,
-    validate_train: int = 600,
-    validate_test: int = 200,
-    grid_str: str = "sma=10,30;stop=20,30,40;tp=1.0,1.5,2.0",
-    validate_max_candidates: int = 200,
-) -> int:
-    """Legacy orchestration logic moved from run.py for backward compatibility."""
-    get_candles_for_mode = BitunixFuturesProvider.get_candles_for_mode
-
-    run_id = str(uuid.uuid4())
-    starting_balance = 10_000.0
-
-    append_event(
-        {"event": "RunStarted", "run_id": run_id, "mode": mode, "symbol": symbol}
-    )
-
-    try:
-        candles = get_candles_for_mode(
-            source=source,
-            symbol=symbol,
-            interval=interval,
-            mode=mode,
-            limit=limit,
-            validate_train=validate_train,
-            validate_test=validate_test,
-            validate_splits=validate_splits,
-        )
-
-        if mode == "backtest":
-            from laptop_agents.backtest.engine import (
-                run_backtest_bar_mode,
-                run_backtest_position_mode,
-                set_context,
-            )
-
-            set_context(LATEST_DIR, append_event)
-            if backtest_mode == "bar":
-                result = run_backtest_bar_mode(
-                    candles, starting_balance, fees_bps, slip_bps
-                )
-            else:
-                result = run_backtest_position_mode(
-                    candles=candles,
-                    starting_balance=starting_balance,
-                    fees_bps=fees_bps,
-                    slip_bps=slip_bps,
-                    risk_pct=risk_pct,
-                    stop_bps=stop_bps,
-                    tp_r=tp_r,
-                    max_leverage=max_leverage,
-                    intrabar_mode=intrabar_mode,
-                )
-            trades = result["trades"]
-            ending_balance = result["ending_balance"]
-
-        elif mode == "live":
-            from laptop_agents.trading.exec_engine import run_live_paper_trading
-
-            trades, ending_balance, _ = run_live_paper_trading(
-                candles=candles,
-                starting_balance=starting_balance,
-                fees_bps=fees_bps,
-                slip_bps=slip_bps,
-                symbol=symbol,
-                interval=interval,
-                source=source,
-                risk_pct=risk_pct,
-                stop_bps=stop_bps,
-                tp_r=tp_r,
-                max_leverage=max_leverage,
-                paper_dir=PAPER_DIR,
-                append_event_fn=append_event,
-            )
-        elif mode == "validate":
-            from laptop_agents.backtest.engine import run_validation, set_context
-
-            set_context(LATEST_DIR, append_event)
-            run_validation(
-                candles=candles,
-                starting_balance=starting_balance,
-                fees_bps=float(fees_bps),
-                slip_bps=float(slip_bps),
-                risk_pct=float(risk_pct),
-                max_leverage=float(max_leverage),
-                intrabar_mode=intrabar_mode,
-                grid_str=grid_str,
-                validate_splits=validate_splits,
-                validate_train=validate_train,
-                validate_test=validate_test,
-                max_candidates=validate_max_candidates,
-            )
-            return 0
-        elif mode == "selftest":
-            logger.info("SELFTEST PASS. (Self-test successful).")
-            return 0
-        else:
-            # single mode or unknown
-            from laptop_agents.trading.helpers import simulate_trade_one_bar
-            from laptop_agents.trading.strategy import SMACrossoverStrategy
-
-            signal = SMACrossoverStrategy().generate_signal(candles[:-1])
-
-            if signal:
-                res = simulate_trade_one_bar(
-                    signal=signal,
-                    entry_px=float(candles[-2].close),
-                    exit_px=float(candles[-1].close),
-                    starting_balance=starting_balance,
-                    fees_bps=fees_bps,
-                    slip_bps=slip_bps,
-                )
-                trades = [res]
-                ending_balance = starting_balance + res["pnl"]
-            else:
-                trades = []
-                ending_balance = starting_balance
-
-        # Common reporting
-        write_trades_csv(trades)
-        summary = {
-            "run_id": run_id,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "source": source,
-            "symbol": symbol,
-            "interval": interval,
-            "candle_count": len(candles),
-            "last_ts": str(candles[-1].ts),
-            "last_close": float(candles[-1].close),
-            "fees_bps": fees_bps,
-            "slip_bps": slip_bps,
-            "starting_balance": starting_balance,
-            "ending_balance": float(ending_balance),
-            "net_pnl": float(ending_balance - starting_balance),
-            "trades": len(trades),
-            "mode": mode,
-        }
-        write_state({"summary": summary})
-        render_html(summary, trades, "", candles=candles)
-        append_event(
-            {
-                "event": "RunFinished",
-                "run_id": run_id,
-                "net_pnl": float(ending_balance - starting_balance),
-            }
-        )
-        return 0
-
-    except Exception as e:
-        logger.exception(f"Legacy Run failed: {e}")
-        _run_diagnostics(e)
-        append_event({"event": "RunError", "error": str(e)})
-        return 1

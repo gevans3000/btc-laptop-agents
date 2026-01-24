@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from laptop_agents.core.logger import logger
-from laptop_agents.core.orchestrator import append_event, PAPER_DIR
+from laptop_agents.core.events import append_event, PAPER_DIR
 from laptop_agents.constants import WORKSPACE_DIR
 from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
 from laptop_agents.paper.broker import PaperBroker

@@ -177,7 +177,10 @@ def doctor(
         )
 
     # 2. Live Connectivity Check (if keys present)
-    if bitunix_status != "MISSING":
+    api_key = os.environ.get("BITUNIX_API_KEY")
+    api_secret = os.environ.get("BITUNIX_API_SECRET")
+
+    if bitunix_status != "MISSING" and api_key and api_secret:
         console.print("\n[bold]Checking Bitunix Connectivity...[/bold]")
         try:
             # Lazy import to avoid hard dependency at module level

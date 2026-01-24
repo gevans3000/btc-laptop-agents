@@ -9,7 +9,7 @@ load_dotenv()
 from laptop_agents import __version__  # noqa: E402
 from laptop_agents.commands import lifecycle, system, session, backtest  # noqa: E402
 
-console = Console()
+console = Console(force_terminal=True)
 app = typer.Typer(help="Laptop Agents Unified CLI")
 
 # Register commands
