@@ -1,5 +1,6 @@
 import pytest
 import json
+from typing import Any
 from laptop_agents.trading.exec_engine import (
     _load_or_init_state,
     _open_paper_position,
@@ -63,7 +64,7 @@ def test_load_or_init_state_existing(temp_paper_dir):
 
 
 def test_open_paper_position(temp_paper_dir):
-    state = {
+    state: dict[str, Any] = {
         "equity": 10000.0,
         "position": None,
         "risk_pct": 1.0,
@@ -117,7 +118,7 @@ def test_close_paper_position(temp_paper_dir):
         close=102.0,
         volume=10.0,
     )
-    trades = []
+    trades: list[dict[str, Any]] = []
     events = []
 
     def append_event(e):

@@ -3,6 +3,7 @@ import os
 from contextlib import suppress
 import psutil
 import pytest
+from typing import Any, Dict, List
 from laptop_agents.session.async_session import AsyncRunner
 from laptop_agents.trading.helpers import Tick, Candle
 
@@ -14,7 +15,16 @@ class HighSpeedMockProvider:
         self.count = count
         self.stop = False
 
-    def history(self, count):
+    def get_instrument_info(self, symbol: str) -> Dict[str, Any]:
+        return {
+            "symbol": symbol,
+            "minNotional": 5.0,
+            "lotSize": 0.001,
+            "tickSize": 0.1,
+        }
+
+    def history(self, n: int = 100) -> List[Candle]:
+        count = n
         price = 100000.0
         candles = []
         for i in range(count):

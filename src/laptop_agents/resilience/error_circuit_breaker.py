@@ -17,7 +17,7 @@ class ErrorCircuitBreaker:
     def __init__(
         self,
         failure_threshold: int = 5,
-        recovery_timeout: int = 120,
+        recovery_timeout: float = 120.0,
         time_window: int = 60,
     ):
         self.failure_threshold = failure_threshold

@@ -12,6 +12,7 @@ def test_vwap_basic():
     assert len(v) == 2
     # Typical prices: (110+90+105)/3 = 101.666, (115+100+110)/3 = 108.333
     # Weighted avg: (101.666 * 10 + 108.333 * 20) / 30 = (1016.66 + 2166.66) / 30 = 3183.33 / 30 = 106.111
+    assert v[-1] is not None
     assert v[-1] > 106 and v[-1] < 107
 
 
@@ -64,6 +65,7 @@ def test_ema_filter_logic():
 
     price = 106.0
     e200 = ema([c.close for c in candles], 200)
+    assert e200 is not None
     assert e200 > 100.0  # EMA will be weighted towards 110
 
     cfg = {

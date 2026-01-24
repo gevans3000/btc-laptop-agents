@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
+import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, AsyncGenerator, Union
 import tenacity
 
 # Resilience imports
@@ -11,7 +12,7 @@ from ...resilience import (
     RateLimitProviderError,
 )
 from ...core.resilience import ErrorCircuitBreaker
-from ...trading.helpers import Candle
+from ...trading.helpers import Candle, Tick, DataEvent
 from .bitunix_websocket import get_ws_client
 from .bitunix_client import BitunixClient
 
@@ -267,3 +268,98 @@ class BitunixFuturesProvider:
             "funding_8h": self.funding_rate(),
             "open_interest": None,
         }
+
+    def get_pending_positions(
+        self, symbol: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Fetch current open positions (signed)."""
+        params = {}
+        if symbol:
+            params["symbol"] = symbol
+        payload = self.client.get(
+            "/api/v1/futures/position/pending_position", params=params, signed=True
+        )
+        return payload.get("data") or []
+
+    def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Fetch current open orders (signed)."""
+        params = {}
+        if symbol:
+            params["symbol"] = symbol
+        payload = self.client.get(
+            "/api/v1/futures/trade/open_orders", params=params, signed=True
+        )
+        return payload.get("data") or []
+
+    def cancel_order(
+        self, order_id: str, symbol: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Cancel a specific order (signed)."""
+        body = {"orderId": order_id}
+        if symbol:
+            body["symbol"] = symbol
+        return self.client.post(
+            "/api/v1/futures/trade/cancel_order", body=body, signed=True
+        )
+
+    def place_order(
+        self,
+        side: str,
+        qty: float,
+        order_type: str = "MARKET",
+        price: Optional[float] = None,
+        trade_side: Optional[str] = None,
+        sl_price: Optional[float] = None,
+        tp_price: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Place a new order (signed)."""
+        # Note: Proper mapping of side/trade_side to Bitunix API ints (1,2,3,4)
+        # should happen here or in client. For now ensuring signature matches usage.
+        body = {
+            "symbol": self.symbol,
+            "side": side,
+            "qty": qty,
+            "type": order_type,
+        }
+        if price:
+            body["price"] = price
+        if trade_side:
+            body["trade_side"] = trade_side
+        if sl_price:
+            body["sl"] = sl_price
+        if tp_price:
+            body["tp"] = tp_price
+
+        return self.client.post("/api/v1/futures/trade/order", body=body, signed=True)
+
+    def cancel_all_orders(self, symbol: str) -> Dict[str, Any]:
+        """Cancel all pending orders (signed)."""
+        body = {"symbol": symbol}
+        return self.client.post(
+            "/api/v1/futures/trade/cancel_all", body=body, signed=True
+        )
+
+    def history(self, n: int = 200) -> List[Candle]:
+        """Returns n historical candles."""
+        # Note: We use 1m as the default interval for history seeding
+        return self.klines_paged(interval="1m", total=n)
+
+    async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
+        """Provides a stream of market data via WebSocket."""
+        ws = get_ws_client(self.symbol)
+        ws.start()
+        try:
+            while True:
+                # Yield latest tick
+                tick = ws.get_latest_tick()
+                if tick:
+                    yield tick
+
+                # Yield latest candle
+                candle = ws.get_latest_candle()
+                if candle:
+                    yield candle
+
+                await asyncio.sleep(0.1)
+        finally:
+            ws.stop()

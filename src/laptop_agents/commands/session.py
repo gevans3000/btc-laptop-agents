@@ -16,7 +16,6 @@ from laptop_agents.core.orchestrator import (
     run_orchestrated_mode,
     append_event,
 )
-from laptop_agents.core.legacy import run_legacy_orchestration
 
 console = Console()
 LOCK_FILE = AGENT_PID_FILE
@@ -286,9 +285,32 @@ def run(
             )
             console.print(msg)
             ret = 0 if success else 1
+        elif mode == "selftest":
+            console.print("Running selftest...")
+            success, msg = run_orchestrated_mode(
+                symbol="BTCUSDT",
+                interval="1m",
+                source="mock",
+                limit=100,
+                fees_bps=2.0,
+                slip_bps=0.5,
+                risk_pct=1.0,
+                stop_bps=30.0,
+                tp_r=1.5,
+                execution_mode="paper",
+                dry_run=True,
+            )
+            if success:
+                console.print("SELFTEST PASS")
+                ret = 0
+            else:
+                console.print(f"SELFTEST FAIL: {msg}")
+                ret = 1
         else:
-            ret = run_legacy_orchestration(
-                mode=mode,
+            console.print(
+                f"[red]Unknown mode: {mode}. Defaulting to orchestrated...[/red]"
+            )
+            success, msg = run_orchestrated_mode(
                 symbol=args.symbol,
                 interval=args.interval,
                 source=args.source,
@@ -298,15 +320,11 @@ def run(
                 risk_pct=args.risk_pct,
                 stop_bps=args.stop_bps,
                 tp_r=args.tp_r,
-                max_leverage=args.max_leverage,
-                intrabar_mode=args.intrabar_mode,
-                backtest_mode=args.backtest_mode,
-                validate_splits=args.validate_splits,
-                validate_train=args.validate_train,
-                validate_test=args.validate_test,
-                grid_str=args.grid,
-                validate_max_candidates=args.validate_max_candidates,
+                execution_mode=args.execution_mode,
+                dry_run=args.dry_run,
             )
+            console.print(msg)
+            ret = 0 if success else 1
 
         if mode != "selftest":
             summary_path = LATEST_DIR / "summary.html"

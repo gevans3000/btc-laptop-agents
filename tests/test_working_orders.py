@@ -70,7 +70,7 @@ def test_working_order_fills_on_next_candle():
     assert len(broker.working_orders) == 1
 
     # Close position so working order can fill (PaperBroker only allows 1 pos)
-    broker.pos = None
+    broker.pos = None  # type: ignore
 
     # Candle 2: High volume, should fill the rest
     candle2 = Candle(

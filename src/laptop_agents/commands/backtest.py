@@ -3,7 +3,7 @@ import os
 from rich.console import Console
 from laptop_agents.constants import DEFAULT_SYMBOL
 from laptop_agents.core.config import load_session_config
-from laptop_agents.core.legacy import run_legacy_orchestration
+from laptop_agents.core.orchestrator import run_orchestrated_mode
 
 console = Console()
 
@@ -33,7 +33,7 @@ def main(
         "stop_bps": stop_bps,
         "tp_r": tp_r,
         "backtest": minutes,
-        "mode": "backtest",
+        "mode": "orchestrated",
     }
 
     try:
@@ -46,8 +46,7 @@ def main(
 
     console.print(f"[cyan]Starting backtest for {symbol} ({days} days)...[/cyan]")
 
-    ret = run_legacy_orchestration(
-        mode="backtest",
+    success, msg = run_orchestrated_mode(
         symbol=symbol,
         interval=interval,
         source="bitunix",  # Force bitunix to fetch historical data
@@ -57,10 +56,10 @@ def main(
         risk_pct=risk_pct,
         stop_bps=stop_bps,
         tp_r=tp_r,
-        max_leverage=leverage,
-        intrabar_mode="conservative",
-        backtest_mode="position",
+        execution_mode="paper",
     )
+
+    console.print(msg)
 
     if show:
         from laptop_agents.core.orchestrator import LATEST_DIR
@@ -71,4 +70,4 @@ def main(
 
             webbrowser.open(f"file:///{summary_path.resolve()}")
 
-    raise typer.Exit(code=ret)
+    raise typer.Exit(code=0 if success else 1)

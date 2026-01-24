@@ -6,22 +6,34 @@ import sys
 from pathlib import Path
 import pytest
 from laptop_agents.session.async_session import AsyncRunner
-from laptop_agents.trading.helpers import Candle
+from typing import AsyncGenerator, Union, List
+from laptop_agents.trading.helpers import Candle, Tick, DataEvent
 
 
 class MockFastProvider:
-    def __init__(self, candles):
+    def __init__(self, candles: List[Candle]):
         self.candles = candles
 
-    async def listen(self):
+    async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
         for c in self.candles:
             yield c
 
-    async def funding_rate(self):
+    async def funding_rate(self) -> float:
         return 0.0001
 
-    async def fetch_and_inject_gap(self, s, e):
+    async def fetch_and_inject_gap(self, s: float, e: float) -> None:
         pass
+
+    def get_instrument_info(self, symbol: str) -> dict:
+        return {
+            "symbol": symbol,
+            "minNotional": 5.0,
+            "lotSize": 0.001,
+            "tickSize": 0.1,
+        }
+
+    def history(self, n: int = 200) -> List[Candle]:
+        return self.candles[:n]
 
 
 @pytest.mark.asyncio
@@ -99,8 +111,8 @@ async def test_high_load_stress():
         )
 
         # Disable circuit breaker for stress testing throughput
-        runner.circuit_breaker.max_daily_drawdown_pct = 100.0
-        runner.circuit_breaker.max_consecutive_losses = 999
+        # runner.circuit_breaker.max_daily_drawdown_pct = 100.0
+        # runner.circuit_breaker.max_consecutive_losses = 999
 
         start_time = time.time()
 

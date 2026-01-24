@@ -72,6 +72,17 @@ class ExecutionRiskSentinelAgent:
         equity = float(self.risk_cfg["equity"])
         risk_pct = float(self.risk_cfg["risk_pct"])
 
+        lot_size = self.instrument_info.get("lotSize")
+        min_notional = self.instrument_info.get("minNotional")
+
+        if lot_size is None or min_notional is None:
+            state.order = {
+                "go": False,
+                "reason": "missing_instrument_info_for_limits",
+                "setup": setup,
+            }
+            return state
+
         state.order = {
             "go": True,
             "pending_trigger": entry is None,
@@ -84,8 +95,8 @@ class ExecutionRiskSentinelAgent:
             "size_mult": size_mult,
             "risk_pct": risk_pct,
             "equity": equity,
-            "lot_step": float(self.instrument_info.get("lotSize", 0.001)),
-            "min_notional": float(self.instrument_info.get("minNotional", 5.0)),
+            "lot_step": float(lot_size),
+            "min_notional": float(min_notional),
             "setup": setup,
         }
         return state

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from laptop_agents.data.providers.bitunix_futures import build_query_string, sign_rest
+from laptop_agents.data.providers.bitunix_signing import build_query_string, sign_rest
 
 
 def sha256_hex(s: str) -> str:

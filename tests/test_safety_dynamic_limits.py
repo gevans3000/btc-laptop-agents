@@ -15,7 +15,10 @@ def base_state():
     }
     state.derivatives = {"flags": []}
     # Add dummy candles to pass cooldown check
-    state.candles = [1] * 10
+    from laptop_agents.indicators import Candle
+
+    dummy_candle = Candle("2026-01-01T00:00:00Z", 100, 110, 90, 105, 10)
+    state.candles = [dummy_candle] * 10
     state.meta["last_trade_bar"] = 0
     return state
 
@@ -30,13 +33,12 @@ def risk_cfg():
 
 
 def test_default_limits(base_state, risk_cfg):
-    """Test that default limits are used when no instrument info is provided."""
+    """Test that missing instrument info results in NO-GO."""
     agent = ExecutionRiskSentinelAgent(risk_cfg)
     new_state = agent.run(base_state)
 
-    assert new_state.order["go"] is True
-    assert new_state.order["lot_step"] == 0.001
-    assert new_state.order["min_notional"] == 5.0
+    assert new_state.order["go"] is False
+    assert new_state.order["reason"] == "missing_instrument_info_for_limits"
 
 
 def test_dynamic_limits(base_state, risk_cfg):
@@ -57,7 +59,7 @@ def test_dynamic_limits(base_state, risk_cfg):
 
 
 def test_partial_instrument_info(base_state, risk_cfg):
-    """Test that partial info falls back to defaults for missing keys."""
+    """Test that partial info results in NO-GO."""
     instrument_info = {
         "lotSize": 0.5
         # minNotional missing
@@ -65,6 +67,5 @@ def test_partial_instrument_info(base_state, risk_cfg):
     agent = ExecutionRiskSentinelAgent(risk_cfg, instrument_info=instrument_info)
     new_state = agent.run(base_state)
 
-    assert new_state.order["go"] is True
-    assert new_state.order["lot_step"] == 0.5
-    assert new_state.order["min_notional"] == 5.0  # Default
+    assert new_state.order["go"] is False
+    assert new_state.order["reason"] == "missing_instrument_info_for_limits"
