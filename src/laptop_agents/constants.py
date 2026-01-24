@@ -30,11 +30,8 @@ CONFIG_DEFAULTS_PATH = REPO_ROOT / "config" / "defaults.yaml"
 def _load_defaults():
     defaults: dict[str, Any] = {}
     if CONFIG_DEFAULTS_PATH.exists():
-        try:
-            with open(CONFIG_DEFAULTS_PATH, "r") as f:
-                defaults = yaml.safe_load(f) or {}
-        except Exception:
-            pass
+        with open(CONFIG_DEFAULTS_PATH, "r") as f:
+            defaults = yaml.safe_load(f) or {}
     return defaults
 
 

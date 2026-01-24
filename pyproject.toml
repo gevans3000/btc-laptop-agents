@@ -28,6 +28,9 @@ test = [
   "types-PyYAML>=6.0.12.20240808",
   "types-cachetools>=5.5.0.20240820",
   "ruff>=0.1.0",
+  "mypy>=1.0.0",
+  "pytest-xdist",
+  "pre-commit>=4.0.0",
 ]
 dashboard = [
   "Flask>=3.0.0",
