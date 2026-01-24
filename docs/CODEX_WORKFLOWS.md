@@ -51,6 +51,11 @@ make harden
 - Review: `.agent/workflows/review.md`
 - Fix: `.agent/workflows/fix.md`
 - Harden: `.agent/workflows/harden.md`
+- Audit Version Alignment: `.agent/workflows/audit_version_alignment.md`
+- Audit Findings Checklists: `.agent/workflows/audit_finding_checklists.md`
+- Audit Evidence Citations: `.agent/workflows/audit_evidence_citations.md`
+- Capture CLI Outputs: `.agent/workflows/capture_cli_outputs.md`
+- Reconcile Walkthrough: `.agent/workflows/reconcile_walkthrough.md`
 
 ## Windows vs macOS/Linux
 On macOS/Linux, run the PowerShell scripts with `pwsh`:
