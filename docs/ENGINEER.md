@@ -40,6 +40,20 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
 | **Monitor** | `la status` | Checks process health and heartbeat. |
 | **Supervisor**| `la watch` | Wrapper ensuring auto-restart on crash. |
 
+For the full run-time flag list, use `la run --help`.
+
+---
+
+## 2.1 Configuration Formats & Precedence
+
+### A. Config Files
+- **Session config**: JSON file passed via `--config` (see `SessionConfig` in `src/laptop_agents/core/config.py`).
+- **Strategy config**: JSON in `config/strategies/<name>.json` loaded via `--strategy`.
+- **Risk/exchange config**: YAML in `config/risk.yaml` and `config/exchanges/bitunix.yaml`.
+
+### B. Precedence (Session Config)
+Environment variables (`LA_*`) > session config JSON (`--config`) > strategy defaults (`config/strategies/*.json`) > built-in defaults.
+
 ---
 
 ## 3. Architecture & Agents
@@ -91,3 +105,11 @@ Run `la doctor --fix` to auto-detect and fix Python version, `.env` issues, and 
 | **LowCandleCountWarning** | Cold start; not enough history for indicators. | Ensure stable internet for initial history fetch. |
 | **Zombie Connection** | WebSocket stopped receiving data. | System auto-reconnects after 60s. No action needed. |
 | **Config Validation Error** | Strategy config exceeds hard limits. | Adjust config to be stricter than `constants.py`. |
+
+---
+
+## 6. State Persistence (Source of Truth)
+
+- **Unified session state**: `.workspace/paper/unified_state.json` (circuit breaker state, starting equity, supervisor state).
+- **Paper broker state (source of truth)**: `.workspace/paper/broker_state.db` (SQLite WAL). A best-effort JSON snapshot is written alongside as `broker_state.json`.
+- **Logs/artifacts**: `.workspace/` (see runs, logs, and reports).

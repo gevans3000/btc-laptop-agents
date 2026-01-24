@@ -37,6 +37,11 @@ la status
 - **[CONTRIBUTING.md](docs/CONTRIBUTING.md)**: Development guide, testing strategies, and review protocols.
 - **[PROTOCOL](docs/AI_ENGINEERING_PROTOCOL.md)**: Rules for AI agents modification of this codebase.
 
+## ⚙️ Configuration Formats
+- **Session config**: JSON file passed via `--config` (see `SessionConfig` in `src/laptop_agents/core/config.py`).
+- **Strategy config**: JSON files in `config/strategies/<name>.json` loaded via `--strategy`.
+- **Risk/exchange config**: YAML files in `config/risk.yaml` and `config/exchanges/bitunix.yaml`.
+
 ## 🛡️ Safety & Architecture
 - **Hard Limits**: `constants.py` defines immutable risk ceilings (e.g., Max $50 loss/day).
 - **Hermetic Workspace**: All logs, state, and artifacts live in `.workspace/`.
