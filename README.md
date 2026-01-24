@@ -2,7 +2,7 @@
 
 > **Status**: Active & Hardened
 > **Capability**: 10-minute+ Autonomous Sessions (Paper/Live)
-> **Engine**: Python 3.10+ / Asyncio / Typer / WebSocket
+> **Engine**: Python 3.11+ / Asyncio / Typer / WebSocket
 
 **BTC Laptop Agents** is a privacy-first, local-first autonomous trading system. Unlike distinct "bots", it runs as a continuous agentic loop that owns the entire lifecycle—from data ingestion to safety checks and execution—guarded by non-negotiable hard limits.
 
@@ -34,13 +34,13 @@ la status
 
 ## 📚 Documentation
 - **[ENGINEER.md](docs/ENGINEER.md)**: **The Single Source of Truth**. Read this for operational commands, architecture, and configuration.
-- **[PROJECT_SCOPE.md](docs/PROJECT_SCOPE.md)**: Architectural requirements and system invariants.
+- **[CONTRIBUTING.md](docs/CONTRIBUTING.md)**: Development guide, testing strategies, and review protocols.
 - **[PROTOCOL](docs/AI_ENGINEERING_PROTOCOL.md)**: Rules for AI agents modification of this codebase.
 
 ## 🛡️ Safety & Architecture
 - **Hard Limits**: `constants.py` defines immutable risk ceilings (e.g., Max $50 loss/day).
-- **Hermetic Workspace**: All logs, state, and artifacts live in `.workspace/` to keep your system clean.
+- **Hermetic Workspace**: All logs, state, and artifacts live in `.workspace/`.
 - **Resilience**: Integrated "Circuit Breakers" and "Zombie Connection" detection.
 
 ## 🤝 Contributing
-See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for setup and pull request workflows.
+See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for workflows.

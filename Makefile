@@ -1,4 +1,4 @@
-.PHONY: build test run-paper clean bootstrap review fix harden
+.PHONY: build test run-paper clean bootstrap review fix harden format
 
 build:
 	docker build -t btc-laptop-agents:latest .
@@ -29,3 +29,7 @@ harden:
 	powershell -ExecutionPolicy Bypass -File scripts/codex_review.ps1
 	python -m mypy src/laptop_agents --ignore-missing-imports --no-error-summary
 	python -m pytest tests/ -q --tb=short -p no:cacheprovider --basetemp=./pytest_temp
+
+format:
+	python -m ruff format src tests
+	python -m ruff check src tests --fix

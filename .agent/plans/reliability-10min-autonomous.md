@@ -300,7 +300,7 @@ def _handle_push(self, data: Dict[str, Any]):
             if not all(k in kline for k in required_kline):
                 logger.warning(f"WS: Malformed kline missing keys: {kline.keys()}")
                 return
-            
+
             c = Candle(
                 ts=datetime.fromtimestamp(
                     kline.get("time", 0) / 1000.0, tz=timezone.utc
@@ -320,7 +320,7 @@ def _handle_push(self, data: Dict[str, Any]):
             if not all(k in ticker for k in required_ticker):
                 logger.warning(f"WS: Malformed ticker missing keys: {ticker.keys()}")
                 return
-            
+
             t = Tick(
                 symbol=self.symbol,
                 bid=float(ticker.get("buy", 0)),

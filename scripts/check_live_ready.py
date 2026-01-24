@@ -1,17 +1,9 @@
+import logging
 import os
 import sys
-import logging
 from pathlib import Path
+
 from dotenv import load_dotenv
-
-# Load .env
-load_dotenv()
-
-# Add src to sys.path
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.append(str(REPO_ROOT / "src"))
-
-from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -20,6 +12,13 @@ logger = logging.getLogger("check_live_ready")
 
 
 def main():
+    load_dotenv()
+
+    repo_root = Path(__file__).resolve().parent.parent
+    sys.path.append(str(repo_root / "src"))
+
+    from laptop_agents.data.providers.bitunix_futures import BitunixFuturesProvider
+
     logger.info("Verifying Bitunix Live Readiness...")
 
     api_key = os.environ.get("BITUNIX_API_KEY")

@@ -122,7 +122,7 @@ def capture(error_text: str, solution: str, root_cause: str = ""):
         "timestamp": datetime.now().isoformat(),
         "occurrences": 1
     }
-    
+
     # Check if this fingerprint already exists
     memory = load_memory()
     for existing in memory:
@@ -130,7 +130,7 @@ def capture(error_text: str, solution: str, root_cause: str = ""):
             print(f"ERROR already known (fingerprint: {fp})")
             print(f"Previous solution: {existing.get('solution')}")
             return
-    
+
     save_entry(entry)
     print(f"✓ Captured new error (fingerprint: {fp})")
     print(f"  Solution recorded: {solution[:100]}...")
@@ -139,7 +139,7 @@ def lookup(error_text: str) -> dict | None:
     """Lookup an error in memory."""
     fp = fingerprint(error_text)
     memory = load_memory()
-    
+
     for entry in memory:
         if entry.get("fingerprint") == fp:
             print(f"✓ MATCH FOUND (fingerprint: {fp})")
@@ -147,7 +147,7 @@ def lookup(error_text: str) -> dict | None:
             print(f"  Solution: {entry.get('solution')}")
             print(f"  Root cause: {entry.get('root_cause', 'N/A')}")
             return entry
-    
+
     print(f"No match found for fingerprint: {fp}")
     return None
 
@@ -165,9 +165,9 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
-    
+
     cmd = sys.argv[1]
-    
+
     if cmd == "capture" and len(sys.argv) >= 4:
         capture(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else "")
     elif cmd == "lookup" and len(sys.argv) >= 3:
@@ -218,7 +218,7 @@ import pytest
 def {name}():
     """
     {description}
-    
+
     This test was auto-generated after fixing a bug.
     If this test fails, a previously fixed issue has regressed.
     """
@@ -228,21 +228,21 @@ def {name}():
 def create_test(name: str, description: str, assertion: str):
     """Create a new regression test file."""
     REGRESSION_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     # Sanitize name
     safe_name = name.replace(" ", "_").replace("-", "_").lower()
     if not safe_name.startswith("test_"):
         safe_name = f"test_{safe_name}"
-    
+
     filename = REGRESSION_DIR / f"{safe_name}.py"
-    
+
     content = TEMPLATE.format(
         name=safe_name,
         timestamp=datetime.now().isoformat(),
         description=description,
         assertion=assertion
     )
-    
+
     filename.write_text(content, encoding='utf-8')
     print(f"✓ Created regression test: {filename}")
     print(f"  Run with: pytest {filename}")
@@ -251,7 +251,7 @@ if __name__ == "__main__":
     if len(sys.argv) < 4:
         print(__doc__)
         sys.exit(1)
-    
+
     create_test(sys.argv[1], sys.argv[2], sys.argv[3])
 ```
 
@@ -317,18 +317,18 @@ def check():
     if not rules:
         print("No learned lint rules defined.")
         return 0
-    
+
     violations = []
-    
+
     for py_file in SRC_DIR.rglob("*.py"):
         content = py_file.read_text(encoding='utf-8')
         lines = content.split('\n')
-        
+
         for rule in rules:
             pattern = rule.get("pattern")
             if not pattern:
                 continue
-            
+
             for i, line in enumerate(lines, 1):
                 if re.search(pattern, line):
                     violations.append({
@@ -338,7 +338,7 @@ def check():
                         "message": rule.get("message", "Lint violation"),
                         "content": line.strip()[:80]
                     })
-    
+
     if violations:
         print(f"FAILED: {len(violations)} lint violation(s) found:\n")
         for v in violations:
@@ -355,7 +355,7 @@ def add_rule(pattern: str, message: str, source_bug: str):
     """Add a new lint rule."""
     rules = load_rules()
     rule_id = f"learned-{len(rules) + 1}"
-    
+
     rules.append({
         "id": rule_id,
         "pattern": pattern,
@@ -363,7 +363,7 @@ def add_rule(pattern: str, message: str, source_bug: str):
         "severity": "error",
         "source_bug": source_bug
     })
-    
+
     save_rules(rules)
     print(f"✓ Added lint rule: {rule_id}")
     print(f"  Pattern: {pattern}")

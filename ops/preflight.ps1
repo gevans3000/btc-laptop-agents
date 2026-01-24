@@ -24,11 +24,11 @@ foreach ($lock in $locks) {
 # 3. Code Polish (Prevent /go formatting failures)
 Write-Host "Polishing code..." -ForegroundColor Cyan
 try {
-    python -m black src tests
-    python -m autoflake --in-place --remove-all-unused-imports --recursive src tests
+    python -m ruff format src tests
+    python -m ruff check src tests --fix
     Write-Host "Code formatting complete." -ForegroundColor Green
 } catch {
-    Write-Host "Warning: Formatter tools (black/autoflake) might be missing or failed to run." -ForegroundColor DarkGray
+    Write-Host "Warning: Formatter tools (ruff) might be missing or failed to run." -ForegroundColor DarkGray
 }
 
 # 4. Environment Check

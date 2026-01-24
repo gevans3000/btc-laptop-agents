@@ -1,7 +1,7 @@
 # EXTERNAL SUPERVISION PLAN
 
-**Priority**: High  
-**Estimated Scope**: 1 new file, ~100 lines  
+**Priority**: High
+**Estimated Scope**: 1 new file, ~100 lines
 **Goal**: Create a robust external supervisor script (`scripts/supervisor.py`) that launches the trading agent, monitors its heartbeat, and automatically restarts it if it freezes or crashes, ensuring true "walk-away" autonomy.
 
 ---
@@ -66,7 +66,7 @@ def get_heartbeat_age():
 def kill_process(proc):
     print(f"[SUPERVISOR] Killing PID {proc.pid}...")
     if platform.system() == "Windows":
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], 
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         try:
@@ -80,26 +80,26 @@ def kill_process(proc):
 def main():
     # Pass through all args after 'supervisor.py' to the agent
     agent_args = sys.argv[1:]
-    
+
     # Ensure src is in PYTHONPATH
     env = os.environ.copy()
     repo_root = Path(__file__).parent.parent
     src_path = repo_root / "src"
     env["PYTHONPATH"] = str(src_path) + os.pathsep + env.get("PYTHONPATH", "")
-    
+
     cmd = [sys.executable, "-m", "laptop_agents.run"] + agent_args
-    
+
     restarts = 0
-    
+
     while restarts < MAX_RESTARTS:
         print(f"\n[SUPERVISOR] Starting Agent (Attempt {restarts + 1}/{MAX_RESTARTS})...")
         print(f"[SUPERVISOR] CMD: {' '.join(cmd)}")
-        
+
         # Start process
         # On Unix, setsid for process group killing. On Windows, creationflags.
         creationflags = 0
         preexec_fn = None
-        
+
         if platform.system() == "Windows":
              creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
         else:
@@ -111,9 +111,9 @@ def main():
             creationflags=creationflags,
             preexec_fn=preexec_fn
         )
-        
+
         print(f"[SUPERVISOR] Agent running with PID {proc.pid}")
-        
+
         # Monitoring Loop
         try:
             while True:
@@ -126,7 +126,7 @@ def main():
                     else:
                         print(f"[SUPERVISOR] Agent crashed with exit code {ret}.")
                         break # Break monitoring loop to trigger restart logic
-                
+
                 # Check heartbeat
                 age = get_heartbeat_age()
                 if age > HEARTBEAT_TIMEOUT:
@@ -138,14 +138,14 @@ def main():
                     except subprocess.TimeoutError:
                         print("[SUPERVISOR] Force kill required.")
                     break # Break monitoring loop to trigger restart
-                    
+
                 time.sleep(CHECK_INTERVAL)
-                
+
         except KeyboardInterrupt:
             print("\n[SUPERVISOR] KeyboardInterrupt received. Stopping agent...")
             kill_process(proc)
             return 0
-        
+
         # Restart logic
         restarts += 1
         if restarts < MAX_RESTARTS:
@@ -154,7 +154,7 @@ def main():
         else:
             print("[SUPERVISOR] FATAL: Max restarts exceeded.")
             return 1
-            
+
     return 1
 
 if __name__ == "__main__":
@@ -172,13 +172,13 @@ if __name__ == "__main__":
 **Command**:
 ```powershell
 # Create a dummy freezing agent script
-echo "import time; import json; import os; from pathlib import Path; 
-Path('logs').mkdir(exist_ok=True); 
-with open('logs/heartbeat.json', 'w') as f: json.dump({'unix_ts': time.time() - 40}, f); 
-print('I am a frozen agent checking in with old timestamp'); 
+echo "import time; import json; import os; from pathlib import Path;
+Path('logs').mkdir(exist_ok=True);
+with open('logs/heartbeat.json', 'w') as f: json.dump({'unix_ts': time.time() - 40}, f);
+print('I am a frozen agent checking in with old timestamp');
 time.sleep(10)" > tests/mock_frozen_agent.py
 
-# Run supervisor against it (using python -m approach by tricking cmd args or just temporarily modifying supervisor for test? 
+# Run supervisor against it (using python -m approach by tricking cmd args or just temporarily modifying supervisor for test?
 # Better: Just run the supervisor against the REAL app in dry-run mode for 10 seconds.
 ```
 

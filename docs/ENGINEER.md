@@ -1,16 +1,29 @@
 # ENGINEER.md — The Integrated Operations & Specification Manual
 
 > **Status**: ACTIVE & AUTHORITATIVE
-> **Version**: 1.2.0 (Consolidated Architecture)
+> **Version**: 1.3.0 (Cleaned & Consolidated)
 
 This document is the **Single Source of Truth** for the BTC Laptop Agents system. It integrates the operational runbook, technical specifications, agent architecture, and API reference.
 
 ---
 
-## 1. Quick Start
+## 1. System Overview & Invariants
+
+**BTC Laptop Agents** is a privacy-first, local-first autonomous trading system. It operates on a "Hardware Ceiling" philosophy where safety limits are hard-coded into the application.
+
+### Repo Invariants
+- **Local-First**: No external dependencies for core logic execution. Artifacts live in `.workspace/`.
+- **Deterministic**: Replaying specific input data must yield identical state transitions.
+- **Single Symbol**: Designed to focus on one pair (default `BTCUSDT`) per session.
+- **Linear Execution**: Agents run sequentially within the `Supervisor.step()` loop.
+- **Configuration Precedence**: Environment Variables (`LA_*`) > Session Config > Defaults.
+
+---
+
+## 2. Quick Start
 
 ### A. Environment Setup
-- **Python**: 3.10 or higher.
+- **Python**: 3.11 or higher.
 - **Installation**: `pip install -e .`
 - **Configuration**: Create a `.env` file at the root:
   ```env
@@ -25,32 +38,7 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
 | **Live Session** | `la run --mode live-session` | Starts autonomous trading loop. |
 | **Backtest** | `la backtest --days 2` | Runs historical simulation. |
 | **Monitor** | `la status` | Checks process health and heartbeat. |
-| **Supervisor**| `la watch` | wrapper ensuring auto-restart on crash. |
-
-### C. Configuration & Safety
-**Hard Limits** are defined in `src/laptop_agents/constants.py` and CANNOT be overridden by config files.
-
-| Config File | Purpose |
-|------|---------|
-| `config/strategies/default.json` | Base strategy logic |
-| `src/laptop_agents/constants.py` | **Immutable Safety Limits** (Max Loss, Max Pos) |
-| `.workspace/runs/<id>/` | Artifacts (HTML reports, CSV logs) |
-
----
-
-## 2. Operational Modes
-
-### A. Live Session (Autonomous)
-The standard mode for running the agent against real-time data (Paper or Real).
-```bash
-la run --mode live-session --symbol BTCUSDT --duration 10 --async
-```
-
-### B. Backtesting
-Dedicated command for historical validation.
-```bash
-la backtest --symbol BTCUSDT --days 5 --risk-pct 1.0
-```
+| **Supervisor**| `la watch` | Wrapper ensuring auto-restart on crash. |
 
 ---
 
@@ -68,15 +56,17 @@ The system uses a **MODULAR PIPELINE** managed by `src/laptop_agents/agents/supe
 7.  **RiskGateAgent**: Final hard-limit check before execution.
 8.  **JournalCoachAgent**: Logs trade lifecycle and manages state interaction.
 
-### Data Invariants
+### Data Flow
+- **Consolidated Provider**: `BitunixFuturesProvider` handles **BOTH** REST (History) and WebSocket (Real-time) data.
 - **Warmup**: System requires **51 candles** minimum to initialize indicators.
-- **Provider**: `BitunixFuturesProvider` handles **BOTH** REST (History) and WebSocket (Real-time) data.
 
 ---
 
 ## 4. Resilience & Safety
 
 ### A. Hard Limits (`constants.py`)
+These are immutable laws. They can only be changed by editing the source code.
+
 | Limit | Value | Enforcement |
 | :--- | :--- | :--- |
 | `MAX_POSITION_SIZE_USD` | $500.00 | Rejected at `RiskGateAgent` |
@@ -89,9 +79,15 @@ The system uses a **MODULAR PIPELINE** managed by `src/laptop_agents/agents/supe
 
 ---
 
-## 5. Artifacts
-Every run produces:
-- `summary.html`: Interactive performance dashboard.
-- `trades.csv`: Row-by-row trade log.
-- `events.jsonl`: Machine-readable event stream (NDJSON).
-- `equity.csv`: Time-series equity curve.
+## 5. Troubleshooting
+
+### Automated Diagnostics
+Run `la doctor --fix` to auto-detect and fix Python version, `.env` issues, and permissions.
+
+### Common Issues
+| Symptom | Cause | Fix |
+| :--- | :--- | :--- |
+| **Circuit Breaker Open** | Max consecutive losses (5) or daily drawdown hit. | Review `.workspace/logs/`. Restarting session resets memory, but daily limits persist. |
+| **LowCandleCountWarning** | Cold start; not enough history for indicators. | Ensure stable internet for initial history fetch. |
+| **Zombie Connection** | WebSocket stopped receiving data. | System auto-reconnects after 60s. No action needed. |
+| **Config Validation Error** | Strategy config exceeds hard limits. | Adjust config to be stricter than `constants.py`. |

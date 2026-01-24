@@ -1,7 +1,7 @@
 # CORE RELIABILITY FOUNDATION PLAN
 
-**Priority**: Critical  
-**Estimated Scope**: 3 files, ~150 lines modified/added  
+**Priority**: Critical
+**Estimated Scope**: 3 files, ~150 lines modified/added
 **Goal**: Ensure the async trading session can run autonomously for 10 minutes without crashing due to queue overflow, network blips, or state corruption.
 
 ---
@@ -36,7 +36,7 @@ In `src/laptop_agents/session/async_session.py`, the `on_candle_closed` method u
 self.execution_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
 ```
 
-**Verification**: 
+**Verification**:
 ```powershell
 python -c "from laptop_agents.session.async_session import AsyncRunner; r = AsyncRunner('BTCUSDT', '1m'); print('execution_queue exists:', hasattr(r, 'execution_queue'))"
 ```
@@ -59,56 +59,56 @@ async def execution_task(self):
             try:
                 # Wait for an order with timeout so we can check shutdown
                 order_payload = await asyncio.wait_for(
-                    self.execution_queue.get(), 
+                    self.execution_queue.get(),
                     timeout=1.0
                 )
             except asyncio.TimeoutError:
                 continue
-            
+
             order = order_payload.get("order")
             candle = order_payload.get("candle")
-            
+
             if not order or not order.get("go"):
                 continue
-            
+
             # Simulate network latency WITHOUT blocking main loop
             if not self.dry_run:
                 latency = order_payload.get("latency_ms", 200)
                 logger.debug(f"Executing order with {latency}ms simulated latency")
                 await asyncio.sleep(latency / 1000.0)
-            
+
             # Get the CURRENT tick after latency (realistic fill price)
             current_tick = self.latest_tick
-            
+
             # Execute via broker
             events = self.broker.on_candle(candle, order, tick=current_tick)
-            
+
             for fill in events.get("fills", []):
                 self.trades += 1
                 logger.info(f"EXECUTION FILL: {fill['side']} @ {fill['price']}")
                 append_event({"event": "ExecutionFill", **fill}, paper=True)
-                
+
             for exit_event in events.get("exits", []):
                 self.trades += 1
                 logger.info(f"EXECUTION EXIT: {exit_event['reason']} @ {exit_event['price']}")
                 append_event({"event": "ExecutionExit", **exit_event}, paper=True)
-            
+
             # Update circuit breaker
             trade_pnl = None
             for exit_event in events.get("exits", []):
                 trade_pnl = exit_event.get("pnl", 0)
-                
+
             self.circuit_breaker.update_equity(self.broker.current_equity, trade_pnl)
-            
+
             if self.circuit_breaker.is_tripped():
                 logger.warning(f"CIRCUIT BREAKER TRIPPED: {self.circuit_breaker.get_status()}")
                 self.shutdown_event.set()
-            
+
             # Save state
             if not self.dry_run:
                 self.state_manager.set_circuit_breaker_state(self.circuit_breaker.get_status())
                 self.state_manager.save()
-                
+
     except asyncio.CancelledError:
         pass
     except Exception as e:
@@ -187,12 +187,12 @@ Expected output: `execution_task registered: True`
                     current_tick = self.latest_tick
 
             events = self.broker.on_candle(candle, order, tick=current_tick)
-            
+
             for fill in events.get("fills", []):
                 self.trades += 1
                 logger.info(f"STRATEGY FILL: {fill['side']} @ {fill['price']}")
                 append_event({"event": "StrategyFill", **fill}, paper=True)
-                
+
             for exit_event in events.get("exits", []):
                 self.trades += 1
                 logger.info(f"STRATEGY EXIT: {exit_event['reason']} @ {exit_event['price']}")
@@ -202,7 +202,7 @@ Expected output: `execution_task registered: True`
             trade_pnl = None
             for exit_event in events.get("exits", []):
                 trade_pnl = exit_event.get("pnl", 0)
-                
+
             self.circuit_breaker.update_equity(self.broker.current_equity, trade_pnl)
 
             if self.circuit_breaker.is_tripped():
@@ -336,7 +336,7 @@ Expected: `True`
             logger.error(f"Error in market_data_task: {e}")
             self.consecutive_ws_errors += 1
             self.errors += 1
-            
+
             if self.consecutive_ws_errors >= self.max_ws_errors:
                 logger.error(f"WS_FATAL: {self.max_ws_errors} consecutive errors. Triggering shutdown.")
                 self.shutdown_event.set()
@@ -396,7 +396,7 @@ Expected: `True`
                 "trail_active": self.pos.trail_active,
                 "trail_stop": self.pos.trail_stop
             }
-        
+
         temp_path = Path(self.state_path).with_suffix(".tmp")
         with open(temp_path, "w") as f:
             json.dump(state, f, indent=2)
@@ -432,20 +432,20 @@ Expected: `True`
                 "trail_active": self.pos.trail_active,
                 "trail_stop": self.pos.trail_stop
             }
-        
+
         main_path = Path(self.state_path)
         temp_path = main_path.with_suffix(".tmp")
         backup_path = main_path.with_suffix(".bak")
-        
+
         try:
             # Step 1: Write to temp file
             with open(temp_path, "w") as f:
                 json.dump(state, f, indent=2)
-            
+
             # Step 2: Validate temp file is valid JSON
             with open(temp_path, "r") as f:
                 json.load(f)  # Will raise if corrupt
-            
+
             # Step 3: Backup existing state (if exists and valid)
             if main_path.exists():
                 try:
@@ -455,10 +455,10 @@ Expected: `True`
                     shutil.copy2(main_path, backup_path)
                 except (json.JSONDecodeError, Exception):
                     pass  # Don't backup corrupt files
-            
+
             # Step 4: Atomic rename temp -> main
             temp_path.replace(main_path)
-            
+
         except Exception as e:
             logger.error(f"Failed to save state: {e}")
             # Clean up temp file if it exists
@@ -488,46 +488,46 @@ Expected: `True`
     def _load_state(self) -> None:
         path = Path(self.state_path)
         backup_path = path.with_suffix(".bak")
-        
+
         # Try main file first, then backup
         for try_path, is_backup in [(path, False), (backup_path, True)]:
             if not try_path.exists():
                 continue
-                
+
             try:
                 with open(try_path) as f:
                     state = json.load(f)
-                
+
                 self.starting_equity = state.get("starting_equity", self.starting_equity)
                 self.current_equity = state.get("current_equity", self.current_equity)
                 self.processed_order_ids = set(state.get("processed_order_ids", []))
                 self.order_history = state.get("order_history", [])
                 self.working_orders = state.get("working_orders", [])
-                
+
                 # Expire stale working orders (> 24 hours old)
                 now = time.time()
                 original_count = len(self.working_orders)
                 self.working_orders = [
-                    o for o in self.working_orders 
+                    o for o in self.working_orders
                     if now - o.get("created_at", now) < 86400  # 24 hours
                 ]
                 if original_count != len(self.working_orders):
                     logger.info(f"Expired {original_count - len(self.working_orders)} stale working orders")
-                
+
                 pos_data = state.get("pos")
                 if pos_data:
                     self.pos = Position(**pos_data)
-                
+
                 source = "backup" if is_backup else "primary"
                 logger.info(f"Loaded broker state from {source}: {try_path}")
-                
+
                 # If we loaded from backup, immediately save to restore primary
                 if is_backup:
                     logger.warning("Loaded from BACKUP. Primary was corrupt. Restoring primary file...")
                     self._save_state()
-                
+
                 return  # Success - exit the loop
-                
+
             except json.JSONDecodeError as e:
                 logger.error(f"State file corrupt ({try_path}): {e}")
                 # Rename corrupt file for debugging
@@ -538,11 +538,11 @@ Expected: `True`
                 except Exception:
                     pass
                 continue  # Try next file
-                
+
             except Exception as e:
                 logger.error(f"Failed to load broker state from {try_path}: {e}")
                 continue
-        
+
         # If we get here, no valid state was found
         logger.warning("No valid state file found. Starting with fresh state.")
 ```
@@ -615,18 +615,18 @@ with tempfile.TemporaryDirectory() as td:
     b = PaperBroker('BTCUSDT', state_path=state_path)
     b.current_equity = 12345.67
     b._save_state()
-    
+
     # Verify backup exists after second save
     b._save_state()
     backup_exists = os.path.exists(state_path.replace('.json', '.bak'))
-    
+
     # Corrupt primary and verify backup recovery
     with open(state_path, 'w') as f:
         f.write('CORRUPT{{{')
-    
+
     b2 = PaperBroker('BTCUSDT', state_path=state_path)
     recovered = abs(b2.current_equity - 12345.67) < 0.01
-    
+
     print(f'Backup created: {backup_exists}')
     print(f'Recovery from backup: {recovered}')
 "

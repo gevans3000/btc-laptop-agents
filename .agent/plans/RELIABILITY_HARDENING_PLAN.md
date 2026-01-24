@@ -76,7 +76,7 @@ self.kill_file = Path(__file__).resolve().parent.parent.parent.parent / "kill.tx
 # Expire stale working orders (> 24 hours old)
 now = time.time()
 self.working_orders = [
-    o for o in self.working_orders 
+    o for o in self.working_orders
     if now - o.get("created_at", now) < 86400  # 24 hours
 ]
 if len(state.get("working_orders", [])) != len(self.working_orders):
@@ -106,11 +106,11 @@ if self.strategy_config:
     try:
         from laptop_agents.agents.supervisor import Supervisor
         from laptop_agents.agents.state import State as AgentState
-        
+
         supervisor = Supervisor(provider=None, cfg=self.strategy_config, broker=self.broker)
         state = AgentState(instrument=self.symbol, timeframe=self.interval, candles=self.candles[:-1])
         state = supervisor.step(state, candle, skip_broker=True)
-        
+
         if state.setup.get("side") in ["LONG", "SHORT"]:
             raw_signal = "BUY" if state.setup["side"] == "LONG" else "SELL"
     except Exception as agent_err:

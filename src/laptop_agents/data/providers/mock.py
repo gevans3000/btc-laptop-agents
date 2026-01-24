@@ -6,16 +6,13 @@ from typing import List
 import random
 
 
-@dataclass(frozen=True)
-class Candle:
-    ts: str
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float
+from laptop_agents.trading.helpers import Tick, Candle
+import asyncio
+
+from laptop_agents.constants import DEFAULT_SYMBOL
 
 
+@dataclass
 class MockProvider:
     """Deterministic candle stream for tests/demos (no internet)."""
 
@@ -55,10 +52,6 @@ class MockProvider:
 
     async def listen(self):
         """Async generator that produces ticks and candles for demo/test."""
-        from laptop_agents.trading.helpers import Tick, Candle as IndicatorCandle
-        import asyncio
-
-        from laptop_agents.constants import DEFAULT_SYMBOL
 
         while True:
             # Produce a "Tick"
@@ -75,7 +68,7 @@ class MockProvider:
             # Occasionally produce a candle (simulated every ~5 ticks)
             if self.rng.random() > 0.8:
                 c = self.next_candle()
-                yield IndicatorCandle(
+                yield Candle(
                     ts=c.ts,
                     open=c.open,
                     high=c.high,

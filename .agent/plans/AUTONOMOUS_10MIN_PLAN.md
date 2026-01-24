@@ -50,7 +50,7 @@ SENSITIVE_PATTERNS = [
 def scrub_secrets(text: str) -> str:
     """Replace sensitive values with ***."""
     # Also scrub any values from .env
-    env_secrets = [v for k, v in os.environ.items() 
+    env_secrets = [v for k, v in os.environ.items()
                    if any(x in k.upper() for x in ['KEY', 'SECRET', 'TOKEN', 'PASSWORD'])
                    and v and len(v) > 8]
     for secret in env_secrets:
@@ -117,14 +117,14 @@ from laptop_agents.core.logger import logger
 
 class StateManager:
     """Atomic state persistence for crash recovery."""
-    
+
     def __init__(self, state_dir: Path):
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.state_file = self.state_dir / "unified_state.json"
         self._state: Dict[str, Any] = {}
         self._load()
-    
+
     def _load(self) -> None:
         if self.state_file.exists():
             try:
@@ -134,7 +134,7 @@ class StateManager:
             except Exception as e:
                 logger.error(f"Failed to load state: {e}")
                 self._state = {}
-    
+
     def save(self) -> None:
         """Atomic save via temp file + rename."""
         self._state["last_saved"] = time.time()
@@ -142,25 +142,25 @@ class StateManager:
         with open(temp, "w") as f:
             json.dump(self._state, f, indent=2)
         temp.replace(self.state_file)
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         return self._state.get(key, default)
-    
+
     def set(self, key: str, value: Any) -> None:
         self._state[key] = value
-    
+
     def get_circuit_breaker_state(self) -> Dict[str, Any]:
         return self.get("circuit_breaker", {})
-    
+
     def set_circuit_breaker_state(self, state: Dict[str, Any]) -> None:
         self.set("circuit_breaker", state)
-    
+
     def get_supervisor_state(self) -> Dict[str, Any]:
         return self.get("supervisor", {})
-    
+
     def set_supervisor_state(self, state: Dict[str, Any]) -> None:
         self.set("supervisor", state)
-    
+
     def clear(self) -> None:
         self._state = {}
         if self.state_file.exists():
@@ -199,7 +199,7 @@ def test_state_persistence():
         sm = StateManager(Path(td))
         sm.set("test_key", {"value": 123})
         sm.save()
-        
+
         # Simulate restart
         sm2 = StateManager(Path(td))
         assert sm2.get("test_key") == {"value": 123}
@@ -209,7 +209,7 @@ def test_circuit_breaker_state():
         sm = StateManager(Path(td))
         sm.set_circuit_breaker_state({"tripped": False, "consecutive_losses": 2})
         sm.save()
-        
+
         sm2 = StateManager(Path(td))
         state = sm2.get_circuit_breaker_state()
         assert state["consecutive_losses"] == 2
@@ -266,7 +266,7 @@ python -m pytest tests/test_state_manager.py -v
    ```python
    from pydantic import BaseModel, ValidationError
    from typing import Optional
-   
+
    class KlineMessage(BaseModel):
        time: str
        open: float
@@ -274,7 +274,7 @@ python -m pytest tests/test_state_manager.py -v
        low: float
        close: float
        baseVol: Optional[float] = 0.0
-   
+
    class TickerMessage(BaseModel):
        bidOnePrice: Optional[float] = 0.0
        askOnePrice: Optional[float] = 0.0
@@ -368,10 +368,10 @@ from laptop_agents.trading.helpers import Candle
 
 def test_partial_fill_creates_working_order():
     broker = PaperBroker(symbol="BTCUSDT", fees_bps=0, slip_bps=0)
-    
+
     # Create a candle with low volume to force partial fill
     candle = Candle(ts="2024-01-01T00:00:00", open=100.0, high=101.0, low=99.0, close=100.0, volume=0.1)
-    
+
     order = {
         "go": True,
         "side": "LONG",
@@ -383,9 +383,9 @@ def test_partial_fill_creates_working_order():
         "equity": 10000.0,
         "client_order_id": "test_001"
     }
-    
+
     events = broker.on_candle(candle, order)
-    
+
     # Should have partial fill and working order
     assert len(events["fills"]) == 1
     assert events["fills"][0].get("partial") == True
@@ -423,35 +423,35 @@ from laptop_agents.core.logger import logger
 
 class ReplayProvider:
     """Replays recorded market data at realistic timestamps."""
-    
+
     def __init__(self, events_file: Path, speed_multiplier: float = 1.0):
         self.events_file = Path(events_file)
         self.speed_multiplier = speed_multiplier
         self._events: List[dict] = []
         self._load()
-    
+
     def _load(self) -> None:
         with open(self.events_file) as f:
             for line in f:
                 if line.strip():
                     self._events.append(json.loads(line))
         logger.info(f"Loaded {len(self._events)} events for replay")
-    
+
     async def listen(self) -> AsyncGenerator[Union[Candle, Tick], None]:
         """Yield events at recorded timestamps."""
         import asyncio
-        
+
         last_ts = None
         for event in self._events:
             event_type = event.get("event", "")
-            
+
             # Parse timestamp and sleep to maintain timing
             ts = event.get("ts") or event.get("timestamp")
             if ts and last_ts:
                 # Simple delay based on ordering
                 await asyncio.sleep(0.1 / self.speed_multiplier)
             last_ts = ts
-            
+
             # Convert to Candle or Tick
             if "candle" in event_type.lower() or "kline" in event_type.lower():
                 yield Candle(

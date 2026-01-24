@@ -27,9 +27,7 @@ def run_backtest(strategy_name):
     ]
     env = os.environ.copy()
     env["PYTHONPATH"] = "src"
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, env=env, cwd=str(REPO_ROOT)
-    )
+    subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=str(REPO_ROOT))
 
     stats_path = REPO_ROOT / "runs" / "latest" / "stats.json"
     if stats_path.exists():

@@ -127,16 +127,16 @@ async def heartbeat_task(self):
     import time as time_module
     heartbeat_path = Path("logs/heartbeat.json")
     heartbeat_path.parent.mkdir(exist_ok=True)
-    
+
     try:
         while not self.shutdown_event.is_set():
             elapsed = time.time() - self.start_time
             pos_str = self.broker.pos.side if self.broker.pos else "FLAT"
             price = self.latest_tick.last if self.latest_tick else (self.candles[-1].close if self.candles else 0.0)
-            
+
             unrealized = self.broker.get_unrealized_pnl(price)
             total_equity = self.broker.current_equity + unrealized
-            
+
             # Write heartbeat file for watchdog
             with heartbeat_path.open("w") as f:
                 json.dump({
@@ -146,13 +146,13 @@ async def heartbeat_task(self):
                     "equity": total_equity,
                     "symbol": self.symbol,
                 }, f)
-            
+
             logger.info(
                 f"[ASYNC] {self.symbol} | Price: {price:,.2f} | Pos: {pos_str:5} | "
                 f"Equity: ${total_equity:,.2f} | "
                 f"Elapsed: {elapsed:.0f}s"
             )
-            
+
             await asyncio.sleep(1.0)
     except asyncio.CancelledError:
         pass
@@ -205,7 +205,7 @@ function Start-TradingSession {
     $proc = Start-Process -FilePath ".venv/Scripts/python.exe" `
         -ArgumentList "-m src.laptop_agents.run --mode live-session --duration $Duration --source $Source --symbol $Symbol --async" `
         -PassThru -NoNewWindow -RedirectStandardOutput "logs/live.out.txt" -RedirectStandardError "logs/live.err.txt"
-    
+
     $proc.Id | Out-File -FilePath $PidFile
     Write-Log "[INFO] Started PID: $($proc.Id)"
     return $proc
@@ -227,26 +227,26 @@ Write-Log "[INFO] Smart Watchdog Started. Heartbeat timeout: ${HeartbeatTimeoutS
 while ($RestartCount -lt $MaxRestarts) {
     $proc = Start-TradingSession
     $RestartCount++
-    
+
     # Monitor loop
     while (!$proc.HasExited) {
         Start-Sleep -Seconds 10
-        
+
         $age = Get-HeartbeatAge
         if ($age -gt $HeartbeatTimeoutSec) {
             Write-Log "[ERROR] Heartbeat stale (${age}s). Killing hung process..."
             Stop-TradingSession
             break
         }
-        
+
         Write-Log "[HEARTBEAT] Age: ${age}s - OK"
     }
-    
+
     if ($proc.HasExited -and $proc.ExitCode -eq 0) {
         Write-Log "[INFO] Session completed successfully."
         break
     }
-    
+
     Write-Log "[WARN] Session crashed or was killed. Restart $RestartCount / $MaxRestarts"
     Start-Sleep -Seconds 5
 }
@@ -285,7 +285,7 @@ import asyncio
 
 2. Modify `__init__` to accept a seed:
 ```python
-def __init__(self, symbol: str = "BTCUSDT", fees_bps: float = 0.0, slip_bps: float = 0.0, 
+def __init__(self, symbol: str = "BTCUSDT", fees_bps: float = 0.0, slip_bps: float = 0.0,
              starting_equity: float = 10000.0, state_path: Optional[str] = None,
              random_seed: Optional[int] = None) -> None:
     # ... existing code ...
@@ -362,7 +362,7 @@ def write_alert(message: str, alert_path: str = "logs/alert.txt"):
     """Write a critical alert to a file for external monitoring."""
     import os
     from datetime import datetime
-    
+
     os.makedirs(os.path.dirname(alert_path), exist_ok=True)
     with open(alert_path, "a", encoding="utf-8") as f:
         ts = datetime.now().isoformat()
@@ -565,7 +565,7 @@ self.circuit_breaker.set_starting_equity(starting_balance)
 trade_pnl = None
 for exit_event in events.get("exits", []):
     trade_pnl = exit_event.get("pnl", 0)
-    
+
 self.circuit_breaker.update_equity(self.broker.current_equity, trade_pnl)
 
 if self.circuit_breaker.is_tripped():
@@ -678,17 +678,17 @@ python -c "from laptop_agents.core.orchestrator import render_html, LATEST_DIR; 
 def validate_config(args, strategy_config: dict) -> None:
     """Validate configuration values."""
     # Existing validation...
-    
+
     # Add numeric range validation
     if hasattr(args, 'stop_bps') and args.stop_bps <= 0:
         raise ValueError(f"stop_bps must be positive, got {args.stop_bps}")
-    
+
     if hasattr(args, 'tp_r') and args.tp_r <= 0:
         raise ValueError(f"tp_r must be positive, got {args.tp_r}")
-    
+
     if hasattr(args, 'risk_pct') and (args.risk_pct <= 0 or args.risk_pct > 100):
         raise ValueError(f"risk_pct must be between 0 and 100, got {args.risk_pct}")
-    
+
     if hasattr(args, 'duration') and args.duration <= 0:
         raise ValueError(f"duration must be positive, got {args.duration}")
 ```

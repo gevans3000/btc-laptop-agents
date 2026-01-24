@@ -5,18 +5,18 @@ import csv
 import sys
 from pathlib import Path
 
-# Path resolution
-HERE = Path(__file__).resolve()
-REPO_ROOT = HERE.parent.parent
-sys.path.append(str(REPO_ROOT / "src"))
-
-from laptop_agents.core.logger import logger
-from laptop_agents.data.loader import load_bitunix_candles, load_mock_candles
-from laptop_agents.trading.helpers import normalize_candle_order
-from laptop_agents.backtest.engine import run_backtest_position_mode, set_context
-
 
 def main():
+    # Path resolution
+    here = Path(__file__).resolve()
+    repo_root = here.parent.parent
+    sys.path.append(str(repo_root / "src"))
+
+    from laptop_agents.backtest.engine import run_backtest_position_mode, set_context
+    from laptop_agents.core.logger import logger
+    from laptop_agents.data.loader import load_bitunix_candles, load_mock_candles
+    from laptop_agents.trading.helpers import normalize_candle_order
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", choices=["mock", "bitunix"], default="bitunix")
     ap.add_argument("--symbol", default="BTCUSDT")
@@ -25,7 +25,7 @@ def main():
 
     # Setup context (required by backtest engine for artifact writing,
     # though we'll mainly care about the returned dict here)
-    latest_dir = REPO_ROOT / "runs" / "latest"
+    latest_dir = repo_root / "runs" / "latest"
     latest_dir.mkdir(parents=True, exist_ok=True)
 
     def dummy_append_event(obj, paper=False):

@@ -31,7 +31,7 @@ def append_event(obj: Dict[str, Any], paper: bool = False) -> None:
     obj.setdefault("timestamp", utc_ts())
     event_name = obj.get("event", "UnnamedEvent")
     logger.info(f"EVENT: {event_name}", obj)
-    
+
     if paper:
         PAPER_DIR.mkdir(exist_ok=True)
         with (PAPER_DIR / "events.jsonl").open("a", encoding="utf-8") as f:
@@ -242,10 +242,10 @@ def detect_candle_gaps(candles: List[Candle], interval: str = "1m") -> List[dict
     """Detect gaps in candle sequence."""
     if len(candles) < 2:
         return []
-    
+
     interval_seconds = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}.get(interval, 60)
     gaps = []
-    
+
     for i in range(1, len(candles)):
         try:
             prev_ts = int(candles[i-1].ts) if str(candles[i-1].ts).isdigit() else 0
@@ -262,7 +262,7 @@ def detect_candle_gaps(candles: List[Candle], interval: str = "1m") -> List[dict
                     })
         except (ValueError, TypeError):
             continue
-    
+
     return gaps
 ```
 
@@ -344,7 +344,7 @@ from laptop_agents.core.logger import logger
 def run_preflight_checks(args) -> bool:
     """Run all preflight checks. Returns True if all pass."""
     checks = []
-    
+
     # 1. Environment variables
     if args.mode in ["live", "live-session"]:
         api_key = os.environ.get("BITUNIX_API_KEY")
@@ -354,11 +354,11 @@ def run_preflight_checks(args) -> bool:
     else:
         checks.append(("API_KEY (not required)", True))
         checks.append(("API_SECRET (not required)", True))
-    
+
     # 2. Config file
     config_path = Path("config/default.json")
     checks.append(("Config exists", config_path.exists()))
-    
+
     # 3. Logs directory writable
     logs_dir = Path("logs")
     try:
@@ -369,7 +369,7 @@ def run_preflight_checks(args) -> bool:
         checks.append(("Logs writable", True))
     except Exception:
         checks.append(("Logs writable", False))
-    
+
     # 4. Network connectivity (Bitunix)
     try:
         import urllib.request
@@ -377,7 +377,7 @@ def run_preflight_checks(args) -> bool:
         checks.append(("Bitunix connectivity", True))
     except Exception:
         checks.append(("Bitunix connectivity", False))
-    
+
     # 5. Python imports
     try:
         from laptop_agents.session.async_session import run_async_session
@@ -385,17 +385,17 @@ def run_preflight_checks(args) -> bool:
         checks.append(("Core imports", True))
     except Exception:
         checks.append(("Core imports", False))
-    
+
     # Report
     all_passed = all(passed for _, passed in checks)
-    
+
     print("\n======== PREFLIGHT CHECK ========")
     for name, passed in checks:
         status = "✓ PASS" if passed else "✗ FAIL"
         print(f"  {status}: {name}")
     print("=================================")
     print(f"Result: {'READY' if all_passed else 'NOT READY'}\n")
-    
+
     return all_passed
 ```
 
@@ -484,31 +484,31 @@ from laptop_agents.resilience.trading_circuit_breaker import TradingCircuitBreak
 def test_circuit_breaker_trips_on_consecutive_losses():
     cb = TradingCircuitBreaker(max_daily_drawdown_pct=10.0, max_consecutive_losses=5)
     cb.set_starting_equity(10000.0)
-    
+
     # 5 consecutive losses should trip
     for i in range(5):
         cb.update_equity(10000 - (i+1)*100, trade_pnl=-100)
-    
+
     assert cb.is_tripped(), "Circuit breaker should trip after 5 consecutive losses"
 
 def test_circuit_breaker_trips_on_drawdown():
     cb = TradingCircuitBreaker(max_daily_drawdown_pct=5.0, max_consecutive_losses=10)
     cb.set_starting_equity(10000.0)
-    
+
     # 6% drawdown should trip
     cb.update_equity(9400, trade_pnl=-600)
-    
+
     assert cb.is_tripped(), "Circuit breaker should trip on 6% drawdown"
 
 def test_circuit_breaker_resets_on_win():
     cb = TradingCircuitBreaker(max_daily_drawdown_pct=10.0, max_consecutive_losses=5)
     cb.set_starting_equity(10000.0)
-    
+
     # 4 losses then 1 win
     for i in range(4):
         cb.update_equity(10000 - (i+1)*100, trade_pnl=-100)
     cb.update_equity(9800, trade_pnl=200)  # Win resets streak
-    
+
     assert not cb.is_tripped(), "Circuit breaker should not trip after win resets streak"
 ```
 

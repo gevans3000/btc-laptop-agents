@@ -15,12 +15,12 @@ jobs:
       - run: python --version
       - run: python -m pip check
 
+      - run: pip install -r requirements.lock
       - run: pip install -e .[test]
       - run: python -c "import laptop_agents; print('ok')"
       - run: pip install build mypy pip-audit
       - run: python -m build
       - run: python -m compileall src
-      - run: pip install ruff
       - run: ruff check src tests
       - run: ruff format --check src tests
       - run: pytest -q --tb=short

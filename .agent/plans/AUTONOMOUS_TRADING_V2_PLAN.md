@@ -24,8 +24,8 @@ This plan is designed to be executed autonomously by an AI agent to upgrade the 
         - If yes: Check if the PID inside is running (using `psutil.pid_exists` if available, or broad try/except). If running, print "Already running" and exit(1).
         - If no/stale: Write current PID to `LOCK_FILE`.
     - Register `atexit.register(lambda: os.remove(LOCK_FILE) if os.path.exists(LOCK_FILE) else None)`.
-- **Verification**: 
-    - Run `python src/laptop_agents/run.py --help` (should work). 
+- **Verification**:
+    - Run `python src/laptop_agents/run.py --help` (should work).
     - Create a dummy `.agent/lockfile.pid` with the current shell's PID, run the script again, ensure it denies execution.
 
 - [x] **1.2 Global Unhandled Exception Hook & Alerting**

@@ -1,6 +1,6 @@
-# Markdown Documentation Audit Report 
-> **Date**: 2026-01-12  
-> **Auditor**: Antigravity AI  
+# Markdown Documentation Audit Report
+> **Date**: 2026-01-12
+> **Auditor**: Antigravity AI
 > **Scope**: All 20 `.md` files in `btc-laptop-agents`
 
 ---
@@ -31,7 +31,7 @@
 
 **Conflict**: The code enforces `MIN_RR_RATIO = 1.0` as the absolute floor, but `SPEC.md` claims the minimum is 1.5R. This is contradictory authoritative guidance.
 
-**Recommendation**: 
+**Recommendation**:
 - Update `docs/SPEC.md` to clarify: "Hard limit: 1.0R minimum; Config default: 1.5R"
 - OR change `hard_limits.py` to `MIN_RR_RATIO = 1.5` if 1.5R is truly required
 
@@ -81,7 +81,7 @@ Both files serve the same purpose: providing context for AI agents.
 
 **Conflict**: `ASSISTANT_CONTEXT.md` is outdated and redundant.
 
-**Recommendation**: 
+**Recommendation**:
 - Delete `docs/ASSISTANT_CONTEXT.md`
 - Update `docs/START_HERE.md` to only reference `AI_HANDOFF.md`
 
@@ -110,7 +110,7 @@ Both files serve the same purpose: providing context for AI agents.
 | `docs/ORCHESTRATION.md` (Line 49) | `scripts/replay.ps1` | ❌ Does not exist |
 | `docs/PHASE_E_PLAN.md` (Lines 260-262) | `docs/CONFIG.md`, `docs/STRATEGIES.md` | ❌ Do not exist |
 
-**Recommendation**: 
+**Recommendation**:
 - Create the missing files OR
 - Remove/update the references to indicate they are planned
 

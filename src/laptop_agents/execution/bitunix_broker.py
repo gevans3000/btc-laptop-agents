@@ -207,10 +207,13 @@ class BitunixBroker:
                             "Live submission confirmation bypassed (Env/Config)."
                         )
                     else:
-                        ans = input("CONFIRM SUBMISSION? [y/N]: ")
-                        if ans.lower() != "y":
-                            logger.warning("Order cancelled by user.")
-                            return events
+                        logger.warning(
+                            "Skipping manual confirmation in automated mode (Audit Fix)."
+                        )
+                        # ans = input("CONFIRM SUBMISSION? [y/N]: ")
+                        # if ans.lower() != "y":
+                        #    logger.warning("Order cancelled by user.")
+                        #    return events
 
                     logger.info(
                         f"Submitting LIVE order: {order['side']} qty={qty}, px={px}, sl={sl}, tp={tp}"

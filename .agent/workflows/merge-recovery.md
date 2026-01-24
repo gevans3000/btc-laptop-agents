@@ -58,7 +58,7 @@ $remaining = git diff --name-only --diff-filter=U
 if ($remaining) {
     Write-Host "MANUAL RESOLUTION NEEDED for:"
     $remaining
-    
+
     # For simple cases, prefer incoming changes
     foreach ($file in $remaining) {
         git checkout --theirs $file

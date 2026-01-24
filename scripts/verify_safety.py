@@ -1,18 +1,27 @@
 import sys
 from pathlib import Path
 
-# Add src to path
-repo_root = Path(__file__).parent.parent
-sys.path.append(str(repo_root / "src"))
+_DEPS = None
 
-from laptop_agents.agents.state import State
-from laptop_agents.agents.risk_gate import RiskGateAgent
-from laptop_agents.agents.supervisor import Supervisor
-from laptop_agents.paper.broker import PaperBroker, Position
-from laptop_agents.indicators import Candle
+
+def _deps():
+    global _DEPS
+    if _DEPS is None:
+        repo_root = Path(__file__).parent.parent
+        sys.path.append(str(repo_root / "src"))
+
+        from laptop_agents.agents.risk_gate import RiskGateAgent
+        from laptop_agents.agents.state import State
+        from laptop_agents.agents.supervisor import Supervisor
+        from laptop_agents.indicators import Candle
+        from laptop_agents.paper.broker import PaperBroker, Position
+
+        _DEPS = (State, RiskGateAgent, Supervisor, PaperBroker, Position, Candle)
+    return _DEPS
 
 
 def test_risk_gate():
+    State, RiskGateAgent, _, _, _, _ = _deps()
     print("Testing RiskGateAgent...")
     # 1. Test Funding Gate
     agent = RiskGateAgent({})
@@ -21,7 +30,7 @@ def test_risk_gate():
     state.derivatives = {"flags": ["NO_TRADE_funding_hot"]}
 
     state = agent.run(state)
-    assert state.order["go"] == False, "RiskGate failed to block NO_TRADE flag"
+    assert not state.order["go"], "RiskGate failed to block NO_TRADE flag"
     assert "risk_gate_blocked" in state.order["reason"], "Incorrect block reason"
     print("  [PASS] Funding Gate blocked correctly")
 
@@ -31,12 +40,13 @@ def test_risk_gate():
     state.derivatives = {"flags": []}
 
     state = agent.run(state)
-    assert state.order["go"] == False, "RiskGate failed to block high risk"
+    assert not state.order["go"], "RiskGate failed to block high risk"
     assert "exceeds hard limit" in state.order["reason"], "Incorrect block reason"
     print("  [PASS] Max Risk Gate blocked correctly")
 
 
 def test_paper_broker_equity():
+    _, _, _, PaperBroker, Position, _ = _deps()
     print("\nTesting PaperBroker Equity...")
     broker = PaperBroker()
 
@@ -64,6 +74,7 @@ def test_paper_broker_equity():
 
 
 def test_supervisor_rounding():
+    State, _, Supervisor, _, _, Candle = _deps()
     print("\nTesting Supervisor Rounding & Notional...")
     # Mocking Supervisor is hard due to deps, but we can verify logic by subclassing
     # or just trusting the code we wrote?
@@ -127,7 +138,7 @@ if __name__ == "__main__":
         test_risk_gate()
         test_paper_broker_equity()
         test_supervisor_rounding()
-        print("\nALL SAFETY CHECKS PASSED ✅")
+        print("\nALL SAFETY CHECKS PASSED")
     except Exception as e:
-        print(f"\nFAILED ❌: {e}")
+        print(f"\nFAILED: {e}")
         sys.exit(1)
