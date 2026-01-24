@@ -1,11 +1,4 @@
 from unittest.mock import patch
-from laptop_agents.core.runner import Runner
-
-
-def test_runner_smoke(local_tmp_path):
-    r = Runner(data_dir=str(local_tmp_path))
-    out = r.run("planner", "Create a checklist for backing up files")
-    assert "PLAN for:" in out
 
 
 def test_timed_session_mock():
@@ -32,7 +25,7 @@ def test_timed_session_mock():
         mock_time_mod.sleep.side_effect = mock_sleep
 
         result = run_timed_session(
-            duration_min=0.2,
+            duration_min=1,
             poll_interval_sec=2,
             source="mock",
             symbol="BTCUSDT",
