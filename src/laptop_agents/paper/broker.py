@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-import math
 from typing import Any, Dict, List, Optional
-from laptop_agents import constants as hard_limits
 from ..trading.helpers import apply_slippage
 from laptop_agents.core.events import append_event
 from laptop_agents.core.logger import logger
@@ -13,42 +10,14 @@ import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 from cachetools import TTLCache
-import yaml
 from collections import deque
+from .broker_types import Position
+from .broker_risk import validate_risk_limits
+from .broker_state import BrokerStateMixin
 from ..storage.position_store import PositionStore
 
 
-@dataclass
-class Position:
-    side: str  # LONG / SHORT
-    qty: float
-    sl: float
-    tp: float
-    opened_at: str
-    lots: deque[
-        Dict[str, Any]
-    ]  # FIFO lots: {"qty": float, "price": float, "fees": float}
-    trade_id: str = ""
-    bars_open: int = 0
-    trail_active: bool = False
-    trail_stop: float = 0.0
-
-    @property
-    def entry(self) -> float:
-        """Average entry price of all lots."""
-        if not self.lots:
-            return 0.0
-        total_qty = sum(lot["qty"] for lot in self.lots)
-        if total_qty == 0:
-            return 0.0
-        return sum(lot["qty"] * lot["price"] for lot in self.lots) / total_qty
-
-    @property
-    def entry_fees(self) -> float:
-        return sum(lot["fees"] for lot in self.lots)
-
-
-class PaperBroker:
+class PaperBroker(BrokerStateMixin):
     """Very simple broker:
     - one position max
     - one TP + one SL
@@ -70,7 +39,7 @@ class PaperBroker:
         self.rng = random.Random(random_seed)
         self.last_trade_time: float = 0.0
         self.min_trade_interval_sec: float = 60.0  # 1 minute minimum between trades
-        self.pos: Optional[Position] = None
+        self.pos = None # type: ignore  # type: ignore
         self.is_inverse = self.symbol.endswith("USD") and not self.symbol.endswith(
             "USDT"
         )
@@ -134,7 +103,7 @@ class PaperBroker:
 
             if exit_event:
                 events["exits"].append(exit_event)
-                self.pos = None
+                self.pos = None # type: ignore
 
         # 2) open new position if none
         if self.pos is None and order and order.get("go"):
@@ -153,7 +122,7 @@ class PaperBroker:
             exit_event = self._check_tick_exit(tick)
             if exit_event:
                 events["exits"].append(exit_event)
-                self.pos = None
+                self.pos = None # type: ignore
                 if self.state_path:
                     self._save_state()
         return events
@@ -165,163 +134,7 @@ class PaperBroker:
         equity: float,
         is_working: bool,
     ) -> bool:
-        """Validate all risk limits, throttling, and hard constraints."""
-        # Trade frequency throttle
-        now = time.time()
-
-        # Rate limiting (orders per minute)
-        self.order_timestamps = [t for t in self.order_timestamps if now - t < 60]
-        if len(self.order_timestamps) >= hard_limits.MAX_ORDERS_PER_MINUTE:
-            logger.warning(
-                f"REJECTED: Rate limit {hard_limits.MAX_ORDERS_PER_MINUTE} orders/min exceeded"
-            )
-            append_event(
-                {"event": "OrderRejected", "reason": "rate_limit_exceeded"}, paper=True
-            )
-            return False
-        self.order_timestamps.append(now)
-
-        # Trade frequency throttle (min_trade_interval_sec)
-        time_since_last = now - self.last_trade_time
-        if not is_working and time_since_last < self.min_trade_interval_sec:
-            logger.warning(
-                f"REJECTED: Trade throttling. {time_since_last:.1f}s < {self.min_trade_interval_sec}s"
-            )
-            append_event(
-                {
-                    "event": "OrderThrottled",
-                    "interval_sec": self.min_trade_interval_sec,
-                },
-                paper=True,
-            )
-            return False
-
-        # Daily loss check
-        max_daily_loss_usd = getattr(hard_limits, "MAX_DAILY_LOSS_USD", 50.0)
-        drawdown_usd = self.starting_equity - equity
-        if self.starting_equity and drawdown_usd >= max_daily_loss_usd:
-            logger.warning(
-                f"REJECTED: Daily loss ${drawdown_usd:.2f} >= ${max_daily_loss_usd}"
-            )
-            append_event(
-                {
-                    "event": "OrderRejected",
-                    "reason": "daily_loss_usd_exceeded",
-                    "drawdown_usd": drawdown_usd,
-                    "limit_usd": max_daily_loss_usd,
-                },
-                paper=True,
-            )
-            return False
-        drawdown_pct = (self.starting_equity - equity) / self.starting_equity * 100.0
-        if drawdown_pct > hard_limits.MAX_DAILY_LOSS_PCT:
-            logger.warning(
-                f"REJECTED: Daily loss {drawdown_pct:.2f}% > {hard_limits.MAX_DAILY_LOSS_PCT}%"
-            )
-            append_event(
-                {
-                    "event": "OrderRejected",
-                    "reason": "daily_loss_exceeded",
-                    "drawdown_pct": drawdown_pct,
-                },
-                paper=True,
-            )
-            return False
-
-        # Position Cap Check
-        qty_requested = float(order.get("qty", 0))
-        symbol_cap = self.max_position_per_symbol.get(
-            self.symbol, hard_limits.MAX_POSITION_ABS
-        )
-        if qty_requested > symbol_cap:
-            logger.warning(
-                f"REJECTED: Position limit exceeded for {self.symbol}. Requested {qty_requested} > Cap {symbol_cap}"
-            )
-            append_event(
-                {
-                    "event": "OrderRejected",
-                    "reason": "position_limit_exceeded",
-                    "symbol": self.symbol,
-                    "requested": qty_requested,
-                    "cap": symbol_cap,
-                },
-                paper=True,
-            )
-            return False
-
-        # HARD LIMIT ENFORCEMENT
-        entry_px_est = float(candle.close)
-        if entry_px_est <= 0:
-            logger.error("REJECTED: Entry price estimate is zero or negative")
-            return False
-        qty_est = float(order["qty"])
-        notional_est = qty_est * entry_px_est
-
-        if notional_est > hard_limits.MAX_POSITION_SIZE_USD:
-            logger.warning(
-                f"PAPER REJECTED: Notional ${notional_est:.2f} > hard limit ${hard_limits.MAX_POSITION_SIZE_USD}"
-            )
-            append_event(
-                {
-                    "event": "OrderRejected",
-                    "reason": "notional_exceeded",
-                    "notional": notional_est,
-                },
-                paper=True,
-            )
-            return False
-
-        leverage_est = notional_est / equity
-        if leverage_est > hard_limits.MAX_LEVERAGE:
-            logger.warning(
-                f"PAPER REJECTED: Leverage {leverage_est:.1f}x > hard limit {hard_limits.MAX_LEVERAGE}x"
-            )
-            append_event(
-                {
-                    "event": "OrderRejected",
-                    "reason": "leverage_exceeded",
-                    "leverage": leverage_est,
-                },
-                paper=True,
-            )
-            return False
-
-        entry = float(order["entry"])
-        side = order["side"]
-        qty = float(order["qty"])
-        sl = float(order["sl"])
-        tp = float(order["tp"])
-
-        if side not in {"LONG", "SHORT"}:
-            logger.warning("REJECTED: Invalid side")
-            return False
-        if sl <= 0 or tp <= 0:
-            logger.warning("REJECTED: Non-positive SL/TP")
-            return False
-        if not all(math.isfinite(x) for x in [entry, qty, sl, tp]):
-            logger.warning("REJECTED: Non-finite order fields")
-            return False
-        if qty <= 0 or entry <= 0:
-            logger.warning("REJECTED: Non-positive entry/qty")
-            return False
-
-        # Single Trade Loss Cap
-        risk_dollars = abs(entry - sl) * qty
-        if risk_dollars > hard_limits.MAX_SINGLE_TRADE_LOSS_USD:
-            logger.warning(
-                f"REJECTED: Risk ${risk_dollars:.2f} > Max ${hard_limits.MAX_SINGLE_TRADE_LOSS_USD}"
-            )
-            append_event(
-                {
-                    "event": "OrderRejected",
-                    "reason": "risk_cap_exceeded",
-                    "risk": risk_dollars,
-                },
-                paper=True,
-            )
-            return False
-
-        return True
+        return validate_risk_limits(self, order, candle, equity, is_working)
 
     def _close_position_fifo(
         self,
@@ -398,7 +211,7 @@ class PaperBroker:
         }
         self.order_history.append(close_event)
         if self.pos.qty <= 0.00000001:
-            self.pos = None
+            self.pos = None # type: ignore
 
         if self.state_path:
             self._save_state()
@@ -821,122 +634,6 @@ class PaperBroker:
         """Public alias for state persistence."""
         self._save_state()
 
-    def _save_state(self) -> None:
-        if not self.store:
-            return
-
-        state = {
-            "symbol": self.symbol,
-            "starting_equity": self.starting_equity,
-            "current_equity": self.current_equity,
-            "processed_order_ids": list(self.processed_order_ids),
-            "order_history": self.order_history,
-            "working_orders": self.working_orders,
-            "pos": None,
-            "saved_at": time.time(),
-        }
-        if self.pos:
-            state["pos"] = {
-                "side": self.pos.side,
-                "entry": self.pos.entry,
-                "qty": self.pos.qty,
-                "sl": self.pos.sl,
-                "tp": self.pos.tp,
-                "opened_at": self.pos.opened_at,
-                "lots": list(self.pos.lots),
-                "bars_open": self.pos.bars_open,
-                "trail_active": self.pos.trail_active,
-                "trail_stop": self.pos.trail_stop,
-            }
-
-        self.store.save_state(self.symbol, state)
-
-    def _load_state(self) -> None:
-        if not self.store:
-            return
-
-        state = self.store.load_state(self.symbol)
-        if not state:
-            logger.info("No existing state found in DB. Starting fresh.")
-            return
-
-        try:
-            self.starting_equity = state.get("starting_equity", self.starting_equity)
-            self.current_equity = state.get("current_equity", self.current_equity)
-            self.processed_order_ids = set(state.get("processed_order_ids", []))
-            self.order_history = state.get("order_history", [])
-            self.working_orders = state.get("working_orders", [])
-
-            # Expire stale working orders (> 24 hours old)
-            now = time.time()
-            original_count = len(self.working_orders)
-            self.working_orders = [
-                o for o in self.working_orders if now - o.get("created_at", now) < 86400
-            ]  # 24 hours
-            if original_count != len(self.working_orders):
-                logger.info(
-                    f"Expired {original_count - len(self.working_orders)} stale working orders"
-                )
-
-            pos_data = state.get("pos")
-            if pos_data:
-                # Convert lots back to deque
-                if "lots" in pos_data:
-                    pos_data["lots"] = deque(pos_data["lots"])
-                else:
-                    # Migration for old state
-                    old_lot = {
-                        "qty": pos_data.get("qty", 0),
-                        "price": pos_data.get("entry", 0),
-                        "fees": pos_data.get("entry_fees", 0),
-                    }
-                    pos_data["lots"] = deque([old_lot])
-
-                # Clean up keys that Position dataclass doesn't expect
-                filtered_pos = {
-                    k: v
-                    for k, v in pos_data.items()
-                    if k not in ["entry", "entry_fees"]
-                }
-                self.pos = Position(**filtered_pos)
-
-            logger.info(f"Loaded broker state from DB: {self.state_path}")
-
-        except Exception as e:
-            logger.error(f"Failed to load broker state: {e}")
-
-    def _load_risk_config(self) -> None:
-        """Load risk settings from config/risk.yaml."""
-        from laptop_agents.constants import REPO_ROOT
-
-        risk_path = REPO_ROOT / "config" / "risk.yaml"
-        if risk_path.exists():
-            try:
-                with open(risk_path, "r") as f:
-                    config = yaml.safe_load(f)
-                    if config and "max_position_per_symbol" in config:
-                        self.max_position_per_symbol = config["max_position_per_symbol"]
-                        logger.info(
-                            f"Loaded risk config: {self.max_position_per_symbol}"
-                        )
-            except Exception as e:
-                logger.error(f"Failed to load risk config: {e}")
-
-    def _load_exchange_config(self) -> None:
-        """Load exchange fees from config/exchanges/bitunix.yaml."""
-        from laptop_agents.constants import REPO_ROOT
-
-        config_path = REPO_ROOT / "config" / "exchanges" / "bitunix.yaml"
-        if config_path.exists():
-            try:
-                with open(config_path, "r") as f:
-                    config = yaml.safe_load(f)
-                    if config and "fees" in config:
-                        self.exchange_fees = config["fees"]
-                        logger.info(f"Loaded exchange fees: {self.exchange_fees}")
-            except Exception as e:
-                logger.error(f"Failed to load exchange config: {e}")
-
     def get_unrealized_pnl(self, current_price: float) -> float:
         if self.pos is None:
             return 0.0
@@ -965,7 +662,7 @@ class PaperBroker:
         exit_event = self._exit(
             datetime.now(timezone.utc).isoformat(), current_price, "FORCE_CLOSE"
         )
-        self.pos = None
+        self.pos = None # type: ignore
         return [exit_event]
 
     def apply_funding(self, rate: float, ts: str) -> None:

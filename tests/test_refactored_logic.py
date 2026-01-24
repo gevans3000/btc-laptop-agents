@@ -9,8 +9,8 @@ from laptop_agents.trading.helpers import Candle
 
 
 @pytest.fixture
-def temp_paper_dir(tmp_path):
-    return tmp_path / "paper"
+def temp_paper_dir(local_tmp_path):
+    return local_tmp_path / "paper"
 
 
 def test_load_or_init_state_new(temp_paper_dir):

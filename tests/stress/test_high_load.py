@@ -3,7 +3,6 @@ import time
 import psutil
 import os
 import sys
-import shutil
 from pathlib import Path
 import pytest
 from laptop_agents.session.async_session import AsyncRunner
@@ -81,86 +80,76 @@ async def test_high_load_stress():
         "cvd": {"enabled": False, "lookback": 20},
     }
 
-    # Use unique state path to avoid WinError 32
-    state_dir = Path("tests/stress/run_data")
-    if state_dir.exists():
-        shutil.rmtree(state_dir)
-    state_dir.mkdir(parents=True, exist_ok=True)
+    # Use temp directory to avoid WinError 32
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="stress_test_") as tmp_dir:
+        state_dir = Path(tmp_dir)
 
-    provider = MockFastProvider(candles)
+        provider = MockFastProvider(candles)
 
-    # Patch PAPER_DIR globally just for this test if needed,
-    # but AsyncRunner and PaperBroker take paths now.
-    runner = AsyncRunner(
-        symbol="BTCUSDT",
-        interval="1m",
-        starting_balance=10000.0,
-        strategy_config=valid_config,
-        provider=provider,
-        state_dir=state_dir,
-        dry_run=True,
-    )
-    # Disable circuit breaker for stress testing throughput
-    runner.circuit_breaker.max_daily_drawdown_pct = 100.0
-    runner.circuit_breaker.max_consecutive_losses = 999
+        runner = AsyncRunner(
+            symbol="BTCUSDT",
+            interval="1m",
+            starting_balance=10000.0,
+            strategy_config=valid_config,
+            provider=provider,
+            state_dir=state_dir,
+            dry_run=True,
+        )
+        
+        # Disable circuit breaker for stress testing throughput
+        runner.circuit_breaker.max_daily_drawdown_pct = 100.0
+        runner.circuit_breaker.max_consecutive_losses = 999
 
-    # Ensure broker writes to our temp dir
-    runner.broker.state_path = str(state_dir / "broker_state.json")
+        start_time = time.time()
 
-    start_time = time.time()
+        count = 0
+        for candle in candles:
+            # Check if this is a NEW candle
+            if not runner.candles or candle.ts != runner.candles[-1].ts:
+                if runner.candles:
+                    try:
+                        await runner.on_candle_closed(runner.candles[-1])
+                    except Exception as e:
+                        print(f"ERROR at candle {count}: {e}")
+                        raise
+                runner.candles.append(candle)
+                if len(runner.candles) > 200:
+                    runner.candles = runner.candles[-200:]
+                count += 1
+            else:
+                runner.candles[-1] = candle
 
-    count = 0
-    for candle in candles:
-        # Check if this is a NEW candle
-        if not runner.candles or candle.ts != runner.candles[-1].ts:
-            if runner.candles:
-                try:
-                    await runner.on_candle_closed(runner.candles[-1])
-                except Exception as e:
-                    print(f"ERROR at candle {count}: {e}")
-                    raise
-            runner.candles.append(candle)
-            if len(runner.candles) > 200:
-                runner.candles = runner.candles[-200:]
-            count += 1
-        else:
-            runner.candles[-1] = candle
+            # Drain execution queue to prevent QueueFull errors in stress test
+            while not runner.execution_queue.empty():
+                item = runner.execution_queue.get_nowait()
+                runner.broker.on_candle(item["candle"], item["order"])
 
-        # Drain execution queue to prevent QueueFull errors in stress test
-        while not runner.execution_queue.empty():
-            item = runner.execution_queue.get_nowait()
-            runner.broker.on_candle(item["candle"], item["order"])
+        duration = time.time() - start_time
+        process = psutil.Process(os.getpid())
+        mem_mb = process.memory_info().rss / 1024 / 1024
 
-    duration = time.time() - start_time
-    process = psutil.Process(os.getpid())
-    mem_mb = process.memory_info().rss / 1024 / 1024
+        print(f"[STRESS TEST] Processed {count} candles in {duration:.2f}s")
+        print(f"[STRESS TEST] Throughput: {count / duration:.1f} candles/sec")
+        print(f"[STRESS TEST] Memory: {mem_mb:.2f} MB")
+        print(f"[STRESS TEST] Errors: {runner.errors}")
+        print(f"[STRESS TEST] Trades: {runner.trades}")
 
-    print(f"[STRESS TEST] Processed {count} candles in {duration:.2f}s")
-    print(f"[STRESS TEST] Throughput: {count / duration:.1f} candles/sec")
-    print(f"[STRESS TEST] Memory: {mem_mb:.2f} MB")
-    print(f"[STRESS TEST] Errors: {runner.errors}")
-    print(f"[STRESS TEST] Trades: {runner.trades}")
+        # Verification
+        if runner.errors > 0:
+            print(f"FAILED: Expected 0 errors, got {runner.errors}")
+            sys.exit(1)
+        if count != num_candles:
+            print(f"FAILED: Expected {num_candles} processed, got {count}")
+            sys.exit(1)
+        if mem_mb > 500:
+            print(f"FAILED: Memory leak detected: {mem_mb:.2f} MB > 500 MB")
+            sys.exit(1)
 
-    # Verification
-    if runner.errors > 0:
-        print(f"FAILED: Expected 0 errors, got {runner.errors}")
-        sys.exit(1)
-    if count != num_candles:
-        print(f"FAILED: Expected {num_candles} processed, got {count}")
-        sys.exit(1)
-    if mem_mb > 500:
-        print(f"FAILED: Memory leak detected: {mem_mb:.2f} MB > 500 MB")
-        sys.exit(1)
+        print("[STRESS TEST] SUCCESS")
 
-    print("[STRESS TEST] SUCCESS")
-
-    # Final cleanup
-    await asyncio.to_thread(runner.broker.shutdown)
-    if state_dir.exists():
-        try:
-            shutil.rmtree(state_dir)
-        except Exception:
-            pass
+        # Final cleanup
+        await asyncio.to_thread(runner.broker.shutdown)
 
 
 if __name__ == "__main__":

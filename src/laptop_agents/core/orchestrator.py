@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 # Core Logger
 from laptop_agents.core.logger import logger
+from laptop_agents.core.protocols import BrokerProtocol
 from laptop_agents.trading.helpers import (
     Candle,
     normalize_candle_order,
@@ -297,9 +298,10 @@ def _run_orchestration_loop(
     circuit_breaker: Any,
     symbol: str,
 ) -> tuple[float, List[Dict[str, Any]]]:
+    broker: BrokerProtocol = supervisor.broker
     current_equity = (
-        supervisor.broker.current_equity
-        if hasattr(supervisor.broker, "current_equity")
+        broker.current_equity
+        if hasattr(broker, "current_equity")
         else 10000.0
     )
     equity_history = []
@@ -308,8 +310,8 @@ def _run_orchestration_loop(
         if os.environ.get("LA_KILL_SWITCH", "FALSE").upper() == "TRUE":
             logger.warning("KILL SWITCH ACTIVATED!")
             append_event({"event": "KillSwitchActivated"})
-            if hasattr(supervisor.broker, "shutdown"):
-                supervisor.broker.shutdown()
+            if hasattr(broker, "shutdown"):
+                broker.shutdown()
             raise RuntimeError("Run aborted by LA_KILL_SWITCH")
 
         if not circuit_breaker.allow_request():
@@ -328,8 +330,8 @@ def _run_orchestration_loop(
             # Update equity
             for ex in state.broker_events.get("exits", []):
                 current_equity += float(ex.get("pnl", 0.0))
-            unrealized = supervisor.broker.get_unrealized_pnl(float(candle.close))
-            if getattr(supervisor.broker, "is_inverse", False):
+            unrealized = broker.get_unrealized_pnl(float(candle.close))
+            if getattr(broker, "is_inverse", False):
                 unrealized *= float(candle.close)
             equity_history.append(
                 {"ts": candle.ts, "equity": current_equity + unrealized}
@@ -338,9 +340,9 @@ def _run_orchestration_loop(
             logger.error(f"Step Failed at {i}: {step_error}")
             circuit_breaker.record_failure()
             if circuit_breaker.state == "OPEN" and hasattr(
-                supervisor.broker, "shutdown"
+                broker, "shutdown"
             ):
-                supervisor.broker.shutdown()
+                broker.shutdown()
     return current_equity, equity_history
 
 
