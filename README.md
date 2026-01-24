@@ -2,7 +2,7 @@
 
 > **Status**: Active & Hardened
 > **Capability**: 10-minute+ Autonomous Sessions (Paper/Live)
-> **Engine**: Python 3.11+ / Asyncio / Typer / WebSocket
+> **Engine**: Python 3.12+ / Asyncio / Typer / WebSocket
 
 **BTC Laptop Agents** is a privacy-first, local-first autonomous trading system. Unlike distinct "bots", it runs as a continuous agentic loop that owns the entire lifecycle—from data ingestion to safety checks and execution—guarded by non-negotiable hard limits.
 

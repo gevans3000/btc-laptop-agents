@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import signal
 import time
-import threading
 import os
 import uuid
 from datetime import datetime
@@ -11,7 +10,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from laptop_agents.core.logger import logger
-from laptop_agents.session.heartbeat import heartbeat_task
 from laptop_agents.trading.helpers import (
     Candle,
     Tick,
@@ -28,15 +26,10 @@ from laptop_agents.session.session_state import (
     build_session_result,
     restore_starting_balance,
 )
-from laptop_agents.session.funding import funding_task
-from laptop_agents.session.execution import execution_task
-from laptop_agents.session.stale_data import stale_data_task
-from laptop_agents.session.watchdog import watchdog_tick_task, threaded_watchdog
-from laptop_agents.session.kill_switch import kill_switch_task
-from laptop_agents.session.timer import timer_task
-from laptop_agents.session.checkpoint import checkpoint_task
-from laptop_agents.session.market_data import market_data_task
-from laptop_agents.session.seeding import seed_historical_candles
+from laptop_agents.session.lifecycle import (
+    run_session_lifecycle,
+    request_shutdown,
+)
 from laptop_agents.session.reporting import (
     generate_html_report,
 )
@@ -194,51 +187,8 @@ class AsyncRunner:
         await on_candle_closed(self, candle)
 
     async def run(self, duration_min: int):
-        """Main entry point to run the async loop."""
-        self.duration_min = duration_min
-        end_time = self.start_time + (duration_min * 60)
-        self.status = "running"
-
-        # Check circuit breaker state
-        if not self.circuit_breaker.allow_request():
-            logger.warning("Circuit breaker is OPEN. It remains OPEN.")
-            self._request_shutdown("circuit_breaker_open")
-
-        # Start Threaded Watchdog (independent of event loop)
-        watchdog_thread = threading.Thread(
-            target=threaded_watchdog, args=(self,), daemon=True
-        )
-        watchdog_thread.start()
-        logger.info("Threaded watchdog started.")
-
-        # Seed historical candles
-        await seed_historical_candles(self)
-
-        # Start tasks
-        tasks = [
-            asyncio.create_task(market_data_task(self)),
-            asyncio.create_task(watchdog_tick_task(self)),
-            asyncio.create_task(heartbeat_task(self)),
-            asyncio.create_task(timer_task(self, end_time)),
-            asyncio.create_task(kill_switch_task(self)),
-            asyncio.create_task(stale_data_task(self)),
-            asyncio.create_task(funding_task(self)),
-            asyncio.create_task(execution_task(self)),
-            asyncio.create_task(checkpoint_task(self)),
-        ]
-        for task in tasks:
-            task.add_done_callback(self._handle_task_done)
-
-        try:
-            await self.shutdown_event.wait()
-        finally:
-            await self._perform_shutdown(tasks)
-
-    async def _perform_shutdown(self, tasks: List[asyncio.Task]) -> None:
-        """Delegates shutdown to the external handler."""
-        from laptop_agents.session.shutdown_handler import perform_shutdown
-
-        await perform_shutdown(self, tasks)
+        """Main entry point to run the async loop. Delegates to lifecycle module."""
+        await run_session_lifecycle(self, duration_min)
 
     def _parse_ts_to_int(self, ts: Any) -> int:
         """Robustly parse timestamp (int, float, or ISO string) to unix seconds."""
@@ -257,19 +207,8 @@ class AsyncRunner:
         return 0
 
     def _request_shutdown(self, reason: str) -> None:
-        if not self.shutdown_event.is_set():
-            if self.stopped_reason == "completed":
-                self.stopped_reason = reason
-            self.shutdown_event.set()
-
-    def _handle_task_done(self, task: asyncio.Task) -> None:
-        if task.cancelled():
-            return
-        exc = task.exception()
-        if exc:
-            logger.error(f"Task failed: {task.get_name()} | {exc}")
-            self.errors += 1
-            self._request_shutdown("task_failed")
+        """Request a graceful shutdown. Delegates to lifecycle module."""
+        request_shutdown(self, reason)
 
 
 async def run_async_session(

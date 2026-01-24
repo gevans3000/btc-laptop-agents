@@ -38,7 +38,7 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
 
 #### Prerequisites
 - **OS**: Windows (tested on Lenovo/Surface hardware).
-- **Python**: 3.11 or higher.
+- **Python**: 3.12 or higher.
 - **Git**: For version control.
 - **PowerShell**: For running automated scripts (`.ps1`).
 

@@ -55,7 +55,7 @@ async def watchdog_tick_task(runner: "AsyncRunner") -> None:
         pass
 
 
-def threaded_watchdog(runner: "AsyncRunner") -> None:
+def hardware_watchdog_thread(runner: "AsyncRunner") -> None:
     """Independent thread that kills the process if main loop freezes."""
     import psutil
     import os
