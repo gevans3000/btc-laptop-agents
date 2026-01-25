@@ -1,9 +1,6 @@
 import typer
-import os
 from rich.console import Console
 from laptop_agents.constants import DEFAULT_SYMBOL
-from laptop_agents.core.config import load_session_config
-from laptop_agents.core.orchestrator import run_orchestrated_mode
 
 console = Console()
 
@@ -25,39 +22,37 @@ def main(
     # 1 day = 1440 minutes
     minutes = days * 1440
 
+    from laptop_agents.core.config_loader import load_profile
+    from laptop_agents.session.backtest_session import run_backtest_session
+    import asyncio
+
     overrides = {
         "symbol": symbol,
-        "interval": interval,
-        "risk_pct": risk_pct,
-        "max_leverage": leverage,
-        "stop_bps": stop_bps,
-        "tp_r": tp_r,
-        "backtest": minutes,
-        "mode": "orchestrated",
+        "timeframe": interval,
+        "trading": {
+            "risk_pct": risk_pct,
+            "max_leverage": leverage,
+        },
     }
 
-    try:
-        load_session_config(
-            strategy_name=os.environ.get("LA_STRATEGY", "default"), overrides=overrides
-        )
-    except Exception as e:
-        console.print(f"[red]CONFIG ERROR: {e}[/red]")
-        raise typer.Exit(code=1)
+    config = load_profile("backtest", cli_overrides=overrides)
 
     console.print(f"[cyan]Starting backtest for {symbol} ({days} days)...[/cyan]")
 
-    success, msg = run_orchestrated_mode(
-        symbol=symbol,
-        interval=interval,
-        source="bitunix",  # Force bitunix to fetch historical data
-        limit=minutes,
-        fees_bps=2.0,
-        slip_bps=0.5,
-        risk_pct=risk_pct,
-        stop_bps=stop_bps,
-        tp_r=tp_r,
-        execution_mode="paper",
-    )
+    try:
+        stats = asyncio.run(run_backtest_session(config))
+        console.print("[green]Backtest Complete![/green]")
+        console.print(f"Net PnL: [bold]${stats['net_pnl']:.2f}[/bold]")
+        console.print(f"Trades: {stats['total_trades']}")
+        success = True
+        msg = "Backtest finished successfully"
+    except Exception as e:
+        console.print(f"[red]BACKTEST ERROR: {e}[/red]")
+        import traceback
+
+        traceback.print_exc()
+        success = False
+        msg = str(e)
 
     console.print(msg)
 

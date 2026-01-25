@@ -115,6 +115,9 @@ def run(
     config: str | None = typer.Option(None, "--config", help="Config file path."),
     quiet: bool = typer.Option(False, "--quiet", help="Silence logs."),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose logs."),
+    profile: str = typer.Option(
+        "paper", "--profile", help="Config profile: backtest, paper, live."
+    ),
 ):
     """Wrapper for the main run logic."""
 
@@ -191,6 +194,10 @@ def run(
 
     args.symbol = args.symbol.upper().replace("/", "").replace("-", "")
 
+    from laptop_agents.core.config_loader import load_profile
+
+    profile_config = load_profile(profile, cli_overrides=vars(args))
+
     try:
         session_config = load_session_config(
             config_path=Path(args.config) if args.config else None,
@@ -201,7 +208,11 @@ def run(
         console.print(f"[red]CONFIG ERROR: {e}[/red]")
         raise typer.Exit(code=1)
 
-    mode = args.mode or ("backtest" if args.backtest > 0 else "single")
+    mode = (
+        args.mode
+        or profile_config.get("mode")
+        or ("backtest" if args.backtest > 0 else "single")
+    )
 
     append_event(
         {
@@ -212,11 +223,31 @@ def run(
         paper=True,
     )
 
-    if args.preflight:
-        from laptop_agents.core.preflight import run_preflight_checks
+    if args.preflight or profile == "live":
+        from laptop_agents.core.preflight import run_preflight, all_gates_passed
+        from rich.table import Table
 
-        success = run_preflight_checks(args)
-        raise typer.Exit(code=0 if success else 1)
+        results = run_preflight(profile_config)
+
+        table = Table(title="Live Trading Preflight")
+        table.add_column("Gate", style="cyan")
+        table.add_column("Status", style="bold")
+        table.add_column("Message", style="dim")
+
+        for r in results:
+            status = "[green]PASS[/green]" if r.passed else "[red]FAIL[/red]"
+            table.add_row(r.name, status, r.message)
+
+        console.print(table)
+
+        if not all_gates_passed(results):
+            console.print(
+                "[red bold]FATAL: Preflight failed. Live mode blocked.[/red bold]"
+            )
+            raise typer.Exit(code=1)
+
+        if args.preflight and profile != "live":
+            raise typer.Exit(code=0)
 
     if args.dashboard:
         dash_thread = threading.Thread(target=_start_dashboard, daemon=True)

@@ -5,7 +5,6 @@ from laptop_agents.paper.position_engine import (
     calculate_unrealized_pnl,
     calculate_full_exit_pnl,
 )
-from laptop_agents.trading.helpers import apply_slippage
 import uuid
 from collections import deque
 from datetime import datetime, timezone
@@ -20,10 +19,10 @@ class BacktestBroker:
         self,
         symbol: str = "BTCUSDT",
         fees_bps: float = 0.0,
-        slip_bps: float = 0.0,
         starting_equity: float = 10000.0,
         random_seed: Optional[int] = None,
         strategy_config: Optional[Dict[str, Any]] = None,
+        fill_simulator_config: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.symbol = symbol
         self.strategy_config = strategy_config or {}
@@ -32,8 +31,6 @@ class BacktestBroker:
             "USDT"
         )
 
-        self.fees_bps = fees_bps
-        self.slip_bps = slip_bps
         self.starting_equity = starting_equity
         self.current_equity = starting_equity
 
@@ -42,6 +39,12 @@ class BacktestBroker:
             "maker": fees_bps / 10000.0,
             "taker": fees_bps / 10000.0,
         }
+
+        from laptop_agents.backtest.fill_simulator import FillSimulator
+
+        self.simulator = FillSimulator(
+            fill_simulator_config or {"random_seed": random_seed}
+        )
 
         self.order_history: List[Dict[str, Any]] = []
         self.processed_order_ids: set[str] = set()
@@ -72,6 +75,9 @@ class BacktestBroker:
         return {"exits": []}
 
     def _try_fill(self, candle: Any, order: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if not self.simulator.should_fill(order, candle):
+            return None
+
         client_order_id = order.get("client_order_id") or uuid.uuid4().hex
         side = order["side"]
         qty = float(order["qty"])
@@ -83,20 +89,12 @@ class BacktestBroker:
         if entry_type == "market":
             fill_px = float(candle.close)
         else:
-            # limit fill if touched
-            if not (candle.low <= entry <= candle.high):
-                return None
             fill_px = entry
 
-        # Simple slippage
-        if self.slip_bps > 0:
-            fill_px = apply_slippage(
-                fill_px, is_entry=True, is_long=(side == "LONG"), slip_bps=self.slip_bps
-            )
+        # Realistic slippage
+        fill_px = self.simulator.apply_slippage(fill_px, side, is_entry=True)
 
-        fee_rate = self.exchange_fees[
-            "taker"
-        ]  # Simplified to taker for all backtest orders for now
+        fee_rate = self.exchange_fees["taker"]
         notional = qty * fill_px
         fees = notional * fee_rate
 
@@ -164,8 +162,11 @@ class BacktestBroker:
         assert self.pos is not None
         p = self.pos
 
+        # Apply slippage on exit
+        px_slipped = self.simulator.apply_slippage(px, p.side, is_entry=False)
+
         exit_fee_rate = self.exchange_fees["taker"]
-        results = calculate_full_exit_pnl(p, px, exit_fee_rate, self.is_inverse)
+        results = calculate_full_exit_pnl(p, px_slipped, exit_fee_rate, self.is_inverse)
 
         net_pnl = results["net_pnl"]
         self.current_equity += net_pnl

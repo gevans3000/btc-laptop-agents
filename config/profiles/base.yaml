@@ -10,10 +10,25 @@ trading:
   max_leverage: 5.0
   max_position_usd: 50000.0
   max_daily_loss_usd: 50.0
+  rr_min: 1.5
 
 engine:
   min_history_bars: 100
   warmup_candles: 51
+  pending_trigger_max_bars: 24
+
+derivatives_gates:
+  enabled: false
+
+setups:
+  pullback_ribbon:
+    enabled: false
+  sweep_invalidation:
+    enabled: false
+
+risk:
+  max_drawdown_pct: 10.0
+  max_risk_pct: 2.0
 
 logging:
   level: INFO

@@ -48,6 +48,43 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
     ```powershell
     pip install -e .
     ```
+3. [Configuration Profiles & Precedence](#3-configuration-profiles--precedence)
+4. [Preflight Safety Gates](#4-preflight-safety-gates)
+5. [Architecture & Agents](#5-architecture--agents)
+6. [Resilience & Safety](#6-resilience--safety)
+7. [Troubleshooting](#7-troubleshooting)
+8. [State Persistence](#8-state-persistence)
+9. [Session Lifecycle](#9-session-lifecycle-asyncrunner-state-machine)
+
+---
+
+## 1. System Overview & Invariants
+
+**BTC Laptop Agents** is a privacy-first, local-first autonomous trading system. It operates on a "Hardware Ceiling" philosophy where safety limits are hard-coded into the application.
+
+### Repo Invariants
+- **Local-First**: No external dependencies for core logic execution. Artifacts live in `.workspace/`.
+- **Deterministic**: Replaying specific input data must yield identical state transitions.
+- **Single Symbol**: Designed to focus on one pair (default `BTCUSDT`) per session.
+- **Linear Execution**: Agents run sequentially within the `Supervisor.step()` loop.
+
+---
+
+## 2. Quick Start
+
+### A. Environment Setup & Prerequisites
+
+#### Prerequisites
+- **OS**: Windows (tested on Lenovo/Surface hardware).
+- **Python**: 3.12 or higher.
+- **Git**: For version control.
+- **PowerShell**: For running automated scripts (`.ps1`).
+
+#### Installation
+1.  **Clone & Install**:
+    ```powershell
+    pip install -e .
+    ```
 2.  **Configuration**: Create a `.env` file at the root:
   ```env
   BITUNIX_API_KEY=your_key
@@ -58,8 +95,9 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
 | Action | Command | Description |
 | :--- | :--- | :--- |
 | **Verify System** | `la doctor --fix` | Runs diagnostics and fixes common issues. |
-| **Live Session** | `la run --mode live-session` | Starts autonomous trading loop. |
-| **Backtest** | `la backtest --days 2` | Runs historical simulation. |
+| **Live Session** | `la run --profile live` | Starts live trading (triggers Preflight). |
+| **Paper Trading**| `la run --profile paper`| Starts paper trading (default). |
+| **Backtest** | `la run --profile backtest` | Runs historical simulation (unified engine). |
 | **Monitor** | `la status` | Checks process health and heartbeat. |
 | **Supervisor**| `la watch` | Wrapper ensuring auto-restart on crash. |
 
@@ -67,19 +105,38 @@ For the full run-time flag list, use `la run --help`.
 
 ---
 
-## 3. Configuration Formats & Precedence
+## 3. Configuration Profiles & Precedence
 
-### A. Config Files
-- **Session config**: JSON file passed via `--config` (see `SessionConfig` in `src/laptop_agents/core/config.py`).
-- **Strategy config**: JSON in `config/strategies/<name>.json` loaded via `--strategy`.
-- **Risk/exchange config**: YAML in `config/risk.yaml` and `config/exchanges/bitunix.yaml`.
+### A. Profiles (`config/profiles/`)
+The system follows a tiered configuration model. Profiles allow switching between execution modes easily.
 
-### B. Precedence (Session Config)
-CLI overrides (`--set` / inline flags) > environment variables (`LA_*`) > session config JSON (`--config`) > strategy defaults (`config/strategies/*.json`) > built-in defaults.
+- **`base.yaml`**: Root defaults for all modes.
+- **`backtest.yaml`**: Configuration for historical replay (in-memory broker, fast execution).
+- **`paper.yaml`**: Live market data but simulated fills (persisted to SQLite).
+- **`live.yaml`**: Live market data and real order execution (strict safety gates).
+
+### B. Precedence
+CLI overrides (`--symbol`, `--risk-pct`) > environment variables (`LA_*`) > Profile YAML > `base.yaml`.
 
 ---
 
-## 4. Architecture & Agents
+## 4. Preflight Safety Gates
+
+Before entering **LIVE** mode, the system executes a mandatory checklist. If any gate fails, trading is blocked.
+
+| Gate | Description |
+| :--- | :--- |
+| `api_connectivity` | Verifies low-latency connection to exchange API. |
+| `position_reconciliation` | Ensures local state matches actual exchange positions. |
+| `min_equity` | Validates account balance meets strategy requirements. |
+| `daily_loss_ok` | Checks that daily loss limits haven't been breached. |
+| `kill_switch_off` | Ensures `LA_KILL_SWITCH` is not active. |
+
+To manually halt trading, set `$env:LA_KILL_SWITCH='TRUE'`.
+
+---
+
+## 5. Architecture & Agents
 
 The system uses a **MODULAR PIPELINE** managed by `src/laptop_agents/agents/supervisor.py`.
 
