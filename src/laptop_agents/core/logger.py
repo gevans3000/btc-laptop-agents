@@ -70,6 +70,7 @@ class JsonFormatter(logging.Formatter):
             "timestamp": datetime.fromtimestamp(record.created).isoformat(),
             "level": record.levelname,
             "component": record.name,
+            "loop_id": getattr(record, "loop_id", "GLOBAL"),
             "message": record.getMessage(),
         }
         if hasattr(record, "meta") and isinstance(record.meta, dict):
