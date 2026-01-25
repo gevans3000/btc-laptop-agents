@@ -38,13 +38,13 @@ repos:
     hooks:
       - id: pip-audit
         name: pip-audit
-        entry: pip-audit --strict
+        entry: python -m pip_audit --strict
         language: system
         pass_filenames: false
         stages: [pre-push]
       - id: pytest-quick
         name: pytest (quick)
-        entry: pytest tests/ -q --tb=line -x
+        entry: python -m pytest tests/ -q --tb=line -x
         language: system
         pass_filenames: false
         stages: [pre-push]
