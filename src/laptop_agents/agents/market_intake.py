@@ -1,10 +1,10 @@
-from __future__ import annotations
-
 """
 MarketIntakeAgent: Handles market data intake and indicator calculation.
 
 Part of the Supervisor pipeline. See ENGINEER.md Section 4 for pipeline order.
 """
+
+from __future__ import annotations
 
 from typing import List
 

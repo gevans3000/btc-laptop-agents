@@ -359,9 +359,10 @@ class BitunixBroker:
                         # Notional = Qty(Coins) * Entry
                         notional = self._entry_qty * self._entry_price
                         if self._entry_side == "LONG":
-                            pnl = notional * (1.0 / self._entry_price - 1.0 / px)
+                            pnl_btc = notional * (1.0 / self._entry_price - 1.0 / px)
                         else:
-                            pnl = notional * (1.0 / px - 1.0 / self._entry_price)
+                            pnl_btc = notional * (1.0 / px - 1.0 / self._entry_price)
+                        pnl = pnl_btc * px
                     else:
                         if self._entry_side == "LONG":
                             pnl = (px - self._entry_price) * self._entry_qty
@@ -421,11 +422,12 @@ class BitunixBroker:
             # Notional = Qty(Coins) * EntryPrice
             notional = abs(qty) * entry
 
-            # Inverse PnL (BTC) = Notional * (1/Entry - 1/Current) for Long
+            # Inverse PnL (USD) = Notional * (1/Entry - 1/Current) * Current for Long
             if side == "LONG":
-                return notional * (1.0 / entry - 1.0 / current_price)
+                pnl_btc = notional * (1.0 / entry - 1.0 / current_price)
             else:
-                return notional * (1.0 / current_price - 1.0 / entry)
+                pnl_btc = notional * (1.0 / current_price - 1.0 / entry)
+            return pnl_btc * current_price
         else:
             if side == "LONG":
                 return (current_price - entry) * abs(qty)

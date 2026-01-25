@@ -1,10 +1,10 @@
-from __future__ import annotations
-
 """
 Supervisor: Orchestrates the linear agent pipeline and interfaces with the broker.
 
 Part of the Supervisor pipeline. See ENGINEER.md Section 4 for pipeline order.
 """
+
+from __future__ import annotations
 
 from typing import Any, Dict, Optional
 

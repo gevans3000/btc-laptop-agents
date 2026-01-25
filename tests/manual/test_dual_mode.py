@@ -98,10 +98,11 @@ class TestDualModeMath(unittest.TestCase):
         self.assertEqual(pos.entry, 50000.0)
 
         # Exit at 100k (Doubled price) -> Should be ~0.0005 BTC profit?
-        # PnL = 50 * (1/50000 - 1/100000) = 50 * (0.00001) = 0.0005 BTC.
-        unrealized_btc = broker.get_unrealized_pnl(100000.0)
-        self.assertAlmostEqual(unrealized_btc, 0.0005, places=6)
-        print("Inverse LONG PnL Verified: +0.0005 BTC (at 2x price)")
+        # PnL_BTC = 50 * (1/50000 - 1/100000) = 50 * (0.00001) = 0.0005 BTC.
+        # PnL_USD = 0.0005 * 100000 = 50 USD.
+        unrealized_usd = broker.get_unrealized_pnl(100000.0)
+        self.assertAlmostEqual(unrealized_usd, 50.0, places=2)
+        print("Inverse LONG PnL Verified: +$50.00 (at 2x price)")
 
     def test_inverse_short_pnl(self):
         """BTCUSD Short: PnL(BTC) = NotionalUSD * (1/Exit - 1/Entry)"""
@@ -122,10 +123,11 @@ class TestDualModeMath(unittest.TestCase):
         broker.on_candle(candle_entry, order)
 
         # Exit at 25k (Halved price)
-        # PnL = 50 * (1/25000 - 1/50000) = 50 * (0.00002) = 0.001 BTC.
-        unrealized_btc = broker.get_unrealized_pnl(25000.0)
-        self.assertAlmostEqual(unrealized_btc, 0.001, places=6)
-        print("Inverse SHORT PnL Verified: +0.001 BTC (at 0.5x price)")
+        # PnL_BTC = 50 * (1/25000 - 1/50000) = 50 * (0.00002) = 0.001 BTC.
+        # PnL_USD = 0.001 * 25000 = 25 USD.
+        unrealized_usd = broker.get_unrealized_pnl(25000.0)
+        self.assertAlmostEqual(unrealized_usd, 25.0, places=2)
+        print("Inverse SHORT PnL Verified: +$25.00 (at 0.5x price)")
 
 
 class TestBitunixDualMode(unittest.TestCase):
@@ -170,18 +172,12 @@ class TestBitunixDualMode(unittest.TestCase):
         # If the code handles BTC-denominated qty, it should be 0.5.
         print(f"DEBUG: Bitunix Inverse PnL Result for 1.0 BTC Input: {pnl}")
 
-        # We Expect it to be 0.5 if logic is correct.
-        # Changing assertion to fail if bug exists.
-        if pnl < 0.1:
-            print("CONFIRMED BUG: BitunixBroker treats BTC Qty as Contracts USD!")
-        else:
-            print("Pass: BitunixBroker correctly converts BTC Qty.")
-
+        # We Expect it to be $50,000 if logic is correct (100k * 0.5 BTC).
         self.assertAlmostEqual(
             pnl,
-            0.5,
-            places=5,
-            msg="PnL should be 0.5 BTC for 1 BTC Long doubling. Logic likely missing Qty->Notional conversion.",
+            50000.0,
+            places=2,
+            msg="PnL should be 50000 USD for 1 BTC Long doubling.",
         )
 
 
@@ -244,9 +240,9 @@ class TestBitunixExitPnL(unittest.TestCase):
 
         self.assertEqual(len(events["exits"]), 1)
         exit_event = events["exits"][0]
-        # Expected PnL: 50000 * (1/50000 - 1/100000) = 0.5 BTC
-        self.assertAlmostEqual(exit_event["pnl"], 0.5, places=5)
-        print("Inverse Exit PnL Test Passed: +0.5 BTC")
+        # Expected PnL: 50000 * (1/50000 - 1/100000) * 100000 = 50,000 USD
+        self.assertAlmostEqual(exit_event["pnl"], 50000.0, places=2)
+        print("Inverse Exit PnL Test Passed: +$50,000")
 
 
 if __name__ == "__main__":
