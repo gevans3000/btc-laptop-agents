@@ -2,9 +2,10 @@
 
 import os
 from pathlib import Path
+from typing import Any
 
 
-def run_preflight_checks(args) -> bool:
+def run_preflight_checks(args: Any) -> bool:
     """Run all preflight checks. Returns True if all pass."""
     checks = []
 
@@ -30,8 +31,8 @@ def run_preflight_checks(args) -> bool:
         test_file.write_text("test")
         test_file.unlink()
         checks.append(("Logs writable", True))
-    except Exception:
-        checks.append(("Logs writable", False))
+    except (OSError, PermissionError) as e:
+        checks.append((f"Logs writable (Error: {e})", False))
 
     # 4. Network connectivity (Bitunix)
     try:
@@ -43,16 +44,14 @@ def run_preflight_checks(args) -> bool:
         )
         urllib.request.urlopen(req, timeout=5)
         checks.append(("Bitunix connectivity", True))
-    except Exception:
-        checks.append(("Bitunix connectivity", False))
+    except Exception as e:
+        checks.append((f"Bitunix connectivity (Error: {e})", False))
 
     # 5. Python imports
     try:
-        pass
-
         checks.append(("Core imports", True))
-    except Exception:
-        checks.append(("Core imports", False))
+    except ImportError as e:
+        checks.append((f"Core imports (Error: {e})", False))
 
     # Report
     all_passed = all(passed for _, passed in checks)

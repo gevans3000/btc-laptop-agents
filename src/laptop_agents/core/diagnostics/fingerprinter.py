@@ -11,6 +11,7 @@ import sys
 import json
 import hashlib
 from datetime import datetime
+from typing import Any, Dict, List
 
 from laptop_agents.constants import REPO_ROOT
 
@@ -35,11 +36,11 @@ def fingerprint(error_text: str) -> str:
     return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
 
-def load_memory() -> list:
+def load_memory() -> List[Dict[str, Any]]:
     """Load all known errors from memory."""
     if not MEMORY_FILE.exists():
         return []
-    entries = []
+    entries: List[Dict[str, Any]] = []
     try:
         content = MEMORY_FILE.read_text(encoding="utf-8").strip()
         if not content:
@@ -55,7 +56,7 @@ def load_memory() -> list:
     return entries
 
 
-def save_all(entries: list):
+def save_all(entries: List[Dict[str, Any]]) -> None:
     """Save all entries back to the memory file."""
     header = {
         "_meta": "Known Errors Database",
@@ -68,7 +69,7 @@ def save_all(entries: list):
             f.write(json.dumps(entry) + "\n")
 
 
-def capture(error_text: str, solution: str, root_cause: str = ""):
+def capture(error_text: str, solution: str, root_cause: str = "") -> None:
     """Capture a new error or update an existing one."""
     if not error_text:
         return
@@ -115,7 +116,7 @@ def capture(error_text: str, solution: str, root_cause: str = ""):
     save_all(memory)
 
 
-def lookup(error_text: str) -> dict | None:
+def lookup(error_text: str) -> Dict[str, Any] | None:
     """Lookup an error in memory."""
     fp = fingerprint(error_text)
     memory = load_memory()
@@ -134,7 +135,7 @@ def lookup(error_text: str) -> dict | None:
     return None
 
 
-def list_all():
+def list_all() -> None:
     """List all known errors."""
     memory = load_memory()
     print(f"=== Known Errors Database ({len(memory)} entries) ===\n")

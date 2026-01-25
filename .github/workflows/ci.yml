@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 on:
   push:
   pull_request:
@@ -25,7 +25,12 @@ jobs:
       - run: python -m compileall src
       - run: ruff check src tests
       - run: ruff format --check src tests
-      - run: pytest -q --tb=short --cov=laptop_agents --cov-report=xml --cov-fail-under=50
+      - run: pytest -q --tb=short --cov=laptop_agents --cov-report=xml --cov-branch --cov-fail-under=90
       - run: mypy src/laptop_agents --ignore-missing-imports --no-error-summary
+      - run: mypy src/laptop_agents/core --strict --ignore-missing-imports
       - run: pip-audit
       - run: la --help
+      - name: System Doctor
+        run: la doctor
+      - name: Smoke Test (Mock Session)
+        run: la run --mode live-session --duration 1 --source mock --dry-run

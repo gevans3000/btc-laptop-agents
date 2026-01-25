@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""
+JournalCoachAgent: Log plan, fills, exits and provide coaching feedback.
+
+Part of the Supervisor pipeline. See ENGINEER.md Section 4 for pipeline order.
+"""
+
 from typing import Any, Dict
 
 from ..trading import PaperJournal

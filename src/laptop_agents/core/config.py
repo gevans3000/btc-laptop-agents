@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, field_validator
 import json
+import yaml
 
 
 class RiskConfig(BaseModel):
@@ -154,3 +155,32 @@ def load_strategy_config(
         data = _deep_merge(data, {k: v for k, v in overrides.items() if v is not None})
 
     return data
+
+
+def load_yaml_config(path: Path) -> Dict[str, Any]:
+    """Load a YAML config file safely."""
+    if path.exists():
+        with open(path, "r") as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+
+def get_repo_root() -> Path:
+    """Consolidated repo root calculation."""
+    here = Path(__file__).parent.resolve()
+    src_dir = here.parent
+    if (src_dir / "laptop_agents").exists():
+        return src_dir.parent
+    return Path(os.getcwd())
+
+
+def load_global_defaults() -> Dict[str, Any]:
+    """Load config/defaults.yaml."""
+    path = get_repo_root() / "config" / "defaults.yaml"
+    return load_yaml_config(path)
+
+
+def load_risk_limits() -> Dict[str, Any]:
+    """Load config/risk.yaml."""
+    path = get_repo_root() / "config" / "risk.yaml"
+    return load_yaml_config(path)

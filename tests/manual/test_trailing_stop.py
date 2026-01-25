@@ -40,21 +40,27 @@ class TestTrailingStop(unittest.TestCase):
         events = broker.on_candle(c1, order)
         print(f"Entry events: {events}")
         print(f"Broker position: {broker.pos}")
-        self.assertFalse(broker.pos.trail_active)
+        pos = broker.pos
+        assert pos is not None
+        self.assertFalse(pos.trail_active)
 
         # 2. Advance to 51,001 (Should activate trail)
         # Activation: close > 50000 + 1000 = 51000
         c2 = MockCandle("T2", 50000, 51500, 50500, 51001)
         broker.on_candle(c2, None)
-        self.assertTrue(broker.pos.trail_active)
+        pos = broker.pos
+        assert pos is not None
+        self.assertTrue(pos.trail_active)
         # trail_stop = 51001 - (2000 * 1.5) = 51001 - 3000 = 48001
-        self.assertEqual(broker.pos.trail_stop, 48001)
+        self.assertEqual(pos.trail_stop, 48001)
 
         # 3. Advance to 55,000 (Should move trail up)
         c3 = MockCandle("T3", 51001, 55500, 54500, 55000)
         broker.on_candle(c3, None)
         # new_trail = 55000 - 3000 = 52000
-        self.assertEqual(broker.pos.trail_stop, 52000)
+        pos = broker.pos
+        assert pos is not None
+        self.assertEqual(pos.trail_stop, 52000)
 
         # 4. Price drops to 51,000 (Should HIT trail)
         c4 = MockCandle("T4", 55000, 55000, 51000, 51000)
@@ -90,6 +96,7 @@ class TestTrailingStop(unittest.TestCase):
         # 2. Advance to 48,999 (Should activate trail)
         c2 = MockCandle("T2", 50000, 49500, 48500, 48999)
         broker.on_candle(c2, None)
+        assert broker.pos is not None
         self.assertTrue(broker.pos.trail_active)
         # trail_stop = 48999 + 3000 = 51999
         self.assertEqual(broker.pos.trail_stop, 51999)
@@ -98,6 +105,7 @@ class TestTrailingStop(unittest.TestCase):
         c3 = MockCandle("T3", 48999, 45500, 44500, 45000)
         broker.on_candle(c3, None)
         # new_trail = 45000 + 3000 = 48000
+        assert broker.pos is not None
         self.assertEqual(broker.pos.trail_stop, 48000)
 
         # 4. Price rises to 49,000 (Should HIT trail)

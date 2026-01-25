@@ -29,8 +29,11 @@ class Position:
         total_qty = sum(lot["qty"] for lot in self.lots)
         if total_qty == 0:
             return 0.0
-        return sum(lot["qty"] * lot["price"] for lot in self.lots) / total_qty
+        return float(
+            sum(float(lot["qty"]) * float(lot["price"]) for lot in self.lots)
+            / total_qty
+        )
 
     @property
     def entry_fees(self) -> float:
-        return sum(lot["fees"] for lot in self.lots)
+        return sum(float(lot["fees"]) for lot in self.lots)

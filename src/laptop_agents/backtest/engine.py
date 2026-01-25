@@ -143,7 +143,7 @@ def calculate_sharpe_ratio(
     std_ret = statistics.stdev(returns)
     if std_ret == 0:
         return 0.0
-    return (mean_ret / std_ret) * math.sqrt(periods_per_year)
+    return float((mean_ret / std_ret) * math.sqrt(periods_per_year))
 
 
 def run_backtest_on_segment(
@@ -658,8 +658,8 @@ def run_validation(
                 if obj > best_obj:
                     best_obj = obj
                     best_params = params
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Candidate evaluation failed: {e}")
 
         if not best_params:
             best_params = candidates[0]
@@ -701,7 +701,7 @@ def run_validation(
         try:
             with (LATEST_DIR / "validation.json").open("w", encoding="utf-8") as f:
                 json.dump(report, f, indent=2, default=str)
-        except Exception:
-            pass
+        except OSError as e:
+            logger.error(f"Failed to write validation report: {e}")
 
     return report

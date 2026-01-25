@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 from ..trading.helpers import apply_slippage
 from laptop_agents.core.events import append_event
 from laptop_agents.core.logger import logger
@@ -14,6 +14,11 @@ from collections import deque
 from .broker_types import Position
 from .broker_risk import validate_risk_limits
 from .broker_state import BrokerStateMixin
+from .position_engine import (
+    calculate_unrealized_pnl,
+    process_fifo_close,
+    calculate_full_exit_pnl,
+)
 from ..storage.position_store import PositionStore
 
 
@@ -39,7 +44,7 @@ class PaperBroker(BrokerStateMixin):
         self.rng = random.Random(random_seed)
         self.last_trade_time: float = 0.0
         self.min_trade_interval_sec: float = 60.0  # 1 minute minimum between trades
-        self.pos = None  # type: ignore  # type: ignore
+        self.pos: Optional[Position] = None
         self.is_inverse = self.symbol.endswith("USD") and not self.symbol.endswith(
             "USDT"
         )
@@ -103,7 +108,9 @@ class PaperBroker(BrokerStateMixin):
 
             if exit_event:
                 events["exits"].append(exit_event)
-                self.pos = None  # type: ignore
+                if self.state_path:
+                    self._save_state()
+                self.pos = None
 
         # 2) open new position if none
         if self.pos is None and order and order.get("go"):
@@ -117,14 +124,15 @@ class PaperBroker(BrokerStateMixin):
 
     def on_tick(self, tick: Any) -> Dict[str, Any]:
         """Process a real-time tick for SL/TP monitoring."""
+        print(f"DEBUG: on_tick {tick}")
         events: Dict[str, Any] = {"exits": []}
         if self.pos is not None:
             exit_event = self._check_tick_exit(tick)
             if exit_event:
                 events["exits"].append(exit_event)
-                self.pos = None  # type: ignore
                 if self.state_path:
                     self._save_state()
+                self.pos = None
         return events
 
     def _validate_risk_limits(
@@ -141,77 +149,33 @@ class PaperBroker(BrokerStateMixin):
         side: str,
         actual_qty: float,
         fill_px_slipped: float,
-        entry_fees: float,
+        entry_fees: float,  # unused now but kept for sig compatibility
         candle: Any,
     ) -> Dict[str, Any]:
         """Execute FIFO closing logic for position reduction/exit."""
         assert self.pos is not None
-        # Plan 4.1: FIFO Closing Logic
-        remaining_qty = actual_qty
-        total_realized_pnl = 0.0
-        total_exit_fees = 0.0
-        total_reduction = 0.0
 
         exit_fee_rate = self.exchange_fees["taker"]
+        results = process_fifo_close(
+            self.pos, actual_qty, fill_px_slipped, exit_fee_rate, self.is_inverse
+        )
 
-        while remaining_qty > 0 and self.pos and self.pos.lots:
-            lot = self.pos.lots[0]
-            signed_lot_qty = lot["qty"]
-
-            # How much of this lot can we close?
-            close_qty = min(remaining_qty, signed_lot_qty)
-
-            # Settle this portion
-            avg_entry = lot["price"]
-            # Pro-rate entry fees for this lot portion
-            entry_fees_portion = lot["fees"] * (close_qty / signed_lot_qty)
-
-            if self.is_inverse:
-                pnl_coins = (1.0 / avg_entry - 1.0 / fill_px_slipped) * close_qty
-                if side == "LONG":
-                    pnl_coins = -pnl_coins  # closing short
-                pnl = pnl_coins * fill_px_slipped
-            else:
-                pnl = (
-                    (fill_px_slipped - avg_entry) * close_qty
-                    if self.pos.side == "LONG"
-                    else (avg_entry - fill_px_slipped) * close_qty
-                )
-
-            # Exit fees
-            exit_fees = (
-                abs(close_qty * fill_px_slipped if not self.is_inverse else close_qty)
-                * exit_fee_rate
-            )
-
-            total_realized_pnl += pnl - exit_fees - entry_fees_portion
-            total_exit_fees += exit_fees + entry_fees_portion
-            total_reduction += close_qty
-
-            if close_qty < lot["qty"]:
-                lot["qty"] -= close_qty
-                lot["fees"] -= entry_fees_portion
-                remaining_qty = 0
-            else:
-                self.pos.lots.popleft()
-                remaining_qty -= close_qty
-
-        self.pos.qty -= total_reduction
-        self.current_equity += total_realized_pnl
+        self.pos.qty -= results["reduction"]
+        self.current_equity += results["realized_pnl"]
 
         close_event = {
             "type": "exit" if self.pos.qty <= 0.00000001 else "partial_exit",
             "trade_id": self.pos.trade_id,
             "side": side,
             "price": float(fill_px_slipped),
-            "qty": float(total_reduction),
-            "pnl": float(total_realized_pnl),
-            "fees": float(total_exit_fees),
+            "qty": float(results["reduction"]),
+            "pnl": float(results["realized_pnl"]),
+            "fees": float(results["exit_fees"]),
             "at": candle.ts,
         }
         self.order_history.append(close_event)
         if self.pos.qty <= 0.00000001:
-            self.pos = None  # type: ignore
+            self.pos = None
 
         if self.state_path:
             self._save_state()
@@ -263,7 +227,7 @@ class PaperBroker(BrokerStateMixin):
                 logger.warning(
                     f"Duplicate order {client_order_id} detected, returning cached result"
                 )
-                return self._idempotency_cache[client_order_id]
+                return cast(Dict[str, Any], self._idempotency_cache[client_order_id])
 
             if client_order_id in self.processed_order_ids:
                 logger.warning(f"Duplicate order {client_order_id} ignored (long-term)")
@@ -555,62 +519,26 @@ class PaperBroker(BrokerStateMixin):
         return None
 
     def _exit(self, ts: str, px: float, reason: str) -> Dict[str, Any]:
+        print(f"DEBUG: _exit {ts} {px} {reason}")
         assert self.pos is not None
         p = self.pos
-        # Apply slippage and fees to exit
-        # For exits, we usually don't have the exact tick at the moment of SL/TP hit
-        # unless it's a tick-based exit.
         random_slip_factor = self.rng.uniform(0.5, 1.5)
         effective_slip = self.slip_bps * random_slip_factor
         px_slipped = apply_slippage(
             px, is_entry=False, is_long=(p.side == "LONG"), slip_bps=effective_slip
         )
 
-        # Plan 3.3: FIFO Cost Basis for PnL
-        # Calculate PnL by depleting lots FIFO
-        total_entry_notional = 0.0
-        total_entry_fees = 0.0
-
-        # We'll just exit the whole position for now, as _exit is called when pos is cleared
-        while p.lots:
-            lot = p.lots.popleft()
-            total_entry_notional += lot["qty"] * lot["price"]
-            total_entry_fees += lot["fees"]
-
-        avg_entry = total_entry_notional / p.qty
-
-        if self.is_inverse:
-            # Inverse PnL (BTC) = Notional * (1/Entry - 1/Exit) for Long
-            if p.side == "LONG":
-                pnl_coins = p.qty * (1.0 / avg_entry - 1.0 / px_slipped)
-            else:
-                pnl_coins = p.qty * (1.0 / px_slipped - 1.0 / avg_entry)
-
-            pnl = pnl_coins * px_slipped
-            # Risk calculation omitted for brevity but should use avg_entry
-            risk = p.qty * abs(1.0 / avg_entry - 1.0 / p.sl) * px_slipped
-        else:
-            pnl = (
-                (px_slipped - avg_entry) * p.qty
-                if p.side == "LONG"
-                else (avg_entry - px_slipped) * p.qty
-            )
-            risk = abs(avg_entry - p.sl) * p.qty
-
-        # Exits are always Taker orders
         exit_fee_rate = self.exchange_fees["taker"]
-        exit_fees = (
-            abs(p.qty * px_slipped if not self.is_inverse else p.qty) * exit_fee_rate
-        )
-        net_pnl = pnl - exit_fees - total_entry_fees
+        results = calculate_full_exit_pnl(p, px_slipped, exit_fee_rate, self.is_inverse)
 
-        r_mult = (net_pnl / risk) if risk > 0 else 0.0
+        net_pnl = results["net_pnl"]
         self.current_equity += net_pnl
+
         exit_event = {
             "type": "exit",
             "trade_id": p.trade_id,
             "reason": reason,
-            "entry": float(avg_entry),
+            "entry": float(results["avg_entry"]),
             "exit": float(px_slipped),
             "price": float(px_slipped),
             "quantity": float(p.qty),
@@ -618,8 +546,8 @@ class PaperBroker(BrokerStateMixin):
             "pnl": float(net_pnl),
             "at": ts,
             "timestamp": ts,
-            "fees": float(exit_fees + total_entry_fees),
-            "r": float(r_mult),
+            "fees": float(results["total_fees"]),
+            "r": float((net_pnl / results["risk"]) if results["risk"] > 0 else 0.0),
             "side": p.side,
             "bars_open": p.bars_open,
         }
@@ -635,20 +563,7 @@ class PaperBroker(BrokerStateMixin):
         self._save_state()
 
     def get_unrealized_pnl(self, current_price: float) -> float:
-        if self.pos is None:
-            return 0.0
-        p = self.pos
-
-        if self.is_inverse:
-            if p.side == "LONG":
-                return p.qty * (1.0 / p.entry - 1.0 / current_price)
-            else:
-                return p.qty * (1.0 / current_price - 1.0 / p.entry)
-        else:
-            if p.side == "LONG":
-                return (current_price - p.entry) * p.qty
-            else:
-                return (p.entry - current_price) * p.qty
+        return calculate_unrealized_pnl(self.pos, current_price, self.is_inverse)
 
     def cancel_all_open_orders(self) -> None:
         """Alias for Plan 4.1 readiness."""
@@ -662,7 +577,7 @@ class PaperBroker(BrokerStateMixin):
         exit_event = self._exit(
             datetime.now(timezone.utc).isoformat(), current_price, "FORCE_CLOSE"
         )
-        self.pos = None  # type: ignore
+        self.pos = None
         return [exit_event]
 
     def apply_funding(self, rate: float, ts: str) -> None:

@@ -3,9 +3,10 @@ import logging
 import os
 import re
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any, Dict
 
 from rich.logging import RichHandler
 from rich.console import Console as RichConsole
@@ -45,7 +46,7 @@ def scrub_secrets(text: str) -> str:
 class SensitiveDataFilter(logging.Filter):
     """Filter that scrubs sensitive data from log records."""
 
-    def filter(self, record):
+    def filter(self, record: logging.LogRecord) -> bool:
         if record.msg and isinstance(record.msg, str):
             record.msg = scrub_secrets(record.msg)
         if record.args:
@@ -63,10 +64,8 @@ class SensitiveDataFilter(logging.Filter):
 
 
 class JsonFormatter(logging.Formatter):
-    def format(self, record):
-        import traceback
-
-        log_entry = {
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry: Dict[str, Any] = {
             "ts": datetime.fromtimestamp(record.created).isoformat(),
             "timestamp": datetime.fromtimestamp(record.created).isoformat(),
             "level": record.levelname,
@@ -103,7 +102,7 @@ class JsonFormatter(logging.Formatter):
 class AutonomousMemoryHandler(logging.Handler):
     """Automatically captures errors into the Learning Debugger memory."""
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         if record.levelno >= logging.ERROR:
             try:
                 # Import here to avoid circular imports and ensure it's available
@@ -138,9 +137,9 @@ class AutonomousMemoryHandler(logging.Handler):
                 except ImportError:
                     # If we can't find the scripts, skip silently
                     pass
-            except Exception:
+            except Exception as e:
                 # Never allow a logging error to crash the application
-                pass
+                print(f"AutonomousMemoryHandler emit failed: {e}")
 
 
 # Find project root (3 levels up from this file)
@@ -152,7 +151,7 @@ DEFAULT_LOG_DIR = str(REPO_ROOT / ".workspace" / "logs")
 class EventPanelHandler(logging.Handler):
     """Custom handler for EVENT logs that prints them as colored panels/tables."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.console = RichConsole(
             theme=Theme(
@@ -160,13 +159,13 @@ class EventPanelHandler(logging.Handler):
             )
         )
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         if not record.msg.startswith("EVENT:"):
             return
 
         try:
             event_name = record.msg.replace("EVENT:", "").strip()
-            meta = {}
+            meta: Dict[str, Any] = {}
             if hasattr(record, "meta") and isinstance(record.meta, dict):
                 meta = record.meta
             elif record.args and isinstance(record.args, dict):
@@ -190,7 +189,11 @@ class EventPanelHandler(logging.Handler):
                     ),
                     expand=False,
                 )
-                self.console.print(panel)
+                try:
+                    self.console.print(panel)
+                except UnicodeEncodeError:
+                    # Fallback if panel borders fail
+                    print(f"(Panel) {event_name}: {meta}")
             else:
                 # Compact one-liner for other events
                 meta_str = " ".join(
@@ -200,14 +203,28 @@ class EventPanelHandler(logging.Handler):
                         if k not in ["timestamp", "event_id"]
                     ]
                 )
+                try:
+                    self.console.print(
+                        f"🔹 [bold cyan]{event_name: <25}[/bold cyan] {meta_str}"
+                    )
+                except UnicodeEncodeError:
+                    # Fallback for systems that don't support the blue diamond emoji
+                    self.console.print(
+                        f"* [bold cyan]{event_name: <25}[/bold cyan] {meta_str}"
+                    )
+        except Exception as e:
+            try:
                 self.console.print(
-                    f"🔹 [bold cyan]{event_name: <25}[/bold cyan] {meta_str}"
+                    f"[dim](Panel Format Error: {e})[/dim] {record.getMessage()}"
                 )
-        except Exception:
-            pass
+            except UnicodeEncodeError:
+                # Absolute minimal fallback
+                print(f"(Logging Error) {record.getMessage()}")
 
 
-def setup_logger(name: str = "btc_agents", log_dir: Optional[str] = None):
+def setup_logger(
+    name: str = "btc_agents", log_dir: Optional[str] = None
+) -> logging.Logger:
     if log_dir is None:
         log_dir = DEFAULT_LOG_DIR
 
@@ -273,7 +290,7 @@ def setup_logger(name: str = "btc_agents", log_dir: Optional[str] = None):
 logger = setup_logger()
 
 
-def write_alert(message: str, alert_path: Optional[str] = None):
+def write_alert(message: str, alert_path: Optional[str] = None) -> None:
     """Write a critical alert to a file and optional Webhook."""
     import os
     import httpx

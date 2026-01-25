@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""
+MarketIntakeAgent: Handles market data intake and indicator calculation.
+
+Part of the Supervisor pipeline. See ENGINEER.md Section 4 for pipeline order.
+"""
+
 from typing import List
 
 from ..indicators import ema, atr, swing_high_low, equal_level
@@ -22,8 +28,8 @@ class MarketIntakeAgent:
             try:
                 with ov_path.open("r") as f:
                     self.overrides = json.load(f)
-            except Exception:
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"FAILED TO LOAD symbol_overrides.json: {e}")
 
     def run(self, state: State) -> State:
         candles = state.candles

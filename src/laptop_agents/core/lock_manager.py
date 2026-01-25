@@ -1,6 +1,7 @@
 import os
 import psutil
 from pathlib import Path
+from typing import Dict, Any
 from laptop_agents.core.logger import logger
 
 
@@ -49,7 +50,7 @@ class LockManager:
             f.write(str(os.getpid()))
         return True
 
-    def release(self):
+    def release(self) -> None:
         """Release the lock."""
         if self.lock_file.exists():
             try:
@@ -57,7 +58,7 @@ class LockManager:
             except Exception as e:
                 logger.error(f"Failed to release lock: {e}")
 
-    def get_status(self) -> dict:
+    def get_status(self) -> Dict[str, Any]:
         """Get status of the process associated with the lock."""
         if not self.lock_file.exists():
             return {"running": False}
@@ -79,7 +80,7 @@ class LockManager:
                         "memory_info": proc.memory_info()._asdict(),
                         "status": proc.status(),
                     }
-        except Exception:
-            pass
+        except (OSError, ValueError, psutil.Error) as e:
+            logger.debug(f"Error getting lock status: {e}")
 
         return {"running": False}

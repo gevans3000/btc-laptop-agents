@@ -129,8 +129,8 @@ async def heartbeat_task(runner: "AsyncRunner") -> None:
                                 "ts": runner.latest_tick.ts,
                             },
                         )
-                    except Exception:
-                        pass
+                    except (OSError, PermissionError) as e:
+                        logger.debug(f"Failed to save last price cache: {e}")
 
                 # Write heartbeat file for watchdog
                 from laptop_agents.core.state_manager import StateManager

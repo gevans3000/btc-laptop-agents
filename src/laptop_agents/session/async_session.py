@@ -202,8 +202,8 @@ class AsyncRunner:
                 return int(
                     datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to parse timestamp {ts}: {e}")
         return 0
 
     def _request_shutdown(self, reason: str) -> None:
@@ -324,8 +324,8 @@ async def run_async_session(
     finally:
         try:
             lock.release()
-        except Exception:
-            pass
+        except (OSError, PermissionError) as e:
+            logger.warning(f"Failed to release session lock: {e}")
 
     if runner:
         return build_session_result(runner)

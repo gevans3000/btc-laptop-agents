@@ -25,8 +25,10 @@ def start(
                     f"[red]Error: Agent already running (PID: {old_pid})[/red]"
                 )
                 return
-        except Exception:
-            pass
+        except (ValueError, OSError) as e:
+            console.print(
+                f"[yellow]Warning: Could not read stale PID file: {e}[/yellow]"
+            )
 
     resolved_source = source or ("bitunix" if mode == "live-session" else "mock")
 
@@ -89,8 +91,8 @@ def stop():
     if AGENT_PID_FILE.exists():
         try:
             pid = int(AGENT_PID_FILE.read_text().strip())
-        except Exception:
-            pass
+        except (ValueError, OSError) as e:
+            console.print(f"[yellow]Warning: Could not read PID file: {e}[/yellow]")
 
     if pid and psutil.pid_exists(pid):
         try:
@@ -113,7 +115,7 @@ def stop():
         # Stale PID file (process not found). Clean it up to unblock subsequent runs.
         try:
             AGENT_PID_FILE.unlink()
-        except Exception:
+        except OSError:
             pass
 
     console.print("[red]No running agent found (missing/stale PID file).[/red]")

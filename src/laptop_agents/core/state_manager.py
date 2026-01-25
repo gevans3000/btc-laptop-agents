@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import json
 import time
+import os
+import shutil
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, cast
 from laptop_agents.core.logger import logger
 
 
@@ -40,8 +42,8 @@ class StateManager:
                         self.state_file.rename(
                             self.state_file.with_suffix(f".corrupt.{int(time.time())}")
                         )
-                    except Exception:
-                        pass
+                    except (OSError, PermissionError) as e:
+                        logger.warning(f"Failed to rename corrupt state file: {e}")
         self._state = {}
 
     def save(self) -> None:
@@ -54,18 +56,14 @@ class StateManager:
             with open(temp, "w") as f:
                 json.dump(self._state, f, indent=2)
                 f.flush()
-                import os
-
                 os.fsync(f.fileno())
 
             # Step 2: Backup current (if exists and valid)
             if self.state_file.exists():
                 try:
-                    import shutil
-
                     shutil.copy2(self.state_file, backup)
-                except Exception:
-                    pass
+                except (OSError, PermissionError) as e:
+                    logger.warning(f"Failed to create state backup: {e}")
 
             # Step 3: Atomic rename
             max_retries = 3
@@ -95,13 +93,13 @@ class StateManager:
         self._state[key] = value
 
     def get_circuit_breaker_state(self) -> Dict[str, Any]:
-        return self.get("circuit_breaker", {})
+        return cast(Dict[str, Any], self.get("circuit_breaker", {}))
 
     def set_circuit_breaker_state(self, state: Dict[str, Any]) -> None:
         self.set("circuit_breaker", state)
 
     def get_supervisor_state(self) -> Dict[str, Any]:
-        return self.get("supervisor", {})
+        return cast(Dict[str, Any], self.get("supervisor", {}))
 
     def set_supervisor_state(self, state: Dict[str, Any]) -> None:
         self.set("supervisor", state)
@@ -132,8 +130,8 @@ class StateManager:
             if temp.exists():
                 try:
                     temp.unlink()
-                except Exception:
-                    pass
+                except (OSError, PermissionError) as inner_e:
+                    logger.warning(f"Failed to delete temp file {temp}: {inner_e}")
             logger.error(f"Atomic save failed for {path}: {e}")
             raise
 

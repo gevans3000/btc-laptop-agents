@@ -44,7 +44,7 @@ async def perform_shutdown(runner: "AsyncRunner", tasks: List[asyncio.Task]) -> 
     # 3. Wait up to 2s for pending fills
     try:
         await asyncio.sleep(2.0)
-    except Exception:
+    except asyncio.CancelledError:
         pass
 
     # 4. Queue Draining: Persist pending orders to broker state

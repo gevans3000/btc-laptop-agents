@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""
+DerivativesFlowsAgent: Derivatives/Flows: funding/OI snapshot with caching.
+
+Part of the Supervisor pipeline. See ENGINEER.md Section 4 for pipeline order.
+"""
+
 from typing import Any, Dict
 
 from .state import State
@@ -37,8 +43,8 @@ class DerivativesFlowsAgent:
             if hasattr(self.provider, "snapshot_derivatives"):
                 try:
                     snap = self.provider.snapshot_derivatives()
-                except Exception:
-                    snap["error"] = "snapshot_failed"
+                except Exception as e:
+                    snap["error"] = f"snapshot_failed: {e}"
             snap["cached"] = False
             self._last = dict(snap)
 

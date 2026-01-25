@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""
+SetupSignalAgent: Setup/Signal: outputs ONE chosen setup (A/B).
+
+Part of the Supervisor pipeline. See ENGINEER.md Section 4 for pipeline order.
+"""
+
 from typing import Any, Dict
 
 from ..indicators import atr, vwap, detect_sweep, ema

@@ -87,7 +87,7 @@ def hardware_watchdog_thread(runner: "AsyncRunner") -> None:
                 )
                 runner._request_shutdown("memory_limit")
                 os._exit(1)
-        except Exception:
-            pass
+        except (OSError, PermissionError, psutil.Error) as e:
+            logger.debug(f"Hardware watchdog suppressed minor error: {e}")
 
         time.sleep(1)

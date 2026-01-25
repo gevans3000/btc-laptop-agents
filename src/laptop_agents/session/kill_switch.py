@@ -25,8 +25,8 @@ async def kill_switch_task(runner: "AsyncRunner") -> None:
                 if runner.kill_file.exists():
                     try:
                         runner.kill_file.unlink()  # Remove file after processing
-                    except Exception:
-                        pass
+                    except OSError as e:
+                        logger.warning(f"Failed to delete kill.txt: {e}")
                 # Special exit code for kill switch as requested in plan (though we are in async task)
                 # We'll set a flag to exit with 99 in the main block
                 runner.kill_switch_triggered = True

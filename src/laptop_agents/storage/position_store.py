@@ -2,7 +2,7 @@ import sqlite3
 import json
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, cast
 from laptop_agents.core.logger import logger
 
 
@@ -75,7 +75,7 @@ class PositionStore:
             conn.close()
 
             if row:
-                return json.loads(row[0])
+                return cast(Dict[str, Any], json.loads(row[0]))
             return None
         except Exception as e:
             logger.error(f"Failed to load state from DB: {e}")

@@ -44,7 +44,7 @@ class RateLimiter:
                 self.tokens = 0.0
                 return delay_from_now
 
-    async def wait(self):
+    async def wait(self) -> None:
         """Async wait - use this in the main event loop."""
         delay = self._reserve_slot()
         if delay > 0.001:
@@ -52,7 +52,7 @@ class RateLimiter:
             logger.debug(f"RateLimiter[{self.name}]: Async Throttling for {delay:.3f}s")
             await asyncio.sleep(delay)
 
-    def wait_sync(self):
+    def wait_sync(self) -> None:
         """Sync wait - use this in background threads or synchronous code."""
         delay = self._reserve_slot()
         if delay > 0.001:

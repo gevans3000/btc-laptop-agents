@@ -72,7 +72,9 @@ def render_html(
     )
 
 
-def print_session_summary(run_id, symbol, start, end, trades):
+def print_session_summary(
+    run_id: str, symbol: str, start: float, end: float, trades: List[Dict[str, Any]]
+) -> None:
     wins = [t for t in trades if t.get("pnl", 0) > 0]
     wr = (len(wins) / len(trades) * 100) if trades else 0.0
     net = float(end - start)
@@ -114,21 +116,21 @@ def parse_journal_for_trades(journal_path: Path) -> List[Dict[str, Any]]:
 
 
 def finalize_run_reporting(
-    run_id,
-    run_dir,
-    candles,
-    starting_balance,
-    ending_balance,
-    equity_history,
-    fees_bps,
-    slip_bps,
-    symbol,
-    interval,
-    source,
-    risk_pct,
-    stop_bps,
-    tp_r,
-):
+    run_id: str,
+    run_dir: Path,
+    candles: List[Candle],
+    starting_balance: float,
+    ending_balance: float,
+    equity_history: List[Dict[str, Any]],
+    fees_bps: float,
+    slip_bps: float,
+    symbol: str,
+    interval: str,
+    source: str,
+    risk_pct: float,
+    stop_bps: float,
+    tp_r: float,
+) -> None:
     # Save equity history
     equity_csv = LATEST_DIR / "equity.csv"
     with equity_csv.open("w", encoding="utf-8", newline="") as f:

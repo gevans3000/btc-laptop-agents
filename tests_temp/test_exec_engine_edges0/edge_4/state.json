@@ -1,0 +1,19 @@
+{
+  "equity": 994.94300475,
+  "risk_pct": 1.0,
+  "stop_bps": 500.0,
+  "tp_r": 1.0,
+  "max_leverage": 5.0,
+  "intrabar_mode": "conservative",
+  "slip_bps": 1.0,
+  "fees_bps": 5.0,
+  "symbol": "BTC",
+  "interval": "1m",
+  "source": "mock",
+  "position": null,
+  "last_ts": "2023-01-01T00:00:00Z",
+  "realized_pnl": -5.056995250000003,
+  "unrealized_pnl": 0.0,
+  "net_pnl": -5.056995250000003,
+  "fees_total": 0.04749525
+}

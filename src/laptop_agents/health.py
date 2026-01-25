@@ -31,7 +31,7 @@ class ProviderHealth:
         """Calculate health score (0-1)."""
         if self.stats["total_calls"] == 0:
             return 1.0
-        return self.stats["successful_calls"] / self.stats["total_calls"]
+        return float(self.stats["successful_calls"] / self.stats["total_calls"])
 
     def is_healthy(self, threshold: float = 0.9) -> bool:
         """Check if provider is healthy."""

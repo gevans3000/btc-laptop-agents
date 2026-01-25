@@ -91,7 +91,11 @@ class TestDualModeMath(unittest.TestCase):
         broker.on_candle(candle_entry, order)
 
         # Position Qty should be Notional ($50.0)
-        self.assertEqual(broker.pos.qty, 50.0)
+        pos = broker.pos
+        self.assertIsNotNone(pos)
+        assert pos is not None
+        self.assertEqual(pos.qty, 50.0)
+        self.assertEqual(pos.entry, 50000.0)
 
         # Exit at 100k (Doubled price) -> Should be ~0.0005 BTC profit?
         # PnL = 50 * (1/50000 - 1/100000) = 50 * (0.00001) = 0.0005 BTC.

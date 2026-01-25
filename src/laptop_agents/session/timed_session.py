@@ -169,8 +169,8 @@ def run_timed_session(
                 logger.warning("KILL SWITCH ACTIVATED: kill.txt detected")
                 try:
                     kill_file.unlink()
-                except Exception:
-                    pass
+                except OSError as e:
+                    logger.warning(f"Failed to delete kill.txt: {e}")
                 result.stopped_reason = "kill_switch"
                 break
 
@@ -389,7 +389,7 @@ def run_timed_session(
                     broker.close_all(float(candles[-1].close))
                 broker.shutdown()
             except Exception as e:
-                logger.error(f"Error during broker shutdown: {e}")
+                logger.error(f"Error during broker shutdown: {e}", exc_info=True)
 
     # Finalize
     result.ending_equity = current_equity

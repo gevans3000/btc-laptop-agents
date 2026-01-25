@@ -30,8 +30,8 @@ def status():
         try:
             with open(HEARTBEAT_PATH) as f:
                 heartbeat = json.load(f)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            app.logger.warning(f"Error reading heartbeat: {e}")
 
     # Read Broker State
     broker = {}
@@ -39,8 +39,8 @@ def status():
         try:
             with open(BROKER_STATE_PATH) as f:
                 broker = json.load(f)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            app.logger.warning(f"Error reading broker state: {e}")
 
     # Read Recent Events (last 10)
     events = []
@@ -49,8 +49,8 @@ def status():
             with open(EVENTS_PATH) as f:
                 lines = f.readlines()
                 events = [json.loads(line) for line in lines[-10:]]
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            app.logger.warning(f"Error reading events: {e}")
 
     # Read Recent Logs
     logs = []
@@ -59,8 +59,8 @@ def status():
             with open(LOG_PATH, encoding="utf-8") as f:
                 lines = f.readlines()
                 logs = lines[-30:]
-        except Exception:
-            pass
+        except OSError as e:
+            app.logger.warning(f"Error reading logs: {e}")
 
     return jsonify(
         {

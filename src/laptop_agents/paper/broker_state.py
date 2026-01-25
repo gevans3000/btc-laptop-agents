@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 import time
-import yaml
 from collections import deque
 from typing import Any, Dict, List, Optional, Protocol, TYPE_CHECKING
 
 from .broker_types import Position
 from laptop_agents.core.logger import logger
+from laptop_agents.core.config import load_risk_limits, get_repo_root, load_yaml_config
 from laptop_agents.resilience.exceptions import PersistenceError
 
 if TYPE_CHECKING:
@@ -30,6 +30,18 @@ class BrokerStateInterface(Protocol):
 
 class BrokerStateMixin:
     """Mixin for PaperBroker to handle saving/loading state and config."""
+
+    symbol: str
+    starting_equity: float
+    current_equity: float
+    processed_order_ids: set[str]
+    order_history: List[Dict[str, Any]]
+    working_orders: List[Dict[str, Any]]
+    pos: Optional[Position]
+    state_path: Optional[str]
+    store: Optional[PositionStore]
+    exchange_fees: Dict[str, float]
+    max_position_per_symbol: Dict[str, float]
 
     def _save_state(self: Any) -> None:
         if not hasattr(self, "store") or not self.store:
@@ -117,32 +129,15 @@ class BrokerStateMixin:
 
     def _load_risk_config(self: Any) -> None:
         """Load risk settings from config/risk.yaml."""
-        from laptop_agents.constants import REPO_ROOT
-
-        risk_path = REPO_ROOT / "config" / "risk.yaml"
-        if risk_path.exists():
-            try:
-                with open(risk_path, "r") as f:
-                    config = yaml.safe_load(f)
-                    if config and "max_position_per_symbol" in config:
-                        self.max_position_per_symbol = config["max_position_per_symbol"]
-                        logger.info(
-                            f"Loaded risk config: {self.max_position_per_symbol}"
-                        )
-            except Exception as e:
-                logger.error(f"Failed to load risk config: {e}")
+        config = load_risk_limits()
+        if config and "max_position_per_symbol" in config:
+            self.max_position_per_symbol = config["max_position_per_symbol"]
+            logger.info(f"Loaded risk config: {self.max_position_per_symbol}")
 
     def _load_exchange_config(self: Any) -> None:
         """Load exchange fees from config/exchanges/bitunix.yaml."""
-        from laptop_agents.constants import REPO_ROOT
-
-        config_path = REPO_ROOT / "config" / "exchanges" / "bitunix.yaml"
-        if config_path.exists():
-            try:
-                with open(config_path, "r") as f:
-                    config = yaml.safe_load(f)
-                    if config and "fees" in config:
-                        self.exchange_fees = config["fees"]
-                        logger.info(f"Loaded exchange fees: {self.exchange_fees}")
-            except Exception as e:
-                logger.error(f"Failed to load exchange config: {e}")
+        config_path = get_repo_root() / "config" / "exchanges" / "bitunix.yaml"
+        config = load_yaml_config(config_path)
+        if config and "fees" in config:
+            self.exchange_fees = config["fees"]
+            logger.info(f"Loaded exchange fees: {self.exchange_fees}")

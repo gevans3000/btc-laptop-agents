@@ -1,0 +1,2 @@
+{"event": "HardLimitLeverageCapped", "requested": 10.0, "capped": 5.0, "timestamp": "2026-01-25T00:10:24.364162Z"}
+{"event": "HardLimitRRCapped", "requested": 1.0, "capped": 2.0, "timestamp": "2026-01-25T00:10:24.364679Z"}

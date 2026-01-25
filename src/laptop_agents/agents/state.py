@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""
+State: Shared state object passed between agents in the pipeline.
+
+Part of the Supervisor pipeline. See ENGINEER.md Section 4 for pipeline order.
+"""
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 

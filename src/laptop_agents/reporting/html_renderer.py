@@ -17,14 +17,14 @@ _append_event = None
 _LATEST_DIR = None
 
 
-def set_context(latest_dir: Path, append_event_fn):
+def set_context(latest_dir: Path, append_event_fn: Any) -> None:
     """Set the module context for directory and event logging."""
     global _append_event, _LATEST_DIR
     _LATEST_DIR = latest_dir
     _append_event = append_event_fn
 
 
-def _safe_append_event(data: dict):
+def _safe_append_event(data: Dict[str, Any]) -> None:
     """Safely append an event, falling back to no-op if not set."""
     if _append_event:
         _append_event(data)

@@ -117,6 +117,7 @@ def test_paper_broker_fifo():
         },
     )
 
+    assert broker.pos is not None
     assert broker.pos.qty == 0.002
     assert abs(broker.pos.entry - 50500.0) < 1.0
 

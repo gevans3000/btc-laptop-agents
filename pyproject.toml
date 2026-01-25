@@ -27,6 +27,7 @@ test = [
   "pytest-cov>=4.0.0",
   "types-PyYAML>=6.0.12.20240808",
   "types-cachetools>=5.5.0.20240820",
+  "types-psutil>=5.9.0",
   "ruff>=0.1.0",
   "mypy>=1.0.0",
   "pytest-xdist",
@@ -53,5 +54,22 @@ asyncio_default_fixture_loop_scope = "function"
 
 [tool.mypy]
 python_version = "3.12"
-ignore_missing_imports = true
+ignore_missing_imports = false
 check_untyped_defs = true
+
+# Per-module overrides for untyped libs
+[[tool.mypy.overrides]]
+module = [
+    "tenacity.*",
+    "aiohttp.*",
+    "flask.*",
+    "psutil.*",
+    "error_fingerprinter"
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "laptop_agents.*"
+ignore_missing_imports = false
+check_untyped_defs = true
+warn_return_any = true

@@ -1,17 +1,7 @@
-import os
-import yaml
-from pathlib import Path
-from typing import Any
+from laptop_agents.core.config import get_repo_root, load_global_defaults
 
 # Repository paths
-HERE = Path(__file__).parent.resolve()
-src_dir = HERE.parent
-if (src_dir / "laptop_agents").exists():
-    # We are in src/laptop_agents
-    REPO_ROOT = src_dir.parent
-else:
-    # Fallback
-    REPO_ROOT = Path(os.getcwd())
+REPO_ROOT = get_repo_root()
 
 WORKSPACE_DIR = REPO_ROOT / ".workspace"
 WORKSPACE_RUNS_DIR = WORKSPACE_DIR / "runs"
@@ -24,18 +14,7 @@ AGENT_PID_FILE = WORKSPACE_DIR / "agent.pid"
 DEFAULT_SYMBOL = "BTCUSDT"
 
 # Load defaults
-CONFIG_DEFAULTS_PATH = REPO_ROOT / "config" / "defaults.yaml"
-
-
-def _load_defaults():
-    defaults: dict[str, Any] = {}
-    if CONFIG_DEFAULTS_PATH.exists():
-        with open(CONFIG_DEFAULTS_PATH, "r") as f:
-            defaults = yaml.safe_load(f) or {}
-    return defaults
-
-
-_DEFAULTS = _load_defaults()
+_DEFAULTS = load_global_defaults()
 _TRADING = _DEFAULTS.get("trading", {})
 _SYSTEM = _DEFAULTS.get("system", {})
 

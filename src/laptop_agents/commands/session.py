@@ -21,6 +21,19 @@ console = Console()
 LOCK_FILE = AGENT_PID_FILE
 
 
+def _start_dashboard(port: int = 5000):
+    try:
+        from laptop_agents.dashboard.app import run_dashboard
+    except ImportError:
+        from rich.console import Console
+
+        Console().print(
+            "[red]Dashboard requires Flask. Install with: pip install btc-laptop-agents[dashboard][/red]"
+        )
+        raise SystemExit(1)
+    run_dashboard(port)
+
+
 def run(
     source: str = typer.Option(
         os.environ.get("LA_SOURCE", "mock"),
@@ -206,9 +219,7 @@ def run(
         raise typer.Exit(code=0 if success else 1)
 
     if args.dashboard:
-        from laptop_agents.dashboard.app import run_dashboard
-
-        dash_thread = threading.Thread(target=run_dashboard, daemon=True)
+        dash_thread = threading.Thread(target=_start_dashboard, daemon=True)
         dash_thread.start()
         logger.info("Dashboard launched at http://127.0.0.1:5000")
 

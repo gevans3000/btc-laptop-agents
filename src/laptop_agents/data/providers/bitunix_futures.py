@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, AsyncGenerator, Union
+from typing import Any, Dict, Iterable, List, Optional, AsyncGenerator, Union, cast
 import tenacity
 
 # Resilience imports
@@ -15,6 +15,7 @@ from ...core.resilience import ErrorCircuitBreaker
 from ...trading.helpers import Candle, Tick, DataEvent
 from .bitunix_websocket import get_ws_client
 from .bitunix_client import BitunixClient
+from laptop_agents.core.logger import logger
 
 
 class FatalError(Exception):
@@ -122,8 +123,8 @@ class BitunixFuturesProvider:
                         out.append(latest)
                     elif latest.ts == last_ts:
                         out[-1] = latest
-        except Exception:
-            pass
+        except (ImportError, RuntimeError, AttributeError) as e:
+            logger.debug(f"Could not merge with WS client: {e}")
 
         return out
 
@@ -181,7 +182,8 @@ class BitunixFuturesProvider:
 
         try:
             return float(fr) if fr is not None else None
-        except Exception:
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Could not parse funding rate: {e}")
             return None
 
     def klines(
@@ -298,8 +300,11 @@ class BitunixFuturesProvider:
         body = {"orderId": order_id}
         if symbol:
             body["symbol"] = symbol
-        return self.client.post(
-            "/api/v1/futures/trade/cancel_order", body=body, signed=True
+        return cast(
+            Dict[str, Any],
+            self.client.post(
+                "/api/v1/futures/trade/cancel_order", body=body, signed=True
+            ),
         )
 
     def place_order(
@@ -330,13 +335,19 @@ class BitunixFuturesProvider:
         if tp_price:
             body["tp"] = tp_price
 
-        return self.client.post("/api/v1/futures/trade/order", body=body, signed=True)
+        return cast(
+            Dict[str, Any],
+            self.client.post("/api/v1/futures/trade/order", body=body, signed=True),
+        )
 
     def cancel_all_orders(self, symbol: str) -> Dict[str, Any]:
         """Cancel all pending orders (signed)."""
         body = {"symbol": symbol}
-        return self.client.post(
-            "/api/v1/futures/trade/cancel_all", body=body, signed=True
+        return cast(
+            Dict[str, Any],
+            self.client.post(
+                "/api/v1/futures/trade/cancel_all", body=body, signed=True
+            ),
         )
 
     def history(self, n: int = 200) -> List[Candle]:

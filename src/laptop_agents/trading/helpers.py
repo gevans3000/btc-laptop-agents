@@ -83,7 +83,7 @@ def normalize_candle_order(candles: List[Candle]) -> List[Candle]:
     try:
         if first_ts > last_ts:
             return list(reversed(candles))
-    except Exception:
+    except (ValueError, TypeError):
         pass
 
     return candles
