@@ -1,3 +1,0 @@
-{"type": "trade", "trade_id": "t1", "plan": {"setup": {"name": "test_setup"}}}
-{"type": "update", "trade_id": "t1", "note": "fill", "fill": {"price": 100.0}}
-{"type": "update", "trade_id": "t1", "note": "exit", "exit": {"price": 110.0, "r": 2.0, "pnl": 10.0, "bars_open": 5, "reason": "TP"}}

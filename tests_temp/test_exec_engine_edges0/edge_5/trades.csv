@@ -1,2 +1,0 @@
-trade_id,side,signal,entry,exit,price,quantity,pnl,fees,entry_ts,exit_ts,timestamp,exit_reason,stop_price,tp_price
-634d341c-537e-4ed6-8062-e80e44f3419c,LONG,BUY,100.0,104.9895,104.9895,1.0,4.937005250000007,0.05249475000000001,2022-12-31T23:59:00Z,2023-01-01T00:00:00Z,2026-01-25T00:10:24.414424Z,TP,95.0,105.0

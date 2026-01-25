@@ -1,1 +1,0 @@
-{"equity": 1000.0, "position": null, "last_ts": null, "fees_bps": 2.0, "slip_bps": 5.0, "symbol": "BTC", "interval": "1m", "source": "bitunix", "risk_pct": 1.0, "stop_bps": 100.0, "tp_r": 2.0, "max_leverage": 5.0, "intrabar_mode": "standard", "realized_pnl": 0.0, "unrealized_pnl": 0.0, "net_pnl": 0.0, "fees_total": 0.0}
