@@ -67,6 +67,14 @@ The fastest way to verify, commit, and ship changes autonomously.
 ```
 This runs `testall.ps1`, formats code, and commits with a semantic message.
 
+### F. Agent " Go2\ Workflow (Fast Track)
+Accelerated deployment for rapid iteration. Skips heavy audits (pip-audit, coverage calculation, slow tests).
+```powershell
+# In the Agent Chat
+/go2
+```
+Use with caution for iterative debugging.
+
 ---
 
 ## 4. Testing Strategy
@@ -125,3 +133,4 @@ To prevent drift, we follow these rules:
     -   If you change the CLI, update `ENGINEER.md`.
     -   If you change the Architecture, update `ENGINEER.md`.
     -   If you change the Testing process, update `CONTRIBUTING.md`.
+
