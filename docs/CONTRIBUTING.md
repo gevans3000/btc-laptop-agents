@@ -133,4 +133,3 @@ To prevent drift, we follow these rules:
     -   If you change the CLI, update `ENGINEER.md`.
     -   If you change the Architecture, update `ENGINEER.md`.
     -   If you change the Testing process, update `CONTRIBUTING.md`.
-

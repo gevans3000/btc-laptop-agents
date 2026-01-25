@@ -174,8 +174,8 @@ def run_backtest_on_segment(
 
     candles = normalize_candle_order(candles)
     realized_equity = starting_balance
-    equity_history = []
-    trades = []
+    equity_history: List[Dict[str, Any]] = []
+    trades: List[Dict[str, Any]] = []
 
     position = None
     entry_price = 0.0
@@ -439,8 +439,8 @@ def run_backtest_bar_mode(
     fast_window, slow_window = 10, 30
     warmup = max(fast_window, slow_window)
     equity = starting_balance
-    equity_history = []
-    trades = []
+    equity_history: List[Dict[str, Any]] = []
+    trades: List[Dict[str, Any]] = []
     wins = 0
     losses = 0
     total_fees = 0.0

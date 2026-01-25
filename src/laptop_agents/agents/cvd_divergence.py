@@ -1,14 +1,15 @@
-from __future__ import annotations
-
 """
 CvdDivergenceAgent: Calculates synthetic CVD and detects divergences.
 
 Part of the Supervisor pipeline. See ENGINEER.md Section 4 for pipeline order.
 """
 
+from __future__ import annotations
+
 from typing import Any, Dict, List
-from .state import State
+
 from ..indicators import Candle
+from .state import State
 
 
 class CvdDivergenceAgent:

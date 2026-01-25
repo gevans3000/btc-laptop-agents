@@ -1,10 +1,10 @@
-from __future__ import annotations
-
 """
 ExecutionRiskSentinelAgent: Execution & Risk Sentinel: GO/NO-GO + exact order.
 
 Part of the Supervisor pipeline. See ENGINEER.md Section 4 for pipeline order.
 """
+
+from __future__ import annotations
 
 from typing import Any, Dict, Optional
 

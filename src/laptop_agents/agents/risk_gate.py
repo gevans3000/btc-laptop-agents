@@ -1,10 +1,10 @@
-from __future__ import annotations
-
 """
 RiskGateAgent: Enforce safety constraints (funding, max risk, etc.).
 
 Part of the Supervisor pipeline. See ENGINEER.md Section 4 for pipeline order.
 """
+
+from __future__ import annotations
 
 from typing import Any, Dict
 

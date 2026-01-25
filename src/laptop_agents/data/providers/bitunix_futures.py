@@ -94,7 +94,7 @@ class BitunixFuturesProvider:
             retry_state.outcome.exception(), RateLimitProviderError
         ):
             return 60.0
-        return tenacity.wait_exponential(min=2, max=10)(retry_state)
+        return float(tenacity.wait_exponential(min=2, max=10)(retry_state))
 
     @classmethod
     @tenacity.retry(

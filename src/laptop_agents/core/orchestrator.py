@@ -172,14 +172,20 @@ def _load_market_data(
 
         candles = MockProvider.load_mock_candles(max(int(limit), 200))
 
-    candles = normalize_candle_order(candles)
-    if len(candles) < 51:
-        logger.warning(f"Only {len(candles)} candles provided. Below warm-up required.")
+    processed_candles: List[Candle] = normalize_candle_order(candles)
+    if len(processed_candles) < 51:
+        logger.warning(
+            f"Only {len(processed_candles)} candles provided. Below warm-up required."
+        )
         append_event(
-            {"event": "LowCandleCountWarning", "count": len(candles), "required": 51}
+            {
+                "event": "LowCandleCountWarning",
+                "count": len(processed_candles),
+                "required": 51,
+            }
         )
 
-    if len(candles) < 31:
+    if len(processed_candles) < 31:
         raise RuntimeError("Need at least 31 candles for orchestrated modular mode")
 
     append_event(
@@ -187,10 +193,10 @@ def _load_market_data(
             "event": "MarketDataLoaded",
             "source": source,
             "symbol": symbol,
-            "count": len(candles),
+            "count": len(processed_candles),
         }
     )
-    return candles
+    return processed_candles
 
 
 def _init_broker(execution_mode: str, dry_run: bool, symbol: str, source: str) -> Any:

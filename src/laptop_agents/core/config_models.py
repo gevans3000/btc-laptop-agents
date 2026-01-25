@@ -21,11 +21,11 @@ class StrategyConfig(BaseModel):
     Ensures that all required sub-sections and keys are present.
     """
 
-    engine: EngineConfig = Field(default_factory=EngineConfig)
-    derivatives_gates: Dict[str, Any] = Field(default_factory=dict)
+    engine: EngineConfig = Field(default_factory=lambda: EngineConfig())
+    derivatives_gates: Dict[str, Any] = Field(default_factory=lambda: {})
     setups: Dict[str, Any]
     risk: RiskConfig
-    cvd: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    cvd: Dict[str, Any] = Field(default_factory=lambda: {})
 
     @classmethod
     def validate_config(cls, config: Dict[str, Any]) -> StrategyConfig:

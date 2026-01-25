@@ -6,14 +6,12 @@ Part of the Supervisor pipeline. See ENGINEER.md Section 4 for pipeline order.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import List
 
 from ..indicators import ema, atr, swing_high_low, equal_level
 from .state import State
-
-
-import json
-from pathlib import Path
 
 
 class MarketIntakeAgent:

@@ -85,13 +85,15 @@ def print_session_summary(
 
 
 def parse_journal_for_trades(journal_path: Path) -> List[Dict[str, Any]]:
-    trades = []
+    trades: List[Dict[str, Any]] = []
     if journal_path.exists():
         journal = PaperJournal(journal_path)
-        open_trades = {}
+        open_trades: Dict[str, Any] = {}
         for event in journal.iter_events():
             if event.get("type") == "update":
                 tid = event.get("trade_id")
+                if tid is None:
+                    continue
                 if "fill" in event:
                     open_trades[tid] = event["fill"]
                 elif "exit" in event and tid in open_trades:
