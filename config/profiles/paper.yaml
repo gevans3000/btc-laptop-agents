@@ -1,0 +1,20 @@
+_extends: base.yaml
+
+mode: paper
+
+data:
+  source: websocket
+  provider: bitunix
+
+broker:
+  type: paper
+  state_path: .workspace/paper/broker_state.db
+  fill_model:
+    slippage_bps: 2.0
+    spread_bps: 0.5  # Use live spread
+
+preflight:
+  enabled: false  # Paper doesn't need full gates
+
+logging:
+  level: DEBUG

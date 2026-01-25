@@ -1,0 +1,27 @@
+_extends: base.yaml
+
+mode: live
+
+data:
+  source: websocket
+  provider: bitunix
+
+broker:
+  type: live
+  confirm_orders: true  # Human confirmation gate
+
+preflight:
+  enabled: true
+  required_gates:
+    - api_connectivity
+    - position_reconciliation
+    - min_equity
+    - daily_loss_ok
+    - kill_switch_off
+
+safety:
+  max_slippage_bps: 10.0
+  dead_man_timeout_sec: 300
+
+logging:
+  level: INFO

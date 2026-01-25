@@ -1,0 +1,23 @@
+_extends: base.yaml
+
+mode: backtest
+
+data:
+  source: parquet
+  path: data/candles/BTCUSDT/
+
+broker:
+  type: backtest
+  fill_model:
+    slippage_bps: 2.0
+    spread_bps: 1.0
+    latency_ms: 0
+    partial_fills: false
+    intrabar_mode: conservative
+
+  funding:
+    enabled: true
+    source: data/funding/BTCUSDT_funding.csv
+
+output:
+  dir: .workspace/runs/backtest_{timestamp}

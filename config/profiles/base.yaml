@@ -1,0 +1,19 @@
+meta:
+  version: 1
+
+symbol: BTCUSDT
+timeframe: 1m
+
+trading:
+  starting_equity: 10000.0
+  risk_pct: 1.0
+  max_leverage: 5.0
+  max_position_usd: 50000.0
+  max_daily_loss_usd: 50.0
+
+engine:
+  min_history_bars: 100
+  warmup_candles: 51
+
+logging:
+  level: INFO
