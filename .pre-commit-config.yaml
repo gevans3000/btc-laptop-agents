@@ -5,8 +5,46 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: [--maxkb=500]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        args: [--ignore-missing-imports, --no-error-summary]
+        files: ^src/laptop_agents/
+        additional_dependencies:
+          - types-PyYAML>=6.0.12.20240808
+          - types-cachetools>=5.5.0.20240820
+          - types-psutil>=5.9.0
+          - pydantic>=2.10.2
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: [feat, fix, perf, refactor, chore, docs, style, test, ci, build]
+
+  - repo: local
+    hooks:
+      - id: pip-audit
+        name: pip-audit
+        entry: pip-audit --strict
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+      - id: pytest-quick
+        name: pytest (quick)
+        entry: pytest tests/ -q --tb=line -x
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
