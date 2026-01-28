@@ -15,7 +15,7 @@ def start(
     symbol: str = typer.Option(DEFAULT_SYMBOL, help="Symbol to trade"),
     source: str = typer.Option(None, help="Market data source: mock or bitunix"),
     detach: bool = typer.Option(False, "--detach", help="Run in background"),
-):
+) -> None:
     """Launch a session and manage PID."""
     if AGENT_PID_FILE.exists():
         try:
@@ -85,7 +85,7 @@ def start(
                 AGENT_PID_FILE.unlink()
 
 
-def stop():
+def stop() -> None:
     """Stop a running session using the PID file (single source of truth)."""
     pid = None
     if AGENT_PID_FILE.exists():
@@ -127,13 +127,13 @@ def watch(
     symbol: str = typer.Option(DEFAULT_SYMBOL, help="Symbol to trade"),
     source: str = typer.Option(None, help="Market data source: mock or bitunix"),
     duration: int = typer.Option(10, help="Duration in minutes"),
-):
+) -> None:
     """Monitor a session; if it exits with a non-zero code, wait 10s and restart."""
     LOGS_DIR = REPO_ROOT / ".workspace" / "logs"
     log_file = LOGS_DIR / "supervisor.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    def log_restart(msg: str):
+    def log_restart(msg: str) -> None:
         ts = time.strftime("%Y-%m-%d %H:%M:%S")
         with open(log_file, "a") as f:
             f.write(f"{ts} {msg}\n")

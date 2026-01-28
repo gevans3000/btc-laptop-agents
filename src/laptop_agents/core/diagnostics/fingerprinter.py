@@ -13,6 +13,8 @@ import hashlib
 from datetime import datetime
 from typing import Any, Dict, List
 
+__all__ = ["fingerprint", "load_memory", "save_all", "capture", "lookup", "list_all"]
+
 from laptop_agents.constants import REPO_ROOT
 
 MEMORY_FILE = REPO_ROOT / ".agent/memory/known_errors.jsonl"

@@ -48,40 +48,6 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
     ```powershell
     pip install -e .
     ```
-3. [Configuration Profiles & Precedence](#3-configuration-profiles--precedence)
-4. [Preflight Safety Gates](#4-preflight-safety-gates)
-5. [Architecture & Agents](#5-architecture--agents)
-6. [Resilience & Safety](#6-resilience--safety)
-7. [Troubleshooting](#7-troubleshooting)
-8. [State Persistence](#8-state-persistence)
-9. [Session Lifecycle](#9-session-lifecycle-asyncrunner-state-machine)
-
----
-
-## 1. System Overview & Invariants
-
-**BTC Laptop Agents** is a privacy-first, local-first autonomous trading system. It operates on a "Hardware Ceiling" philosophy where safety limits are hard-coded into the application.
-
-### Repo Invariants
-- **Local-First**: No external dependencies for core logic execution. Artifacts live in `.workspace/`.
-- **Deterministic**: Replaying specific input data must yield identical state transitions.
-- **Single Symbol**: Designed to focus on one pair (default `BTCUSDT`) per session.
-- **Linear Execution**: Agents run sequentially within the `Supervisor.step()` loop.
-
----
-
-## 2. Quick Start
-
-### A. Environment Setup & Prerequisites
-
-#### Prerequisites
-- **OS**: Windows (tested on Lenovo/Surface hardware).
-- **Python**: 3.12 or higher.
-- **Git**: For version control.
-- **PowerShell**: For running automated scripts (`.ps1`).
-
-#### Installation
-1.  **Clone & Install**:
     ```powershell
     pip install -e .
     ```

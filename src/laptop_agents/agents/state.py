@@ -35,7 +35,7 @@ class State:
     pending_trigger_bars: int = 0
     meta: Dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         from laptop_agents.constants import MAX_CANDLE_BUFFER
 
         if not isinstance(self.candles, list):

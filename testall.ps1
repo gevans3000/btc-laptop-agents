@@ -438,6 +438,17 @@ $Sb.ToString() | Out-File $ReportText -Encoding utf8
 # --- Cleanup ---
 if (-not $KeepArtifacts) {
     if (Test-Path $SandboxDir) { Remove-Item $SandboxDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    # Run maintenance cleanup to prevent workspace bloat
+    $CleanupScript = Join-Path $ScriptRoot "cleanup_codebase.ps1"
+    if (Test-Path $CleanupScript) {
+        Write-Log "Running maintenance cleanup..." -Color Yellow
+        try {
+            & $CleanupScript -Force
+        } catch {
+            Write-Log "Cleanup script failed: $_" -Level WARN
+        }
+    }
 }
 
 # --- Final Console Output ---

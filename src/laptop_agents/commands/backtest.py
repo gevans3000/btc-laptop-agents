@@ -20,7 +20,6 @@ def main(
 
     # Calculate backtest size (roughly)
     # 1 day = 1440 minutes
-    minutes = days * 1440
 
     from laptop_agents.core.config_loader import load_profile
     from laptop_agents.session.backtest_session import run_backtest_session

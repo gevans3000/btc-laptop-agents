@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import asyncio
 from pathlib import Path
-from typing import AsyncGenerator, List, Union
+from typing import Any, AsyncGenerator, Dict, List, Union
 from laptop_agents.trading.helpers import Candle, Tick, DataEvent
 from laptop_agents.core.logger import logger
 
@@ -16,10 +16,10 @@ from laptop_agents.core.logger import logger
 class ReplayProvider:
     """Replays recorded market data at realistic timestamps."""
 
-    def __init__(self, events_file: Path, speed_multiplier: float = 1.0):
+    def __init__(self, events_file: Path, speed_multiplier: float = 1.0) -> None:
         self.events_file = Path(events_file)
         self.speed_multiplier = speed_multiplier
-        self._events: List[dict] = []
+        self._events: List[Dict[str, Any]] = []
         self._running = False
         self._load()
 
@@ -103,10 +103,10 @@ class ReplayProvider:
                     ts=str(data.get("ts", data.get("time", ""))),
                 )
 
-    def stop(self):
+    def stop(self) -> None:
         self._running = False
 
-    def get_instrument_info(self, symbol: str) -> dict:
+    def get_instrument_info(self, symbol: str) -> Dict[str, Any]:
         """Fallback instrument info for replay mode."""
         return {
             "tickSize": 0.01,

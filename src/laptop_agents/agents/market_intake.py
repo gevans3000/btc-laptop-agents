@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any
 
 from ..indicators import ema, atr, swing_high_low, equal_level
 from .state import State
@@ -20,7 +20,7 @@ class MarketIntakeAgent:
     name = "market_intake"
 
     def __init__(self) -> None:
-        self.overrides = {}
+        self.overrides: Dict[str, Any] = {}
         ov_path = Path("config/symbol_overrides.json")
         if ov_path.exists():
             try:

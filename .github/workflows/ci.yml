@@ -33,8 +33,7 @@ jobs:
           pip install -e .[test]
       - run: ruff check src tests
       - run: ruff format --check src tests
-      - run: mypy src/laptop_agents --ignore-missing-imports --no-error-summary
-      - run: mypy src/laptop_agents/core --strict --ignore-missing-imports
+      - run: mypy src/laptop_agents --strict --ignore-missing-imports --no-error-summary
 
   security:
     name: Security Audit

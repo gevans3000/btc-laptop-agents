@@ -45,7 +45,7 @@ class SessionConfig:
                 raise ValueError(f"Invalid strategy configuration: {e}")
 
     @classmethod
-    def from_params(cls, **kwargs) -> SessionConfig:
+    def from_params(cls, **kwargs: Any) -> SessionConfig:
         """Create a SessionConfig object from raw parameters."""
         # Ensure state_dir is a Path object
         if "state_dir" in kwargs and kwargs["state_dir"]:

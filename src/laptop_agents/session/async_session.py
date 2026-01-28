@@ -186,7 +186,7 @@ class AsyncRunner:
 
         await on_candle_closed(self, candle)
 
-    async def run(self, duration_min: int):
+    async def run(self, duration_min: int) -> None:
         """Main entry point to run the async loop. Delegates to lifecycle module."""
         await run_session_lifecycle(self, duration_min)
 
@@ -280,7 +280,7 @@ async def run_async_session(
             logger.info(f"Using default BITUNIX WEBSOCKET PROVIDER for {symbol}")
 
         # Handle OS signals
-        def handle_sigterm(signum, frame):
+        def handle_sigterm(signum: int, frame: Any) -> None:
             logger.info(f"Signal {signum} received - Forcing broker close.")
             if runner and runner.broker and runner.latest_tick:
                 try:

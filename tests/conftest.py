@@ -5,8 +5,12 @@ import pytest
 
 
 def pytest_configure(config):
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER")
     base = Path(__file__).resolve().parents[1] / "local_pytest_temp"
+    if worker_id:
+        base = base / worker_id
     base.mkdir(parents=True, exist_ok=True)
+
     temp_path = str(base)
     os.environ["TMPDIR"] = temp_path
     os.environ["TEMP"] = temp_path

@@ -1,22 +1,24 @@
 """Retry policy with exponential backoff."""
 
 import time
-from typing import Callable, TypeVar
+from typing import Callable, TypeVar, Any
 
 T = TypeVar("T")
 
 
 class RetryPolicy:
-    def __init__(self, max_attempts: int = 3, base_delay: float = 0.1):
+    def __init__(self, max_attempts: int = 3, base_delay: float = 0.1) -> None:
         self.max_attempts = max_attempts
         self.base_delay = base_delay
 
 
-def with_retry(policy: RetryPolicy, operation_name: str) -> Callable:
+def with_retry(
+    policy: RetryPolicy, operation_name: str
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Decorator for retrying operations with exponential backoff."""
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        def wrapper(*args, **kwargs) -> T:
+        def wrapper(*args: Any, **kwargs: Any) -> T:
             last_exception = None
 
             for attempt in range(policy.max_attempts):
@@ -37,7 +39,9 @@ def with_retry(policy: RetryPolicy, operation_name: str) -> Callable:
     return decorator
 
 
-def retry_with_backoff(max_attempts: int = 3, base_delay: float = 0.1) -> Callable:
+def retry_with_backoff(
+    max_attempts: int = 3, base_delay: float = 0.1
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Decorator for retrying with exponential backoff. Alias for with_retry with params."""
     policy = RetryPolicy(max_attempts=max_attempts, base_delay=base_delay)
     return with_retry(policy, "operation")

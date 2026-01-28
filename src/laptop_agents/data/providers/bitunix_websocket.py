@@ -27,11 +27,11 @@ class BitunixWebsocketClient:
         self._latest_candle: Optional[Candle] = None
         self._latest_tick: Optional[Tick] = None
         self._history: List[Candle] = []
-        self._main_task: Optional[asyncio.Task] = None
+        self._main_task: Optional[asyncio.Task[Any]] = None
         self._last_pong = time.time()
         self.reconnect_delay = 1.0
 
-    def start(self):
+    def start(self) -> None:
         """Start the WebSocket connection task on the current running loop."""
         if self._running:
             return
@@ -43,7 +43,7 @@ class BitunixWebsocketClient:
         except RuntimeError:
             logger.error("WS: Requires a running asyncio loop to start.")
 
-    def stop(self):
+    def stop(self) -> None:
         """Cleanly shutdown the background task."""
         if not self._running:
             return
@@ -77,7 +77,7 @@ class BitunixWebsocketClient:
         else:
             return list(self._history)
 
-    async def _connect_and_stream(self):
+    async def _connect_and_stream(self) -> None:
         while self._running:
             try:
                 timeout = aiohttp.ClientTimeout(total=10)
@@ -153,7 +153,7 @@ class BitunixWebsocketClient:
     def is_healthy(self) -> bool:
         return (time.time() - self._last_pong) < 60.0
 
-    def _handle_push(self, data: Dict[str, Any]):
+    def _handle_push(self, data: Dict[str, Any]) -> None:
         try:
             d = data.get("data", {})
             kline = d.get("kline")

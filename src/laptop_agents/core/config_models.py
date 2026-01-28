@@ -23,8 +23,8 @@ class StrategyConfig(BaseModel):
 
     engine: EngineConfig = Field(default_factory=lambda: EngineConfig())
     derivatives_gates: Dict[str, Any] = Field(default_factory=lambda: {})
-    setups: Dict[str, Any]
-    risk: RiskConfig
+    setups: Dict[str, Any] = Field(default_factory=lambda: {})
+    risk: RiskConfig = Field(default_factory=lambda: RiskConfig())
     cvd: Dict[str, Any] = Field(default_factory=lambda: {})
 
     @classmethod

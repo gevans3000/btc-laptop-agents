@@ -4,7 +4,7 @@ from typing import Dict, Any
 
 
 class ProviderHealth:
-    def __init__(self):
+    def __init__(self) -> None:
         self.stats: Dict[str, Any] = {
             "total_calls": 0,
             "successful_calls": 0,
@@ -13,14 +13,14 @@ class ProviderHealth:
             "last_error": None,
         }
 
-    def record_success(self):
+    def record_success(self) -> None:
         """Record a successful call."""
         self.stats["total_calls"] += 1
         self.stats["successful_calls"] += 1
         self.stats["current_streak"] += 1
         self.stats["last_error"] = None
 
-    def record_failure(self, error: str):
+    def record_failure(self, error: str) -> None:
         """Record a failed call."""
         self.stats["total_calls"] += 1
         self.stats["failed_calls"] += 1

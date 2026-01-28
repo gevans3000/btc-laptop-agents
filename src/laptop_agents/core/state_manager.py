@@ -17,7 +17,7 @@ from laptop_agents.core.logger import logger
 class StateManager:
     """Atomic state persistence for crash recovery."""
 
-    def __init__(self, state_dir: Path):
+    def __init__(self, state_dir: Path) -> None:
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.state_file = self.state_dir / "unified_state.json"
@@ -30,10 +30,15 @@ class StateManager:
             if not try_path.exists():
                 continue
             try:
-                with open(try_path) as f:
+                if try_path.stat().st_size == 0:
+                    logger.warning(f"State file {try_path} is empty. Skipping.")
+                    continue
+                with open(try_path, "r", encoding="utf-8") as f:
                     self._state = json.load(f)
                 logger.info(f"Loaded state from {try_path}")
                 return
+            except json.JSONDecodeError as e:
+                logger.warning(f"Corrupted JSON in {try_path}: {e}")
             except Exception as e:
                 logger.error(f"Failed to load state from {try_path}: {e}")
                 if try_path == self.state_file:

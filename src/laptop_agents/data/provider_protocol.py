@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Protocol, List, Union, AsyncGenerator, runtime_checkable
+from typing import Protocol, List, Union, AsyncGenerator, runtime_checkable, Any, Dict
 from laptop_agents.trading.helpers import Candle, Tick, DataEvent
 
 
@@ -15,6 +15,6 @@ class Provider(Protocol):
         """Returns n historical candles."""
         ...
 
-    def get_instrument_info(self, symbol: str) -> dict:
+    def get_instrument_info(self, symbol: str) -> Dict[str, Any]:
         """Returns instrument info (lot size, tick size, etc)."""
         ...

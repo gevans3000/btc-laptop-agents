@@ -49,6 +49,38 @@ def get_fingerprint(error_msg: str) -> str:
     return hashlib.md5(clean_msg.encode("utf-8")).hexdigest()
 
 
+def capture(
+    error_msg: str, solution: str = "NEEDS_DIAGNOSIS", root_cause: str = ""
+) -> None:
+    """Capture a specific error message directly."""
+    ensure_memory_init()
+    known = load_known_errors()
+
+    fp = get_fingerprint(error_msg)
+
+    if fp in known:
+        known[fp]["occurrences"] = known[fp].get("occurrences", 0) + 1
+        known[fp]["last_seen"] = datetime.now().isoformat()
+        if (
+            solution != "NEEDS_DIAGNOSIS"
+            and known[fp].get("solution") == "NEEDS_DIAGNOSIS"
+        ):
+            known[fp]["solution"] = solution
+            known[fp]["root_cause"] = root_cause
+    else:
+        known[fp] = {
+            "fingerprint": fp,
+            "error_snippet": error_msg[:200],
+            "solution": solution,
+            "root_cause": root_cause,
+            "occurrences": 1,
+            "timestamp": datetime.now().isoformat(),
+            "last_seen": datetime.now().isoformat(),
+        }
+
+    save_known_errors(known)
+
+
 def load_known_errors() -> dict:
     """Load known errors into a dict keyed by fingerprint."""
     known = {}

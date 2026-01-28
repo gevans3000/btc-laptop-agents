@@ -36,6 +36,17 @@ from laptop_agents.core.events import (
 )
 from laptop_agents.reporting.service import finalize_run_reporting
 
+__all__ = [
+    "append_event",
+    "RUNS_DIR",
+    "LATEST_DIR",
+    "LOGS_DIR",
+    "prune_workspace",
+    "reset_latest_dir",
+    "run_orchestrated_mode",
+    "check_bitunix_config",
+]
+
 
 def prune_workspace(keep: int = 10) -> None:
     """Keep only the N most recent run directories in .workspace/runs."""

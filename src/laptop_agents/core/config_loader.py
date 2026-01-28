@@ -41,7 +41,7 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
-def _deep_merge(base: Dict, override: Dict) -> Dict:
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     result = base.copy()
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -60,7 +60,7 @@ def _apply_env_overrides(config: Dict[str, Any]) -> Dict[str, Any]:
     return config
 
 
-def _update_config_nested(d: Dict, parts: list, value: Any) -> bool:
+def _update_config_nested(d: Dict[str, Any], parts: list[str], value: Any) -> bool:
     """Recursively update config by trying to match parts against existing keys."""
     if not parts:
         return False
@@ -84,7 +84,7 @@ def _update_config_nested(d: Dict, parts: list, value: Any) -> bool:
     return True
 
 
-def _set_nested(d: Dict, keys: list, value: Any) -> None:
+def _set_nested(d: Dict[str, Any], keys: list[str], value: Any) -> None:
     """Legacy helper, now replaced by _update_config_nested but kept for reference if needed."""
     for key in keys[:-1]:
         d = d.setdefault(key, {})

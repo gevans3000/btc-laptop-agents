@@ -40,7 +40,7 @@ class BitunixClient:
         retry_policy: Optional[RetryPolicy] = None,
         circuit_breaker: Optional[ErrorCircuitBreaker] = None,
         rate_limiter: Optional[Any] = None,
-    ):
+    ) -> None:
         self.api_key = api_key
         self.secret_key = secret_key
         self.timeout_s = timeout_s
@@ -169,11 +169,11 @@ class BitunixClient:
         if isinstance(payload, dict) and payload.get("code") != 0:
             raise RuntimeError(f"Bitunix API error: {payload}")
 
-    def _call_resilient(self, operation: str, fn: Callable) -> Any:
+    def _call_resilient(self, operation: str, fn: Callable[[], Any]) -> Any:
         """Apply rate limiting, circuit breaker, and retry logic."""
         exchange_name = "bitunix"
 
-        def execute():
+        def execute() -> Any:
             try:
                 if self.circuit_breaker.state == "OPEN":
                     # Check if recovery timeout has passed, otherwise raise
@@ -186,7 +186,7 @@ class BitunixClient:
                 self.rate_limiter.wait_sync()
 
                 @with_retry(self.retry_policy, operation)
-                def wrapped():
+                def wrapped() -> Any:
                     return fn()
 
                 result = wrapped()

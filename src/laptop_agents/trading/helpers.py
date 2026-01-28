@@ -206,7 +206,9 @@ def simulate_trade_one_bar(
     }
 
 
-def detect_candle_gaps(candles: List[Candle], interval: str = "1m") -> List[dict]:
+def detect_candle_gaps(
+    candles: List[Candle], interval: str = "1m"
+) -> List[Dict[str, Any]]:
     """Detect gaps in candle sequence."""
     if len(candles) < 2:
         return []

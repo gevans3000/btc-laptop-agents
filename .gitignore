@@ -82,3 +82,4 @@ testall-report.txt
 go_temp.ps1
 *.db
 testall-report.*
+src/logs/

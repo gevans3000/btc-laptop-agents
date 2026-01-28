@@ -154,7 +154,9 @@ def load_strategy_config(
     if overrides:
         data = _deep_merge(data, {k: v for k, v in overrides.items() if v is not None})
 
-    return data
+    # Validate against schema
+    validated = StrategyConfig.model_validate(data)
+    return validated.model_dump()
 
 
 def load_yaml_config(path: Path) -> Dict[str, Any]:

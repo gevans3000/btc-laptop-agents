@@ -6,7 +6,7 @@ import random
 class FillSimulator:
     """Simulates realistic order fills during backtesting."""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any]) -> None:
         self.config = config
         self.slippage_model = config.get("slippage_model", "fixed_bps")
         self.slippage_bps = float(config.get("slippage_bps", 2.0))
@@ -34,10 +34,10 @@ class FillSimulator:
 
     def should_fill(self, order: Dict[str, Any], candle: Any) -> bool:
         """For limit orders: check if price was touched."""
-        entry_type = order.get("entry_type", "market")
+        entry_type: str = order.get("entry_type", "market")
         if entry_type == "market":
             return True
 
-        entry = float(order.get("entry", 0))
+        entry: float = float(order.get("entry", 0))
         # Conservatively check if high/low touched
-        return candle.low <= entry <= candle.high
+        return bool(float(candle.low) <= entry <= float(candle.high))

@@ -6,7 +6,7 @@ from laptop_agents.core.logger import logger
 
 
 class LockManager:
-    def __init__(self, lock_file: Path):
+    def __init__(self, lock_file: Path) -> None:
         self.lock_file = lock_file
 
     def _is_our_process(self, proc: psutil.Process) -> bool:
