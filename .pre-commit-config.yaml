@@ -38,7 +38,7 @@ repos:
     hooks:
       - id: pip-audit
         name: pip-audit
-        entry: python -m pip_audit --ignore-package anaconda-anon-usage
+        entry: python -m pip_audit -r requirements.lock
         language: system
         pass_filenames: false
         stages: [pre-push]
