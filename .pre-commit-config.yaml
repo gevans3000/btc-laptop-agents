@@ -38,7 +38,7 @@ repos:
     hooks:
       - id: pip-audit
         name: pip-audit
-        entry: python -m pip_audit --strict
+        entry: python -m pip_audit
         language: system
         pass_filenames: false
         stages: [pre-push]

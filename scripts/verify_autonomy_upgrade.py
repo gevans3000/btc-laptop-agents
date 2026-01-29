@@ -102,7 +102,7 @@ async def test_autonomy_upgrade():
         run_task = asyncio.create_task(runner.run(duration_min=1))
 
         logger.info("Waiting for data processing...")
-        received_good_tick = False
+
         for _ in range(30):  # Wait up to 15s
             await asyncio.sleep(0.5)
             if run_task.done():
@@ -113,7 +113,6 @@ async def test_autonomy_upgrade():
                 break
             if runner.latest_tick is not None:
                 if runner.latest_tick.last == 50000.5:
-                    received_good_tick = True
                     logger.info(f"Runner received good tick: {runner.latest_tick.last}")
                     break
 
