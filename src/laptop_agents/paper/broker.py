@@ -124,7 +124,6 @@ class PaperBroker(BrokerStateMixin):
 
     def on_tick(self, tick: Any) -> Dict[str, Any]:
         """Process a real-time tick for SL/TP monitoring."""
-        print(f"DEBUG: on_tick {tick}")
         events: Dict[str, Any] = {"exits": []}
         if self.pos is not None:
             exit_event = self._check_tick_exit(tick)
@@ -519,7 +518,6 @@ class PaperBroker(BrokerStateMixin):
         return None
 
     def _exit(self, ts: str, px: float, reason: str) -> Dict[str, Any]:
-        print(f"DEBUG: _exit {ts} {px} {reason}")
         assert self.pos is not None
         p = self.pos
         random_slip_factor = self.rng.uniform(0.5, 1.5)

@@ -65,19 +65,32 @@ class SensitiveDataFilter(logging.Filter):
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            msg = str(record.msg)
+
         log_entry: Dict[str, Any] = {
             "ts": datetime.fromtimestamp(record.created).isoformat(),
             "timestamp": datetime.fromtimestamp(record.created).isoformat(),
             "level": record.levelname,
             "component": record.name,
             "loop_id": getattr(record, "loop_id", "GLOBAL"),
-            "message": record.getMessage(),
+            "message": msg,
         }
         if hasattr(record, "meta") and isinstance(record.meta, dict):
             log_entry["meta"] = record.meta
         elif record.args and isinstance(record.args, dict):
             # Support for logger.info("msg", {"extra": "data"}) style if meta not used
             log_entry["meta"] = record.args
+        elif (
+            record.args
+            and isinstance(record.args, tuple)
+            and len(record.args) > 0
+            and isinstance(record.args[0], dict)
+        ):
+            # Handle logger.info("msg", {"key": "val"}) where logging makes args a tuple
+            log_entry["meta"] = record.args[0]
         else:
             log_entry["meta"] = {}
 
@@ -171,6 +184,13 @@ class EventPanelHandler(logging.Handler):
                 meta = record.meta
             elif record.args and isinstance(record.args, dict):
                 meta = record.args
+            elif (
+                record.args
+                and isinstance(record.args, tuple)
+                and len(record.args) > 0
+                and isinstance(record.args[0], dict)
+            ):
+                meta = record.args[0]
 
             # Special formatting for important events
             if event_name == "TradeExecuted" or "Order" in event_name:

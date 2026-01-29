@@ -106,7 +106,7 @@ def doctor(
             bitunix_status = "MISSING"
 
     checks = [
-        ("Python Version", sys.version.split()[0], ">=3.10"),
+        ("Python Version", sys.version.split()[0], ">=3.12"),
         ("Repo Root", str(REPO_ROOT), "exists"),
         (
             ".env file",
@@ -209,3 +209,40 @@ def doctor(
         console.print(
             "\n[yellow]Hint: Run 'la doctor --fix' to automate setup.[/yellow]"
         )
+
+
+def verify_agent_health(
+    timeout: int = typer.Option(60, help="Seconds before considering agent stuck"),
+):
+    """Check if the agent is stuck based on heartbeat."""
+    import json
+    import time
+
+    heartbeat_path = REPO_ROOT / "logs" / "heartbeat.json"
+
+    if not heartbeat_path.exists():
+        console.print("[red]No heartbeat file found. Agent might not be running.[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        with open(heartbeat_path, "r") as f:
+            data = json.load(f)
+
+        last_ts = data.get("unix_ts", 0)
+        now = time.time()
+        age = now - last_ts
+
+        if age > timeout:
+            console.print(
+                f"[bold red]STUCK[/bold red]: Heartbeat is {age:.1f}s old (Threshold: {timeout}s)"
+            )
+            console.print(f"Last heartbeat: {data.get('ts')}")
+            raise typer.Exit(code=1)
+        else:
+            console.print(f"[green]HEALTHY[/green]: Heartbeat received {age:.1f}s ago")
+            console.print(f"Equity: ${data.get('equity', 0):,.2f}")
+            console.print(f"Memory: {data.get('ram_mb', 0)} MB")
+
+    except Exception as e:
+        console.print(f"[red]Error reading heartbeat: {e}[/red]")
+        raise typer.Exit(code=1)

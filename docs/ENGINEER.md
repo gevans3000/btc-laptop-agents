@@ -48,9 +48,6 @@ This document is the **Single Source of Truth** for the BTC Laptop Agents system
     ```powershell
     pip install -e .
     ```
-    ```powershell
-    pip install -e .
-    ```
 2.  **Configuration**: Create a `.env` file at the root:
   ```env
   BITUNIX_API_KEY=your_key

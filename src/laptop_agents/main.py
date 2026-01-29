@@ -1,4 +1,5 @@
 import sys
+import os
 from typing import Optional
 import typer
 from dotenv import load_dotenv
@@ -24,6 +25,33 @@ app.command(help="Watch and supervisor an agent session (auto-restart on crash)"
 app.command(help="Check current system status")(system.status)
 app.command(help="Clean up old run artifacts")(system.clean)
 app.command(help="System health check (diagnostic)")(system.doctor)
+app.command(name="watchdog", help="Check if running agent is stuck")(
+    system.verify_agent_health
+)
+
+
+@app.command(
+    name="auditor", help="Run 'Shadow Auditor' to verify agent events in real-time"
+)
+def run_auditor(
+    lag: int = typer.Option(10, help="Number of steps/events to lag behind"),
+    workspace: str = typer.Option(".workspace", help="Path to workspace directory"),
+):
+    import asyncio
+    from pathlib import Path
+    from laptop_agents.agents.auditor import AuditorAgent
+
+    # Resolve workspace path
+    ws_path = Path(workspace).absolute()
+    if not ws_path.exists():
+        ws_path = Path(os.getcwd()) / workspace
+
+    auditor = AuditorAgent(ws_path, lag_events=lag)
+    try:
+        asyncio.run(auditor.run())
+    except KeyboardInterrupt:
+        console.print("[yellow]Auditor stopped.[/yellow]")
+
 
 app.command(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
@@ -47,7 +75,7 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 sys.excepthook = handle_exception
 
 
-def version_callback(value: bool):
+def version_callback(value: bool) -> None:
     if value:
         console.print(f"la {__version__}")
         raise typer.Exit()
@@ -62,7 +90,7 @@ def main(
         is_eager=True,
         help="Show version and exit",
     ),
-):
+) -> None:
     pass
 
 

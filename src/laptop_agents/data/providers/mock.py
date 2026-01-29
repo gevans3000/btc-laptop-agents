@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from typing import List, AsyncGenerator, Union
+from typing import List, AsyncGenerator, Union, Dict, Any
 import random
 
 
@@ -78,7 +78,7 @@ class MockProvider:
             )
         return candles
 
-    def get_instrument_info(self, symbol: str) -> dict:
+    def get_instrument_info(self, symbol: str) -> Dict[str, Any]:
         return {
             "tickSize": 0.01,
             "lotSize": 0.001,

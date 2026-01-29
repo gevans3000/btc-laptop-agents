@@ -40,7 +40,7 @@ def append_event(obj: Dict[str, Any], paper: bool = False) -> None:
         # Create stable ID from content (excluding timestamp/volatile fields if possible)
         # For simplicity, we use everything but the timestamp for the hash
         content = {k: v for k, v in obj.items() if k != "timestamp"}
-        event_id = hashlib.md5(
+        event_id = hashlib.sha256(
             json.dumps(content, sort_keys=True).encode("utf-8")
         ).hexdigest()
         obj["event_id"] = event_id
@@ -59,7 +59,7 @@ def append_event(obj: Dict[str, Any], paper: bool = False) -> None:
 
     obj.setdefault("timestamp", utc_ts())
     event_name = obj.get("event", "UnnamedEvent")
-    logger.info(f"EVENT: {event_name}", obj)
+    logger.info(f"EVENT: {event_name}", extra={"meta": obj})
 
     if paper:
         PAPER_DIR.mkdir(parents=True, exist_ok=True)  # Ensure parents exist

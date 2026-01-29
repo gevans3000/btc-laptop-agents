@@ -4,6 +4,7 @@ import json
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict
+from laptop_agents.core.logger import logger
 
 
 def log_event(
@@ -17,8 +18,8 @@ def log_event(
         **data,
     }
 
-    # Log to console
-    print(f"[RESILIENCE] {event_type}: {json.dumps(data, separators=(',', ':'))}")
+    # Log to logger
+    logger.info(f"[RESILIENCE] {event_type}: {json.dumps(data, separators=(',', ':'))}")
 
     # Log to JSONL if enabled
     if os.environ.get("LAPTOP_AGENTS_LOG_JSONL"):
