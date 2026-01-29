@@ -19,10 +19,10 @@ from .position_engine import (
     process_fifo_close,
     calculate_full_exit_pnl,
 )
-from ..storage.position_store import PositionStore
+from ..execution.interface import ExchangeInterface
 
 
-class PaperBroker(BrokerStateMixin):
+class PaperBroker(BrokerStateMixin, ExchangeInterface):
     """Very simple broker:
     - one position max
     - one TP + one SL
@@ -39,20 +39,23 @@ class PaperBroker(BrokerStateMixin):
         random_seed: Optional[int] = None,
         strategy_config: Optional[Dict[str, Any]] = None,
     ) -> None:
-        self.symbol = symbol
+        self._symbol = symbol
         self.strategy_config = strategy_config or {}
         self.rng = random.Random(random_seed)
         self.last_trade_time: float = 0.0
         self.min_trade_interval_sec: float = 60.0  # 1 minute minimum between trades
-        self.pos: Optional[Position] = None
-        self.is_inverse = self.symbol.endswith("USD") and not self.symbol.endswith(
+        self._pos: Optional[Position] = None
+        self.is_inverse = self._symbol.endswith("USD") and not self._symbol.endswith(
             "USDT"
         )
         self.fees_bps = fees_bps
         self.slip_bps = slip_bps
         self.starting_equity = starting_equity
-        self.current_equity = starting_equity
-        self.exchange_fees: Dict[str, float] = {"maker": -0.0002, "taker": 0.0005}
+        self._current_equity = starting_equity
+        self.exchange_fees: Dict[str, float] = {
+            "maker": 0.0002,
+            "taker": 0.0006,
+        }  # Bitunix Standard
         self._load_exchange_config()
         # Override with constructor args if provided to support old tests
         if fees_bps != 0:
@@ -60,18 +63,21 @@ class PaperBroker(BrokerStateMixin):
                 "maker": fees_bps / 10000.0,
                 "taker": fees_bps / 10000.0,
             }
+        self.simulate_latency = True  # Default for paper trading hardening
         self.processed_order_ids: set[str] = set()
         self._idempotency_cache: TTLCache[str, Any] = TTLCache(maxsize=1000, ttl=5)
         self.order_timestamps: List[float] = []
         self.order_history: List[Dict[str, Any]] = []
 
-        self.store: Optional[PositionStore] = None
+        self.store: Optional[TradeRepository] = None
         self.state_path: Optional[str] = None
         if state_path:
             # Enforce .db extension for SQLite store
             db_path = Path(state_path).with_suffix(".db")
             self.state_path = str(db_path)
-            self.store = PositionStore(self.state_path)
+            from ..storage.trade_repository import TradeRepository
+
+            self.store = TradeRepository(self.state_path)
         else:
             self.state_path = None
 
@@ -81,10 +87,35 @@ class PaperBroker(BrokerStateMixin):
         if self.store:
             self._load_state()
 
+    @property
+    def symbol(self) -> str:
+        return self._symbol
+
+    @property
+    def pos(self) -> Optional[Position]:
+        return self._pos
+
+    @pos.setter
+    def pos(self, value: Optional[Position]):
+        self._pos = value
+
+    @property
+    def current_equity(self) -> float:
+        return self._current_equity
+
+    @current_equity.setter
+    def current_equity(self, value: float):
+        self._current_equity = value
+
     def on_candle(
         self, candle: Any, order: Optional[Dict[str, Any]], tick: Optional[Any] = None
     ) -> Dict[str, Any]:
         events: Dict[str, Any] = {"fills": [], "exits": []}
+
+        if self.simulate_latency:
+            # Note: Removed blocking time.sleep to avoid event loop stalls.
+            # Latency should be simulated in a non-blocking way if needed.
+            pass
 
         # 0) process working orders
         working_fills = self._process_working_orders(candle)
@@ -193,6 +224,10 @@ class PaperBroker(BrokerStateMixin):
         client_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Unified entry point for internal orders."""
+        if self.simulate_latency:
+            # Note: Removed blocking time.sleep to avoid event loop stalls.
+            pass
+
         side_upper = side.upper()
         normalized_side = "LONG" if side_upper in ["BUY", "LONG"] else "SHORT"
         order = {
@@ -266,11 +301,16 @@ class PaperBroker(BrokerStateMixin):
             fill_px = entry
             actual_slip_bps = 0.0
 
-        # Plan 3.1: Realistic Slippage Model
+        # Plan 3.1: Realistic Slippage Model for Market Orders
         if entry_type == "market" and self.slip_bps > 0:
-            # 30bps slippage as per plan
-            fill_px = fill_px * (1 + 0.0003 * (1 if side == "LONG" else -1))
-            logger.debug(f"Applied 30bps market slippage: {fill_px}")
+            # randomized slippage (0.5 to 1.5 bps)
+            random_slip_bps = self.rng.uniform(0.5, 1.5)
+            fill_px = fill_px * (
+                1 + (random_slip_bps / 10000.0) * (1 if side == "LONG" else -1)
+            )
+            logger.debug(
+                f"Applied {random_slip_bps:.2f} bps market slippage: {fill_px}"
+            )
 
         # Liquidity Capping
         candle_vol = getattr(candle, "volume", 0)

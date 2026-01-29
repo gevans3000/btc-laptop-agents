@@ -9,8 +9,11 @@ from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 class BrokerProtocol(Protocol):
     """Interface for all broker implementations (Paper, Live, Dry-Run)."""
 
-    symbol: str
-    current_equity: float
+    @property
+    def symbol(self) -> str: ...
+    @property
+    def current_equity(self) -> float: ...
+
     is_inverse: bool
 
     def on_candle(

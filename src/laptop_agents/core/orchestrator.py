@@ -227,11 +227,20 @@ def _init_broker(execution_mode: str, dry_run: bool, symbol: str, source: str) -
             raise ValueError(
                 "Live execution requires BITUNIX_API_KEY and BITUNIX_API_SECRET"
             )
+        from laptop_agents.storage.trade_repository import TradeRepository
+
+        state_path = RUNS_DIR / "trading.db"
+        repo = TradeRepository(str(state_path))
+
         provider = BitunixFuturesProvider(
             symbol=symbol, api_key=api_key, secret_key=secret_key
         )
+        broker = BitunixBroker(provider, repo=repo)
+        # Wire push notifications (Phase 1)
+        provider.on_order_update = broker.on_order_update
+        provider.on_position_update = broker.on_position_update
         append_event({"event": "LiveBrokerInitialized", "broker": "BitunixBroker"})
-        return BitunixBroker(provider)
+        return broker
     from laptop_agents.paper.broker import PaperBroker
 
     return PaperBroker(symbol=symbol)

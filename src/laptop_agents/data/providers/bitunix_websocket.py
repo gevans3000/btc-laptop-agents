@@ -8,9 +8,11 @@ import time
 import math
 import random
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from ...core.logger import logger
 from ...trading.helpers import Tick, Candle
+from .ws_events import OrderEvent, PositionEvent
+from .bitunix_signing import sign_ws, _now_ms
 
 
 class BitunixWebsocketClient:
@@ -20,9 +22,18 @@ class BitunixWebsocketClient:
     Runs strictly as an asyncio.Task in the provided loop (no threads).
     """
 
-    def __init__(self, symbol: str):
+    def __init__(
+        self,
+        symbol: str,
+        api_key: Optional[str] = None,
+        secret_key: Optional[str] = None,
+        on_order_update: Optional[Callable[[OrderEvent], None]] = None,
+        on_position_update: Optional[Callable[[PositionEvent], None]] = None,
+    ):
         self.symbol = symbol
         self.ws_url = "wss://stream.bitunix.com/contract/ws/v1"
+        self.api_key = api_key
+        self.secret_key = secret_key
         self._running = False
         self._latest_candle: Optional[Candle] = None
         self._latest_tick: Optional[Tick] = None
@@ -30,6 +41,9 @@ class BitunixWebsocketClient:
         self._main_task: Optional[asyncio.Task[Any]] = None
         self._last_pong = time.time()
         self.reconnect_delay = 1.0
+        self._on_order_update = on_order_update
+        self._on_position_update = on_position_update
+        self._authenticated = False
 
     def start(self) -> None:
         """Start the WebSocket connection task on the current running loop."""
@@ -86,6 +100,11 @@ class BitunixWebsocketClient:
                         logger.info(f"WS: Connected to {self.ws_url} [{self.symbol}]")
                         self.reconnect_delay = 1.0
 
+                        # Authenticate if credentials provided
+                        if self.api_key and self.secret_key:
+                            await self._authenticate(ws)
+
+                        # Subscribe to public channels
                         channels = [
                             f"market.{self.symbol}.kline.1m",
                             f"market.{self.symbol}.ticker",
@@ -99,6 +118,25 @@ class BitunixWebsocketClient:
                                 },
                             }
                             await ws.send_json(sub_msg)
+
+                        # Subscribe to private channels if authenticated
+                        if self._authenticated:
+                            private_channels = [
+                                f"private.{self.symbol}.plan.order",
+                                f"private.{self.symbol}.position",
+                            ]
+                            for chan in private_channels:
+                                sub_msg = {
+                                    "event": "sub",
+                                    "params": {
+                                        "channel": chan,
+                                        "cb_id": f"{self.symbol}_{chan}",
+                                    },
+                                }
+                                await ws.send_json(sub_msg)
+                            logger.info(
+                                f"WS: Subscribed to private channels for {self.symbol}"
+                            )
 
                         async for msg in ws:
                             if not self._running:
@@ -121,9 +159,9 @@ class BitunixWebsocketClient:
                                 logger.error(f"WS disconnected or error: {msg.type}")
                                 break
 
-                            if not self.is_healthy():
+                            if not self.is_healthy(30):
                                 logger.warning(
-                                    "WS: Connection became zombie (no data >60s). Reconnecting."
+                                    "WS: Connection became zombie (no data >30s). Reconnecting."
                                 )
                                 break
             except asyncio.CancelledError:
@@ -150,15 +188,97 @@ class BitunixWebsocketClient:
                     break
                 self.reconnect_delay *= 2.0
 
-    def is_healthy(self) -> bool:
-        return (time.time() - self._last_pong) < 60.0
+    def is_healthy(self, threshold_sec: int = 30) -> bool:
+        """Check if connection is alive (30s zombie detection threshold)."""
+        return (time.time() - self._last_pong) < threshold_sec
+
+    async def _authenticate(self, ws: aiohttp.ClientWebSocketResponse) -> None:
+        """Authenticate WebSocket connection for private channels."""
+        try:
+            ts = _now_ms()
+            nonce = str(int(time.time() * 1000000))
+            params_string = ""
+
+            signature = sign_ws(
+                nonce=nonce,
+                timestamp_ms=ts,
+                api_key=self.api_key or "",
+                secret_key=self.secret_key or "",
+                params_string=params_string,
+            )
+
+            auth_msg = {
+                "event": "login",
+                "params": {
+                    "apiKey": self.api_key,
+                    "timestamp": str(ts),
+                    "nonce": nonce,
+                    "sign": signature,
+                },
+            }
+            await ws.send_json(auth_msg)
+            self._authenticated = True
+            logger.info(f"WS: Authenticated for {self.symbol}")
+        except Exception as e:
+            logger.error(f"WS: Authentication failed: {e}")
+            self._authenticated = False
 
     def _handle_push(self, data: Dict[str, Any]) -> None:
         try:
+            channel = data.get("channel", "")
             d = data.get("data", {})
-            kline = d.get("kline")
-            ticker = d.get("ticker")
 
+            # Handle private channel: Plan Order
+            if "plan.order" in channel and self._on_order_update:
+                try:
+                    order_event = OrderEvent(
+                        order_id=d.get("orderId", ""),
+                        symbol=d.get("symbol", self.symbol),
+                        side=d.get("side", ""),
+                        order_type=d.get("orderType", ""),
+                        status=d.get("status", ""),
+                        qty=float(d.get("qty", 0)),
+                        price=float(d.get("price")) if d.get("price") else None,
+                        filled_qty=float(d.get("filledQty", 0)),
+                        avg_fill_price=float(d.get("avgPrice"))
+                        if d.get("avgPrice")
+                        else None,
+                        timestamp=datetime.fromtimestamp(
+                            d.get("time", 0) / 1000.0, tz=timezone.utc
+                        ).isoformat(),
+                        raw=d,
+                    )
+                    self._on_order_update(order_event)
+                    logger.debug(
+                        f"WS: Order update: {order_event.status} {order_event.order_id}"
+                    )
+                except Exception as e:
+                    logger.error(f"WS: Failed to parse order event: {e}")
+
+            # Handle private channel: Position
+            elif "position" in channel and self._on_position_update:
+                try:
+                    position_event = PositionEvent(
+                        position_id=d.get("positionId", ""),
+                        symbol=d.get("symbol", self.symbol),
+                        side=d.get("side", ""),
+                        qty=float(d.get("qty", 0)),
+                        entry_price=float(d.get("entryPrice", 0)),
+                        unrealized_pnl=float(d.get("unrealizedPnl", 0)),
+                        timestamp=datetime.fromtimestamp(
+                            d.get("time", 0) / 1000.0, tz=timezone.utc
+                        ).isoformat(),
+                        raw=d,
+                    )
+                    self._on_position_update(position_event)
+                    logger.debug(
+                        f"WS: Position update: {position_event.side} {position_event.qty}"
+                    )
+                except Exception as e:
+                    logger.error(f"WS: Failed to parse position event: {e}")
+
+            # Handle public channel: Kline
+            kline = d.get("kline")
             if kline:
                 try:
                     ts_val = kline.get("time", 0)
@@ -188,6 +308,8 @@ class BitunixWebsocketClient:
                 except (ValueError, TypeError):
                     pass
 
+            # Handle public channel: Ticker
+            ticker = d.get("ticker")
             if ticker:
                 try:
                     bid = float(ticker.get("buy", 0))
@@ -221,9 +343,28 @@ class BitunixWebsocketClient:
 _SINGLETON_CLIENTS: Dict[str, BitunixWebsocketClient] = {}
 
 
-def get_ws_client(symbol: str) -> BitunixWebsocketClient:
+def get_ws_client(
+    symbol: str,
+    api_key: Optional[str] = None,
+    secret_key: Optional[str] = None,
+    on_order_update: Optional[Callable[[OrderEvent], None]] = None,
+    on_position_update: Optional[Callable[[PositionEvent], None]] = None,
+) -> BitunixWebsocketClient:
     """Get or create singleton WebSocket client for a symbol."""
     if symbol not in _SINGLETON_CLIENTS:
-        client = BitunixWebsocketClient(symbol)
+        client = BitunixWebsocketClient(
+            symbol, api_key, secret_key, on_order_update, on_position_update
+        )
         _SINGLETON_CLIENTS[symbol] = client
+    else:
+        # Update existing singleton if it was created without credentials/callbacks
+        client = _SINGLETON_CLIENTS[symbol]
+        if api_key and not client.api_key:
+            client.api_key = api_key
+        if secret_key and not client.secret_key:
+            client.secret_key = secret_key
+        if on_order_update and not client._on_order_update:
+            client._on_order_update = on_order_update
+        if on_position_update and not client._on_position_update:
+            client._on_position_update = on_position_update
     return _SINGLETON_CLIENTS[symbol]

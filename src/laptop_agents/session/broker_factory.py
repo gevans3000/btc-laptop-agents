@@ -28,11 +28,21 @@ def create_broker(
             raise ValueError(
                 "Live execution requires BITUNIX_API_KEY and BITUNIX_API_SECRET environment variables"
             )
+        from laptop_agents.storage.trade_repository import TradeRepository
+
+        repo = TradeRepository(state_path)
+
         live_provider = BitunixFuturesProvider(
             symbol=symbol, api_key=api_key, secret_key=secret_key
         )
-        live_broker = BitunixBroker(live_provider, starting_equity=starting_balance)
-        logger.info(f"Initialized BitunixBroker for live trading on {symbol}")
+        live_broker = BitunixBroker(
+            live_provider, starting_equity=starting_balance, repo=repo
+        )
+        # Wire push notifications (Phase 1)
+        live_provider.on_order_update = live_broker.on_order_update
+        live_provider.on_position_update = live_broker.on_position_update
+
+        logger.info(f"Initialized BitunixBroker with persistence at {state_path}")
         return live_broker
     else:
         # Paper mode

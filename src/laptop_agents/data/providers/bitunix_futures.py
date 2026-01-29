@@ -3,7 +3,17 @@ from __future__ import annotations
 import os
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, AsyncGenerator, Union, cast
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    AsyncGenerator,
+    Union,
+    cast,
+    Callable,
+)
 import tenacity
 
 # Resilience imports
@@ -41,10 +51,14 @@ class BitunixFuturesProvider:
         retry_policy: Optional[RetryPolicy] = None,
         circuit_breaker: Optional[ErrorCircuitBreaker] = None,
         rate_limiter: Optional[Any] = None,
+        on_order_update: Optional[Callable[[Any], None]] = None,
+        on_position_update: Optional[Callable[[Any], None]] = None,
     ):
         self.symbol = symbol
         self.allowed_symbols = set(allowed_symbols) if allowed_symbols else {symbol}
         self._assert_allowed()
+        self.on_order_update = on_order_update
+        self.on_position_update = on_position_update
 
         self.client = BitunixClient(
             api_key=api_key,
@@ -316,6 +330,9 @@ class BitunixFuturesProvider:
         trade_side: Optional[str] = None,
         sl_price: Optional[float] = None,
         tp_price: Optional[float] = None,
+        sl: Optional[float] = None,
+        tp: Optional[float] = None,
+        client_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Place a new order (signed)."""
         # Note: Proper mapping of side/trade_side to Bitunix API ints (1,2,3,4)
@@ -330,10 +347,12 @@ class BitunixFuturesProvider:
             body["price"] = price
         if trade_side:
             body["trade_side"] = trade_side
-        if sl_price:
-            body["sl"] = sl_price
-        if tp_price:
-            body["tp"] = tp_price
+        if sl_price or sl:
+            body["sl"] = sl_price or sl
+        if tp_price or tp:
+            body["tp"] = tp_price or tp
+        if client_order_id:
+            body["clientOrderId"] = client_order_id
 
         return cast(
             Dict[str, Any],
@@ -357,7 +376,13 @@ class BitunixFuturesProvider:
 
     async def listen(self) -> AsyncGenerator[Union[Candle, Tick, DataEvent], None]:
         """Provides a stream of market data via WebSocket."""
-        ws = get_ws_client(self.symbol)
+        ws = get_ws_client(
+            self.symbol,
+            api_key=self.client.api_key,
+            secret_key=self.client.secret_key,
+            on_order_update=self.on_order_update,
+            on_position_update=self.on_position_update,
+        )
         ws.start()
         try:
             while True:

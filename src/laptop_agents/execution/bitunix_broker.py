@@ -15,17 +15,24 @@ import os
 from pathlib import Path
 
 
-class BitunixBroker:
+from .interface import ExchangeInterface
+
+
+class BitunixBroker(ExchangeInterface):
     """
     Real-world broker implementation for Bitunix.
-    Polls position state to synthesize fill/exit events.
+    Uses WebSocket push and REST fallback for state synchronization.
     """
 
     def __init__(
-        self, provider: BitunixFuturesProvider, starting_equity: float = 10000.0
+        self,
+        provider: BitunixFuturesProvider,
+        starting_equity: float = 10000.0,
+        repo: Optional[Any] = None,
     ):
         self.provider = provider
-        self.symbol = provider.symbol
+        self.repo = repo
+        self._symbol = provider.symbol
         self.is_inverse = self.symbol.endswith("USD") and not self.symbol.endswith(
             "USDT"
         )
@@ -39,8 +46,17 @@ class BitunixBroker:
         self._last_order_id: Optional[str] = None
         self.order_timestamps: List[float] = []
         self.starting_equity = starting_equity
-        self.current_equity = starting_equity
+        self._current_equity = starting_equity
         self.order_history: List[Dict[str, Any]] = []
+
+        # Event-driven state (Phase 1)
+        self._pending_orders: Dict[str, Dict[str, Any]] = {}  # order_id -> order_data
+        self._ws_position_cache: Optional[Dict[str, Any]] = None
+        self._last_ws_update = time.time()
+
+    @property
+    def symbol(self) -> str:
+        return self._symbol
 
     @property
     def pos(self) -> Optional[Any]:
@@ -55,6 +71,14 @@ class BitunixBroker:
 
         return SimplePos(self.last_pos)
 
+    @property
+    def current_equity(self) -> float:
+        return self._current_equity
+
+    @current_equity.setter
+    def current_equity(self, value: float):
+        self._current_equity = value
+
     def _get_info(self) -> Dict[str, Any]:
         if self._instrument_info is None:
             self._instrument_info = self.provider.fetch_instrument_info(self.symbol)
@@ -65,21 +89,125 @@ class BitunixBroker:
             return val
         return round(round(val / step) * step, 8)
 
-    def on_tick(self, tick: Any):
+    def on_tick(self, tick: Any) -> Dict[str, Any]:
         """Handle real-time price updates for position monitoring."""
         # For live trading, we mostly rely on on_candle polling,
         # but could use ticks for faster exit detection if needed.
+        return {"exits": []}
 
-    def close_all(self, exit_price: float):
-        """Emergency close of all positions."""
-        self.shutdown()
+    def on_order_update(self, order_event: Any) -> None:
+        """
+        WebSocket callback for order updates (Phase 1).
+        Updates internal pending orders state immediately.
+        """
+        from ..data.providers.ws_events import OrderEvent
 
-    def cancel_all_open_orders(self):
-        """Cancel all pending orders."""
+        if not isinstance(order_event, OrderEvent):
+            return
+
+        self._last_ws_update = time.time()
+
+        if order_event.status in ["FILLED", "CANCELLED", "REJECTED"]:
+            # Remove from pending
+            self._pending_orders.pop(order_event.order_id, None)
+            logger.info(f"WS: Order {order_event.order_id} {order_event.status}")
+        else:
+            # Update pending
+            self._pending_orders[order_event.order_id] = {
+                "order_id": order_event.order_id,
+                "side": order_event.side,
+                "qty": order_event.qty,
+                "status": order_event.status,
+                "filled_qty": order_event.filled_qty,
+                "avg_fill_price": order_event.avg_fill_price,
+            }
+            logger.debug(
+                f"WS: Order {order_event.order_id} updated: {order_event.status}"
+            )
+
+        # Persistence (Phase 2)
+        if self.repo:
+            self.repo.save_order(
+                {
+                    "order_id": order_event.order_id,
+                    "symbol": order_event.symbol,
+                    "side": order_event.side,
+                    "qty": order_event.qty,
+                    "order_type": "UNKNOWN",  # WS event doesn't explicitly have type
+                    "status": order_event.status,
+                    "price": order_event.price,
+                }
+            )
+
+    def on_position_update(self, position_event: Any) -> None:
+        """
+        WebSocket callback for position updates (Phase 1).
+        Updates internal position cache immediately.
+        """
+        from ..data.providers.ws_events import PositionEvent
+
+        if not isinstance(position_event, PositionEvent):
+            return
+
+        self._last_ws_update = time.time()
+
+        if abs(position_event.qty) < 0.00000001:
+            # Position closed
+            self._ws_position_cache = None
+            logger.info(f"WS: Position closed for {position_event.symbol}")
+        else:
+            # Position opened/updated
+            self._ws_position_cache = {
+                "positionId": position_event.position_id,
+                "symbol": position_event.symbol,
+                "side": position_event.side,
+                "qty": position_event.qty,
+                "entryPrice": position_event.entry_price,
+                "unrealizedPnl": position_event.unrealized_pnl,
+            }
+            logger.debug(
+                f"WS: Position updated: {position_event.side} {position_event.qty}"
+            )
+
+        # Persistence (Phase 2)
+        if self.repo:
+            self.repo.save_position(self.symbol, self._ws_position_cache or {"qty": 0})
+
+    def cancel_all_open_orders(self) -> None:
+        """Cancel all pending orders for this symbol."""
         try:
             self.provider.cancel_all_orders(self.symbol)
         except Exception as e:
             logger.error(f"Failed to cancel all orders: {e}")
+
+    def place_order(
+        self,
+        *,
+        side: str,
+        qty: float,
+        order_type: str = "MARKET",
+        price: Optional[float] = None,
+        sl: Optional[float] = None,
+        tp: Optional[float] = None,
+        client_order_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Submit an order to the exchange."""
+        # BitunixBroker currently handles logic inside on_candle.
+        # This unified method can be used for manual or external triggers.
+        return self.provider.place_order(
+            side=side,
+            qty=qty,
+            order_type=order_type,
+            price=price,
+            sl=sl,
+            tp=tp,
+            client_order_id=client_order_id,
+        )
+
+    def close_all(self, exit_price: float) -> List[Dict[str, Any]]:
+        """Emergency close of all positions."""
+        self.shutdown()
+        return []
 
     def save_state(self):
         """No-op for live broker as state is persisted on exchange."""
@@ -239,22 +367,53 @@ class BitunixBroker:
                 logger.error(f"Live order submission failed: {e}")
                 events["errors"].append(str(e))
 
-        # 2) Sync State (Poll Position)
+        # 2) Sync State (Prefer WebSocket Push, Fallback to REST Polling)
         try:
-            current_positions = self.provider.get_pending_positions(self.symbol)
-            # Find position for our symbol
-            # Usually Bitunix returns a list of positions.
-            # We look for the one matching self.symbol.
             current_pos = None
-            for p in current_positions:
-                # Defensive check on field names - Bitunix docs vary
-                p_sym = p.get("symbol") or p.get("symbolName")
-                if p_sym == self.symbol:
-                    # Filter out zero positions if exchange returns them
-                    qty = float(p.get("qty") or p.get("positionAmount") or 0)
-                    if abs(qty) > 0:
-                        current_pos = p
-                        break
+            use_rest_fallback = False
+
+            # Check if WebSocket data is fresh (within 30s)
+            is_push_fresh = (time.time() - self._last_ws_update) < 30.0
+
+            if is_push_fresh and self._ws_position_cache is not None:
+                # Use the cache updated by WebSocket events immediately
+                current_pos = self._ws_position_cache
+                logger.debug(
+                    f"State Sync: Using fresh WebSocket push data for {self.symbol}"
+                )
+            elif is_push_fresh and self._ws_position_cache is None:
+                # Cache is None and push is fresh -> We are likely FLAT
+                current_pos = None
+                logger.debug(
+                    f"State Sync: WebSocket confirms FLOAT (no position) for {self.symbol}"
+                )
+            else:
+                # Push data is stale or not yet received -> Fallback to REST polling
+                use_rest_fallback = True
+                logger.warning(
+                    f"State Sync: WebSocket data stale (>{time.time() - self._last_ws_update:.1f}s). "
+                    "Falling back to REST reconciliation."
+                )
+
+            if use_rest_fallback:
+                current_positions = self.provider.get_pending_positions(self.symbol)
+                for p in current_positions:
+                    p_sym = p.get("symbol") or p.get("symbolName")
+                    if p_sym == self.symbol:
+                        qty = float(p.get("qty") or p.get("positionAmount") or 0)
+                        if abs(qty) > 0:
+                            current_pos = p
+                            break
+
+                # Update our cache with REST result to prevent repeated fallback if flat
+                self._ws_position_cache = current_pos
+                self._last_ws_update = time.time()
+
+                # Persistence (Phase 2)
+                if self.repo:
+                    self.repo.save_position(
+                        self.symbol, self._ws_position_cache or {"qty": 0}
+                    )
 
             # DRIFT DETECTION & AUTO-CORRECTION
             last_qty = (
@@ -348,6 +507,20 @@ class BitunixBroker:
 
                 events["fills"].append(fill_event)
                 self.order_history.append(fill_event)
+
+                # Persistence (Phase 2)
+                if self.repo:
+                    self.repo.save_fill(
+                        {
+                            "fill_id": fill_event["trade_id"],
+                            "order_id": self._last_order_id or "UNKNOWN",
+                            "symbol": self.symbol,
+                            "fill_price": fill_event["price"],
+                            "fill_qty": fill_event["qty"],
+                            "fee": 0.0,  # Will refine in Phase 3
+                            "filled_at": time.time(),
+                        }
+                    )
 
             # Case: Pos -> No pos (EXIT)
             elif self.last_pos and not current_pos:

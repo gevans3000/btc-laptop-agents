@@ -11,7 +11,9 @@ from laptop_agents.core.logger import logger
 
 
 class BrokerRiskInterface(Protocol):
-    symbol: str
+    @property
+    def symbol(self) -> str: ...
+
     order_timestamps: List[float]
     last_trade_time: float
     min_trade_interval_sec: float

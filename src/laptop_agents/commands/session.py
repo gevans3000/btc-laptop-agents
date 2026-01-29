@@ -348,6 +348,23 @@ def run(
             else:
                 console.print(f"SELFTEST FAIL: {msg}")
                 ret = 1
+        elif mode == "paper":
+            # Paper mode: Run orchestrated with paper execution
+            success, msg = run_orchestrated_mode(
+                symbol=args.symbol,
+                interval=args.interval,
+                source=args.source,
+                limit=args.limit,
+                fees_bps=args.fees_bps,
+                slip_bps=args.slip_bps,
+                risk_pct=args.risk_pct,
+                stop_bps=args.stop_bps,
+                tp_r=args.tp_r,
+                execution_mode="paper",
+                dry_run=args.dry_run,
+            )
+            console.print(msg)
+            ret = 0 if success else 1
         else:
             console.print(
                 f"[red]Unknown mode: {mode}. Defaulting to orchestrated...[/red]"

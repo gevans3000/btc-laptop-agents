@@ -121,10 +121,10 @@ async def test_autonomy_upgrade():
         assert (
             runner.latest_tick.last == 50000.5
         ), f"Bad tick was not ignored! Last price recorded was {runner.latest_tick.last}"
-        logger.info("✓ Task 2: Bad tick (price=0) was successfully ignored.")
+        print("✓ Task 2: Bad tick (price=0) was successfully ignored.")
 
         # --- Task 3 Verification ---
-        logger.info("Manually triggering checkpoint for verification...")
+        print("Manually triggering checkpoint for verification...")
         # Add a simulated position to ensure state fields are populated
         lot = {"qty": 0.1, "price": 50000.0, "fees": 0.0}
         runner.broker.pos = Position(
@@ -148,31 +148,32 @@ async def test_autonomy_upgrade():
             unified_state.exists()
         ), f"Unified state file not created at {unified_state}"
         assert broker_state.exists(), f"Broker state file not created at {broker_state}"
-        logger.info(f"✓ Task 3: Checkpoint files created in {state_dir}")
+        print(f"✓ Task 3: Checkpoint files created in {state_dir}")
 
         # --- Task 4 Verification ---
-        logger.info("Triggering graceful shutdown...")
+        print("Triggering graceful shutdown...")
         runner._request_shutdown("autonomy_verification_complete")
 
         try:
             # Wait for cleanup (should take ~2s due to execution queue draining)
             await asyncio.wait_for(run_task, timeout=10.0)
         except asyncio.TimeoutError:
-            logger.error("Runner failed to shut down in 10s")
+            print("Runner failed to shut down in 10s")
             run_task.cancel()
             await asyncio.sleep(0.5)
 
+        print(f"Broker close_all called status: {runner.broker.close_all.called}")
         assert (
             runner.broker.close_all.called
         ), "Broker.close_all was NOT called during shutdown while a position was open"
-        logger.info("✓ Task 4: Broker.close_all was called during graceful shutdown.")
+        print("✓ Task 4: Broker.close_all was called during graceful shutdown.")
 
-        logger.info("\n" + "=" * 40)
-        logger.info("ALL AUTONOMY UPGRADE VERIFICATIONS PASSED!")
-        logger.info("=" * 40)
+        print("\n" + "=" * 40)
+        print("ALL AUTONOMY UPGRADE VERIFICATIONS PASSED!")
+        print("=" * 40)
 
     except Exception as e:
-        logger.error(f"Verification FAILED: {e}")
+        print(f"Verification FAILED: {e}")
         import traceback
 
         traceback.print_exc()

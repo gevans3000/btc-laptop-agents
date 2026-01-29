@@ -11,7 +11,7 @@ from laptop_agents.core.config import load_risk_limits, get_repo_root, load_yaml
 from laptop_agents.resilience.exceptions import PersistenceError
 
 if TYPE_CHECKING:
-    from ..storage.position_store import PositionStore
+    from ..storage.trade_repository import TradeRepository
 
 
 class BrokerStateInterface(Protocol):
@@ -23,7 +23,7 @@ class BrokerStateInterface(Protocol):
     working_orders: List[Dict[str, Any]]
     pos: Optional[Position]
     state_path: Optional[str]
-    store: Optional[PositionStore]
+    store: Optional[TradeRepository]
     exchange_fees: Dict[str, float]
     max_position_per_symbol: Dict[str, float]
 
@@ -31,17 +31,17 @@ class BrokerStateInterface(Protocol):
 class BrokerStateMixin:
     """Mixin for PaperBroker to handle saving/loading state and config."""
 
-    symbol: str
-    starting_equity: float
-    current_equity: float
-    processed_order_ids: set[str]
-    order_history: List[Dict[str, Any]]
-    working_orders: List[Dict[str, Any]]
-    pos: Optional[Position]
-    state_path: Optional[str]
-    store: Optional[PositionStore]
-    exchange_fees: Dict[str, float]
-    max_position_per_symbol: Dict[str, float]
+    symbol: Any
+    pos: Any
+    current_equity: Any
+    starting_equity: Any
+    processed_order_ids: Any
+    order_history: Any
+    working_orders: Any
+    state_path: Any
+    store: Any
+    exchange_fees: Any
+    max_position_per_symbol: Any
 
     def _save_state(self: Any) -> None:
         if not hasattr(self, "store") or not self.store:

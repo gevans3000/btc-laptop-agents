@@ -16,6 +16,7 @@ from laptop_agents.session.kill_switch import kill_switch_task
 from laptop_agents.session.timer import timer_task
 from laptop_agents.session.checkpoint import checkpoint_task
 from laptop_agents.session.market_data import market_data_task
+from laptop_agents.session.equity_sentinel import equity_sentinel_task
 from laptop_agents.session.seeding import seed_historical_candles
 
 if TYPE_CHECKING:
@@ -62,6 +63,7 @@ async def run_session_lifecycle(runner: "AsyncRunner", duration_min: int) -> Non
         asyncio.create_task(funding_task(runner)),
         asyncio.create_task(execution_task(runner)),
         asyncio.create_task(checkpoint_task(runner)),
+        asyncio.create_task(equity_sentinel_task(runner)),
     ]
     for task in tasks:
         task.add_done_callback(lambda t: handle_task_done(runner, t))
