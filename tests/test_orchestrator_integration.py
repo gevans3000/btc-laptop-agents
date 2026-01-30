@@ -78,9 +78,10 @@ class TestWorkspacePruning:
             prune_workspace(keep=5)
             # Should not raise
 
+    @patch("laptop_agents.core.orchestrator.prune_workspace")
     @patch("laptop_agents.core.orchestrator.shutil")
     @patch("laptop_agents.core.orchestrator.Path")
-    def test_reset_latest_dir(self, mock_path, mock_shutil):
+    def test_reset_latest_dir(self, mock_path, mock_shutil, mock_prune):
         # Simulate LATEST_DIR exists and needs removal
         mock_latest = MagicMock()
         mock_latest.exists.return_value = True

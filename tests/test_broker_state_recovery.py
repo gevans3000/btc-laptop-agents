@@ -1,6 +1,6 @@
 from pathlib import Path
 from laptop_agents.paper.broker import PaperBroker
-from laptop_agents.storage.position_store import PositionStore
+from laptop_agents.storage.trade_repository import TradeRepository
 
 
 def test_broker_state_recovery():
@@ -15,7 +15,7 @@ def test_broker_state_recovery():
             pass
 
     try:
-        # 1. Write a valid state via PositionStore
+        # 1. Write a valid state via TradeRepository
         initial_state = {
             "symbol": "BTCUSDT",
             "starting_equity": 10000.0,
@@ -37,9 +37,9 @@ def test_broker_state_recovery():
             },
         }
 
-        store = PositionStore(str(state_file))
+        store = TradeRepository(str(state_file))
         store.save_state("BTCUSDT", initial_state)
-        store.close()
+        # store.close() - TradeRepository manages connections internally
 
         # 2. Initialize PaperBroker
         broker = PaperBroker(symbol="BTCUSDT", state_path=str(state_file))
@@ -52,7 +52,7 @@ def test_broker_state_recovery():
         assert "order1" in broker.processed_order_ids
 
         if broker.store:
-            broker.store.close()
+            pass  # broker.store.close()
 
         # 4. Simulate corruption by deleting and recreating with corrupt data
         # First, clean up all DB files
@@ -74,7 +74,7 @@ def test_broker_state_recovery():
             assert broker2.current_equity == 10000.0
             assert broker2.pos is None
             if broker2.store:
-                broker2.store.close()
+                pass  # broker2.store.close()
         except Exception:
             # Expected: PositionStore fails on corrupt DB
             # Clean up and create fresh broker without state

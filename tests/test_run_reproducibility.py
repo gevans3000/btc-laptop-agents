@@ -21,9 +21,21 @@ def run_command(cmd_args: list[str]) -> subprocess.CompletedProcess:
     )
 
 
+def cleanup_lock():
+    """Force cleanup of lock file."""
+    lock_file = REPO_ROOT / ".workspace" / "agent.pid"
+    try:
+        if lock_file.exists():
+            lock_file.unlink()
+    except Exception:
+        pass
+
+
 def test_selftest():
+    cleanup_lock()
     print("1. Testing --mode selftest...")
     result = run_command(["-m", "laptop_agents", "run", "--mode", "selftest"])
+    cleanup_lock()
 
     if result.returncode != 0:
         print("[FAIL] Selftest returned non-zero exit code.")
@@ -39,6 +51,7 @@ def test_selftest():
 
 
 def test_backtest_reproducibility():
+    cleanup_lock()
     print("2. Testing --mode backtest artifacts...")
 
     # Run small backtest

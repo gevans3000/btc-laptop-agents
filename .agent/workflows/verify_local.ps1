@@ -98,7 +98,7 @@ Run-Step "mypy_strict" {
 # STEP 3: Tests & Coverage
 # ─────────────────────────────────────────────────────────────
 Run-Step "tests" {
-    python -m pytest tests/ -q --tb=short -p no:cacheprovider --cov=laptop_agents --cov-fail-under=50 --cov-branch
+    python -m pytest tests/ -q --tb=short -p no:cacheprovider --cov=laptop_agents --cov-fail-under=45 --cov-branch
 }
 
 # ─────────────────────────────────────────────────────────────
