@@ -1,4 +1,4 @@
-.PHONY: build test run-paper clean bootstrap review fix harden format
+.PHONY: build test run-paper clean bootstrap review fix harden format autopilot-alert ship-alert
 
 build:
 	docker build -t btc-laptop-agents:latest .
@@ -33,3 +33,11 @@ harden:
 format:
 	python -m ruff format src tests
 	python -m ruff check src tests --fix
+
+
+autopilot-alert:
+	python scripts/parallel_alert_build.py --run-codex --merge
+
+
+ship-alert:
+	bash scripts/ship_autopilot.sh $$(git rev-parse --abbrev-ref HEAD)
