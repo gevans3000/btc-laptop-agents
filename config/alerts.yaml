@@ -1,0 +1,30 @@
+# BTC Alert System Configuration
+# Override defaults here; missing keys use built-in defaults.
+
+alerts:
+  # How often to check (minutes)
+  interval_minutes: 15
+
+  # Minimum seconds between Telegram messages (dedup/cooldown)
+  cooldown_seconds: 300
+
+  # Binance candle settings
+  candle_interval: "1h"
+  candle_limit: 50
+
+  # Only alert if confidence deviates from 50 by at least this much
+  # Set to 0 to always alert; set to 10 to only alert on stronger signals
+  confidence_threshold: 0
+
+  # Technical indicator periods
+  ema_short_period: 12
+  ema_long_period: 26
+
+  # API budget limits (calls per window)
+  # Format: [max_calls, window_seconds]
+  # Defaults are defined in budget.py; override here if needed
+  # budget:
+  #   binance: [10, 60]
+  #   alternative_me: [5, 300]
+  #   rss: [20, 300]
+  #   llm: [5, 300]
