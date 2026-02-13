@@ -1,0 +1,31 @@
+sources:
+  price_ohlc:
+    budget_per_hour: 120
+    timeout_seconds: 4
+    fallback_order:
+      - binance_klines_public
+  fear_greed:
+    budget_per_hour: 60
+    timeout_seconds: 4
+    fallback_order:
+      - alternative_me
+  news:
+    budget_per_hour: 60
+    timeout_seconds: 5
+    fallback_order:
+      - coindesk_rss
+      - reuters_business_rss
+      - cointelegraph_rss
+    feeds:
+      - https://www.coindesk.com/arc/outboundfeeds/rss/
+      - https://feeds.reuters.com/reuters/businessNews
+      - https://cointelegraph.com/rss
+  social_sentiment:
+    budget_per_hour: 60
+    timeout_seconds: 5
+    fallback_order:
+      - reddit_search_rss
+      - nitter_rss
+    feeds:
+      - https://www.reddit.com/search.rss?q={keyword}&sort=new
+      - https://nitter.net/search/rss?f=tweets&q={keyword}
