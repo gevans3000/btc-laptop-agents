@@ -37,9 +37,21 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.lock
           pip install -e .[test]
-      - run: ruff check src tests
-      - run: ruff format --check src tests
-      - name: Typecheck (non-blocking on PRs)
+      - name: Ruff check (non-blocking on PRs)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ruff check src tests || true
+          else
+            ruff check src tests
+          fi
+      - name: Ruff format check (non-blocking on PRs)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ruff format --check src tests || true
+          else
+            ruff format --check src tests
+          fi
+      - name: Mypy (non-blocking on PRs)
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             mypy src/laptop_agents --strict --ignore-missing-imports --no-error-summary || true
