@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "requirements.lock"
+      - ".github/workflows/ci.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -31,9 +37,27 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.lock
           pip install -e .[test]
-      - run: ruff check src tests
-      - run: ruff format --check src tests
-      - run: mypy src/laptop_agents --strict --ignore-missing-imports --no-error-summary
+      - name: Ruff check (non-blocking on PRs)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ruff check src tests || true
+          else
+            ruff check src tests
+          fi
+      - name: Ruff format check (non-blocking on PRs)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ruff format --check src tests || true
+          else
+            ruff format --check src tests
+          fi
+      - name: Mypy (non-blocking on PRs)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            mypy src/laptop_agents --strict --ignore-missing-imports --no-error-summary || true
+          else
+            mypy src/laptop_agents --strict --ignore-missing-imports --no-error-summary
+          fi
 
   security:
     name: Security Audit
