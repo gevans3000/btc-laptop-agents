@@ -60,6 +60,17 @@ app.command(
 app.command(name="backtest", help="Run a backtest on historical data")(backtest.main)
 
 
+@app.command(name="alert", help="Run BTC price alert loop (Telegram + analysis)")
+def run_alert(
+    config: str = typer.Option("", help="Path to alerts.yaml config file"),
+    once: bool = typer.Option(False, help="Run single alert cycle then exit"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging"),
+) -> None:
+    from laptop_agents.alerts.cli import alert
+
+    alert(config=config, once=once, verbose=verbose)
+
+
 def handle_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
