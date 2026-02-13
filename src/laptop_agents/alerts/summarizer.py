@@ -52,7 +52,10 @@ def _llm_summarize(
         )
         resp.raise_for_status()
         data = resp.json()
-        return data["choices"][0]["message"]["content"].strip()
+        content = data["choices"][0]["message"]["content"]
+        if isinstance(content, str):
+            return content.strip()
+        return None
     except Exception as exc:
         logger.warning("LLM summarize failed: %s", exc)
         return None
