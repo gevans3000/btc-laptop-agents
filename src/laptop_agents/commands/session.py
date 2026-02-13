@@ -118,6 +118,11 @@ def run(
     profile: str = typer.Option(
         "paper", "--profile", help="Config profile: backtest, paper, live."
     ),
+    offline_safe: bool = typer.Option(
+        False,
+        "--offline-safe",
+        help="Skip unavailable external collectors and emit partial alerts.",
+    ),
 ):
     """Wrapper for the main run logic."""
 
@@ -165,6 +170,7 @@ def run(
         config=config,
         quiet=quiet,
         verbose=verbose,
+        offline_safe=offline_safe,
     )
 
     def signal_handler(sig, frame):
@@ -324,6 +330,7 @@ def run(
                 tp_r=args.tp_r,
                 execution_mode=args.execution_mode,
                 dry_run=args.dry_run,
+                offline_safe=args.offline_safe,
             )
             console.print(msg)
             ret = 0 if success else 1
@@ -341,6 +348,7 @@ def run(
                 tp_r=1.5,
                 execution_mode="paper",
                 dry_run=True,
+                offline_safe=args.offline_safe,
             )
             if success:
                 console.print("SELFTEST PASS")
@@ -362,6 +370,7 @@ def run(
                 tp_r=args.tp_r,
                 execution_mode="paper",
                 dry_run=args.dry_run,
+                offline_safe=args.offline_safe,
             )
             console.print(msg)
             ret = 0 if success else 1
@@ -381,6 +390,7 @@ def run(
                 tp_r=args.tp_r,
                 execution_mode=args.execution_mode,
                 dry_run=args.dry_run,
+                offline_safe=args.offline_safe,
             )
             console.print(msg)
             ret = 0 if success else 1

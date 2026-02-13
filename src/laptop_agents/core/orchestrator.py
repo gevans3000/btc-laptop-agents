@@ -323,6 +323,7 @@ def run_orchestrated_mode(
     tp_r: float = 1.5,
     execution_mode: str = "paper",
     dry_run: bool = False,
+    offline_safe: bool = False,
 ) -> tuple[bool, str]:
     try:
         validate_runtime_config(risk_pct, stop_bps, 10000.0)
@@ -356,6 +357,44 @@ def run_orchestrated_mode(
             supervisor, candles, execution_mode, circuit_breaker, symbol
         )
 
+        collector_payload = {}
+        try:
+            from laptop_agents.data.free_collectors import FreeDataCollectors
+
+            collector_payload = FreeDataCollectors(offline_safe=offline_safe).collect_all(
+                symbol="BTC"
+            )
+            append_event(
+                {
+                    "event": "ExternalCollectorsLoaded",
+                    "degraded_mode": collector_payload.get("degraded_mode", False),
+                    "source_health": collector_payload.get("source_health", {}),
+                }
+            )
+        except Exception as collector_exc:
+            collector_payload = {
+                "degraded_mode": True,
+                "source_health": {
+                    "collectors": {
+                        "name": "collectors",
+                        "ok": False,
+                        "degraded": True,
+                        "latency_ms": 0,
+                        "quota_exhausted": False,
+                        "reason": str(collector_exc),
+                    }
+                },
+            }
+            append_event(
+                {
+                    "event": "ExternalCollectorsFailed",
+                    "error": str(collector_exc),
+                    "offline_safe": offline_safe,
+                }
+            )
+            if not offline_safe:
+                raise
+
         # Post-run reporting
         finalize_run_reporting(
             run_id,
@@ -372,6 +411,8 @@ def run_orchestrated_mode(
             risk_pct,
             stop_bps,
             tp_r,
+            source_health=collector_payload.get("source_health", {}),
+            degraded_mode=collector_payload.get("degraded_mode", False),
         )
 
         return True, f"Orchestrated modular run completed. Run ID: {run_id}"

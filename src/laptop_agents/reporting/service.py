@@ -141,6 +141,8 @@ def finalize_run_reporting(
     risk_pct: float,
     stop_bps: float,
     tp_r: float,
+    source_health: Dict[str, Any] | None = None,
+    degraded_mode: bool = False,
 ) -> None:
     # Save equity history
     equity_csv = LATEST_DIR / "equity.csv"
@@ -168,13 +170,18 @@ def finalize_run_reporting(
         "risk_pct": risk_pct,
         "stop_bps": stop_bps,
         "tp_r": tp_r,
+        "source_health": source_health or {},
+        "degraded_mode": degraded_mode,
     }
-    write_state({"summary": summary})
+    write_state({"summary": summary, "source_health": source_health or {}})
     render_html(summary, trades, "", candles=candles)
 
     # Copy artifacts
     for fname in ["trades.csv", "events.jsonl", "summary.html"]:
         if (LATEST_DIR / fname).exists():
             shutil.copy2(LATEST_DIR / fname, run_dir / fname)
+
+    if degraded_mode:
+        append_event({"event": "DegradedModeAlert", "source_health": source_health or {}})
 
     print_session_summary(run_id, symbol, starting_balance, ending_balance, trades)
